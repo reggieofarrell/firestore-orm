@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Fast local gate: unit coverage only (no Java/emulator required).
+npm run test:unit:coverage && npm run test:coverage:merge:unit-only

@@ -1,0 +1,118 @@
+{
+  "name": "firestore-orm",
+  "version": "1.1.0",
+  "description": "Type-safe Firestore ORM with validation, lifecycle hooks, and a powerful query builder. Built for Firebase Admin SDK with full TypeScript support.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist/**/*",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "prepare": "husky",
+    "clean": "rimraf dist .tsbuildinfo coverage",
+    "build": "rm -rf dist && tsc",
+    "prepublishOnly": "npm run build",
+    "emulator:start": "firebase emulators:start --project demo-firestoreorm-test --only firestore",
+    "format": "prettier --write .",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "npm run test:unit && npm run test:integration:emulator",
+    "test:unit": "jest src/tests/unit",
+    "test:integration": "jest src/tests/integration",
+    "test:integration:emulator": "firebase emulators:exec --project demo-firestoreorm-test --only firestore \"npm run test:integration\"",
+    "test:watch": "jest --watch",
+    "test:performance": "ts-node-dev --respawn --transpile-only ./src/benchmarks/performance.test.ts"
+  },
+  "keywords": [
+    "firestore",
+    "orm",
+    "firebase",
+    "firebase-admin",
+    "typescript",
+    "type-safe",
+    "database",
+    "nosql",
+    "cloud-firestore",
+    "google-cloud",
+    "repository-pattern",
+    "validation",
+    "zod",
+    "query-builder",
+    "transaction",
+    "batch-operations",
+    "pagination",
+    "hooks",
+    "lifecycle",
+    "data-layer",
+    "backend",
+    "node",
+    "server-side",
+    "firebase-orm",
+    "firestore-wrapper",
+    "firestore-repository",
+    "fireorm-altenative",
+    "typesaurus-altenative",
+    "typeorm-alternative",
+    "prisma-alternative"
+  ],
+  "author": {
+    "name": "Reggie Farrell",
+    "email": "reggie@blackflag.design",
+    "url": "https://github.com/reggieofarrell"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/reggieofarrell/firestore-orm"
+  },
+  "bugs": {
+    "url": "https://github.com/reggieofarrell/firestore-orm/issues"
+  },
+  "homepage": "https://github.com/reggieofarrell/firestore-orm#readme",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "peerDependencies": {
+    "firebase-admin": "^12.0.0 || ^13.0.0",
+    "zod": "^3.25.0 || ^4.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/jest": "^30.0.0",
+    "eslint": "^10.0.1",
+    "eslint-config-prettier": "^10.1.8",
+    "firebase-admin": "^12.0.0 || ^13.0.0",
+    "firebase-tools": "^14.27.0",
+    "husky": "^9.1.7",
+    "jest": "^30.2.0",
+    "lint-staged": "^15.4.3",
+    "prettier": "^3.8.1",
+    "ts-jest": "^29.4.5",
+    "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.56.0",
+    "zod": "^4.0.0"
+  },
+  "lint-staged": {
+    "*.{ts,js}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "prettier --write --ignore-unknown"
+    ]
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

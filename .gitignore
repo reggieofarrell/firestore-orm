@@ -1,0 +1,46 @@
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+package
+
+# Env
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+
+# Editors
+dist
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Test
+coverage/
+.nyc_output/
+
+# Firebase emulator logs
+firestore-debug.log
+firebase-debug.log
+
+
+./src/schemas
+./core/TransactionContext.ts
+.src/firebase-service-account.json
+test.ts
+

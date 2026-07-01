@@ -37,6 +37,7 @@ describe('parseFirestoreError', () => {
 
     expect(parsed).toBeInstanceOf(FirestoreIndexError);
     expect((parsed as FirestoreIndexError).fields).toEqual(['multiple fields']);
+    expect((parsed as FirestoreIndexError).indexUrl).toBe('');
   });
 
   it('should return the original error when not a known Firestore code', () => {

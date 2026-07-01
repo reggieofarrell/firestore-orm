@@ -2,17 +2,18 @@
 
 Tracked gaps beyond the current test suite. Remove items when covered.
 
-## QueryBuilder (lower priority)
+## QueryBuilder
 
-- [ ] `stream()` async generator over large result sets
-- [ ] `onSnapshot()` real-time query subscription (beyond `listenOne` on repository)
-- [ ] `query().update()` hook edge cases not covered by sentinel suite
+- [x] `stream()` async generator
+- [x] `onSnapshot()` query subscription
+- [x] Pagination edge cases (missing orderBy, invalid page size, stale cursor)
+- [x] `select()`, `in`, `array-contains`, `count()`
 
 ## FirestoreRepository
 
-- [ ] `bulkUpdate` / `bulkPatch` return shape assertions in dedicated suite
+- [x] `bulkUpdate` / `bulkPatch` return shape assertions
 - [ ] Batch chunking behavior (>500 operations) — may need focused unit test with mocks
-- [ ] `listenOne` additional error paths
+- [ ] `listenOne` callback success path when document updates (partially covered)
 
 ## Infrastructure
 

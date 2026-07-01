@@ -113,4 +113,108 @@ describe('FirestoreRepository QueryBuilder', () => {
     const remainingInactive = await userRepo.query().where('active', '==', false).get();
     expect(remainingInactive).toHaveLength(0);
   });
+
+  it('should stream all matching documents via async generator', async () => {
+    const seeded = await seedCatalog();
+
+    const streamed: CatalogUser[] = [];
+    for await (const item of userRepo.query().orderBy('sortKey', 'asc').stream()) {
+      streamed.push(item as CatalogUser);
+    }
+
+    expect(streamed.length).toBeGreaterThanOrEqual(seeded.length);
+    expect(streamed.map(item => item.sortKey).sort()).toEqual(
+      seeded.map(item => item.sortKey).sort(),
+    );
+  });
+
+  it('should subscribe to query snapshots and receive updates', async () => {
+    const created = await userRepo.create({
+      name: 'Snapshot User',
+      category: 'live',
+      sortKey: 99,
+      active: true,
+    } as any);
+    trackUser(created.id);
+
+    const emissions: unknown[] = [];
+
+    const unsubscribe = await userRepo
+      .query()
+      .where('name', '==', 'Snapshot User')
+      .onSnapshot(items => {
+        emissions.push(items);
+      });
+
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    await userRepo.update(created.id, { active: false } as any);
+
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    unsubscribe();
+
+    expect(emissions.length).toBeGreaterThanOrEqual(1);
+    const latest = emissions[emissions.length - 1] as CatalogUser[];
+    expect(latest.some(item => item.id === created.id && item.active === false)).toBe(true);
+  });
+
+  it('should reject paginate without orderBy', async () => {
+    await seedCatalog();
+
+    await expect(userRepo.query().paginate(2)).rejects.toThrow('orderBy');
+  });
+
+  it('should reject paginate with non-positive page size', async () => {
+    await expect(userRepo.query().orderBy('sortKey').paginate(0)).rejects.toThrow('pageSize');
+  });
+
+  it('should reject paginate when cursor document was deleted', async () => {
+    const items = await seedCatalog();
+    const firstPage = await userRepo.query().orderBy('sortKey', 'asc').paginate(1);
+    const cursorDocId = firstPage.items[0].id;
+
+    await userRepo.delete(cursorDocId);
+
+    await expect(
+      userRepo.query().orderBy('sortKey', 'asc').paginate(1, firstPage.nextCursor),
+    ).rejects.toThrow('Cursor document');
+  });
+
+  it('should select a subset of fields in query results', async () => {
+    await userRepo.create({
+      name: 'Select User',
+      category: 'books',
+      sortKey: 1,
+      active: true,
+    } as any);
+
+    const rows = await userRepo.query().select('name').get();
+    const match = rows.find(row => row.name === 'Select User');
+
+    expect(match).toBeDefined();
+    expect(match).toEqual(expect.objectContaining({ name: 'Select User', id: expect.any(String) }));
+  });
+
+  it('should filter with in and array-contains operators', async () => {
+    await userRepo.bulkCreate([
+      { name: 'In 1', category: 'books', sortKey: 1, active: true, tags: ['featured'] },
+      { name: 'In 2', category: 'games', sortKey: 2, active: true, tags: ['sale'] },
+    ] as any[]);
+
+    const inResults = await userRepo.query().where('category', 'in', ['books', 'games']).get();
+
+    expect(inResults.length).toBeGreaterThanOrEqual(2);
+
+    const tagged = await userRepo.query().where('tags', 'array-contains', 'featured').get();
+
+    expect(tagged.some(row => row.name === 'In 1')).toBe(true);
+  });
+
+  it('should return count for filtered queries', async () => {
+    await seedCatalog();
+
+    const activeCount = await userRepo.query().where('active', '==', true).count();
+    expect(activeCount).toBeGreaterThanOrEqual(3);
+  });
 });

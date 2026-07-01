@@ -90,5 +90,13 @@ describe('Validation utilities', () => {
       const parsed = validator.parseUpdate({ name: 'Updated Only' });
       expect(parsed).toEqual({ name: 'Updated Only' });
     });
+
+    it('should honor a custom update schema when provided', () => {
+      const updateSchema = userSchema.pick({ name: true });
+      const validator = makeValidator(userSchema, updateSchema);
+
+      expect(() => validator.parseUpdate({ score: 99 })).toThrow();
+      expect(validator.parseUpdate({ name: 'Allowed' })).toEqual({ name: 'Allowed' });
+    });
   });
 });

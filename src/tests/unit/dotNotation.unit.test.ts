@@ -87,6 +87,9 @@ describe('dotNotation utility unit tests', () => {
     expect(() => validateDotNotationPath('')).toThrow('cannot be empty');
     expect(() => validateDotNotationPath('.profile')).toThrow('cannot start or end with a dot');
     expect(() => validateDotNotationPath('profile..theme')).toThrow('Parts cannot be empty');
+    expect(() => validateDotNotationPath('profile.theme.')).toThrow(
+      'cannot start or end with a dot',
+    );
   });
 
   it('should expose root field extraction and depth helpers', () => {

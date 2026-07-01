@@ -66,11 +66,11 @@ That upstream project is licensed under the **MIT License** (Copyright (c) 2025 
 preserves that license and copyright notice, adds copyright for subsequent modifications, and
 continues development under the `@reggieofarrell/firestore-orm` package name.
 
-If you are migrating from the original package:
+If you are migrating from the original package, replace `@spacelabstech/firestoreorm` imports with
+`@reggieofarrell/firestore-orm` and review the API Reference for current method contracts.
 
-- Replace `@spacelabstech/firestoreorm` imports with `@reggieofarrell/firestore-orm`
-- Review the [Migration Guide](#migration-guide) for API contract changes introduced in this fork
-- Report issues for this fork at [reggieofarrell/firestore-orm issues](https://github.com/reggieofarrell/firestore-orm/issues)
+Report issues for this fork at
+[reggieofarrell/firestore-orm issues](https://github.com/reggieofarrell/firestore-orm/issues).
 
 Thank you to Happy and the original contributors for the foundation this fork builds on.
 
@@ -353,10 +353,9 @@ userRepo.on('afterDelete', async user => {
 **Available Hooks**:
 
 - Single operations: `beforeCreate`, `afterCreate`, `beforeUpdate`, `afterUpdate`, `beforeDelete`,
-  `afterDelete`, `beforeSoftDelete`, `afterSoftDelete`, `beforeRestore`, `afterRestore`
+  `afterDelete`
 - Bulk operations: `beforeBulkCreate`, `afterBulkCreate`, `beforeBulkUpdate`, `afterBulkUpdate`,
-  `beforeBulkDelete`, `afterBulkDelete`, `beforeBulkSoftDelete`, `afterBulkSoftDelete`,
-  `beforeBulkRestore`, `afterBulkRestore`
+  `beforeBulkDelete`, `afterBulkDelete`
 
 **Update Hook Payloads**:
 
@@ -502,6 +501,9 @@ const avgRating = await reviewRepo.query().where('productId', '==', 'prod-123').
 
 // Count
 const activeCount = await userRepo.query().where('status', '==', 'active').count();
+
+// Total collection count (ignores accumulated where clauses)
+const totalUsers = await userRepo.query().where('status', '==', 'active').totalCount();
 
 // Exists check
 const hasOrders = await orderRepo.query().where('userId', '==', 'user-123').exists();
@@ -1061,7 +1063,7 @@ This automatically maps errors to HTTP status codes:
 - `ValidationError` → 400 Bad Request
 - `NotFoundError` → 404 Not Found
 - `ConflictError` → 409 Conflict
-- `FirestoreIndexError` → 400 Bad Request (with index URL)
+- `FirestoreIndexError` → 404 Not Found (with index URL)
 - Others → 500 Internal Server Error
 
 ## Framework Integration
@@ -1136,10 +1138,14 @@ router.get('/users/:id', async (req, res, next) => {
 
 router.patch('/users/:id', async (req, res, next) => {
   try {
-    const user = await userRepo.update(req.params.id, {
-      ...req.body,
-      updatedAt: new Date().toISOString(),
-    });
+    const user = await userRepo.update(
+      req.params.id,
+      {
+        ...req.body,
+        updatedAt: new Date().toISOString(),
+      },
+      { returnDoc: true },
+    );
     res.json(user);
   } catch (error) {
     next(error);
@@ -1187,6 +1193,7 @@ schemas:
 import { z } from 'zod';
 
 export const userSchema = z.object({
+  id: z.string(),
   name: z.string().min(1),
   email: z.string().email(),
   age: z.number().int().positive().optional(),
@@ -1198,7 +1205,7 @@ export const userSchema = z.object({
 export type User = z.infer<typeof userSchema>;
 
 // DTOs for NestJS (derived from same schema)
-export const createUserSchema = userSchema.omit({ createdAt: true, updatedAt: true });
+export const createUserSchema = userSchema.omit({ id: true, createdAt: true, updatedAt: true });
 export const updateUserSchema = createUserSchema.partial();
 
 export type CreateUserDto = z.infer<typeof createUserSchema>;
@@ -1270,10 +1277,14 @@ export class UserRepository {
   }
 
   async update(id: string, data: Partial<User>) {
-    return this.repo.update(id, {
-      ...data,
-      updatedAt: new Date().toISOString(),
-    });
+    return this.repo.update(
+      id,
+      {
+        ...data,
+        updatedAt: new Date().toISOString(),
+      },
+      { returnDoc: true },
+    );
   }
 
   async remove(id: string) {
@@ -1559,6 +1570,7 @@ Always add `createdAt` and `updatedAt` timestamps to track data lifecycle.
 
 ```typescript
 const userSchema = z.object({
+  id: z.string(),
   name: z.string(),
   email: z.string().email(),
   createdAt: z.string().datetime(),
@@ -2397,6 +2409,11 @@ Get single result (first document).
 
 Count matching documents (aggregation query).
 
+**`totalCount(): Promise<number>`**
+
+Count all documents in the base collection. Ignores accumulated `where(...)` clauses on the query
+builder instance.
+
 **`exists(): Promise<boolean>`**
 
 Check if any documents match query.
@@ -2405,7 +2422,7 @@ Check if any documents match query.
 
 Cursor-based pagination (recommended for large datasets). Requires at least one `orderBy(...)`.
 
-**`offsetPaginate(page: number, pageSize: number): Promise<PaginationResult<T>>`**
+**`offsetPaginate(page: number, pageSize: number): Promise<{ items: (T & { id: ID })[]; page: number; pageSize: number; total: number; totalPages: number }>`**
 
 Offset-based pagination. Returns `{ items, total, page, pageSize, totalPages }`.
 
@@ -2489,7 +2506,7 @@ Maps errors to HTTP status codes:
 - `ValidationError` → 400 Bad Request
 - `NotFoundError` → 404 Not Found
 - `ConflictError` → 409 Conflict
-- `FirestoreIndexError` → 400 Bad Request (with index URL)
+- `FirestoreIndexError` → 404 Not Found (with index URL)
 - Others → 500 Internal Server Error
 
 ## Advanced Patterns
@@ -2866,111 +2883,6 @@ Why this pattern is useful:
 - It guarantees base + connected writes are atomic by committing them in one transaction.
 - The same structure applies to `bulkUpdate`/`bulkPatch`, and to create/delete paths when
   denormalization must be enforced there as well.
-
-## Migration Guide
-
-### Aggregation API update
-
-The legacy query helper `aggregate(field, operation)` has been replaced by explicit methods:
-
-- `sum(field)`
-- `average(field)`
-
-**Before:**
-
-```typescript
-const totalRevenue = await orderRepo
-  .query()
-  .where('status', '==', 'completed')
-  .aggregate('total', 'sum');
-
-const avgRating = await reviewRepo
-  .query()
-  .where('productId', '==', 'prod-123')
-  .aggregate('rating', 'avg');
-```
-
-**After:**
-
-```typescript
-const totalRevenue = await orderRepo.query().where('status', '==', 'completed').sum('total');
-
-const avgRating = await reviewRepo.query().where('productId', '==', 'prod-123').average('rating');
-```
-
-### From Raw Firestore SDK
-
-**Before:**
-
-```typescript
-const usersRef = db.collection('users');
-
-// Create
-const docRef = await usersRef.add({
-  name: 'John',
-  email: 'john@example.com',
-});
-
-// Read
-const snapshot = await usersRef.doc('user-123').get();
-const user = snapshot.data();
-
-// Update
-await usersRef.doc('user-123').update({ name: 'Jane' });
-
-// Delete
-await usersRef.doc('user-123').delete();
-
-// Query
-const snapshot = await usersRef.where('status', '==', 'active').get();
-const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-```
-
-**After:**
-
-```typescript
-const userRepo = FirestoreRepository.withSchema<User>(db, 'users', userSchema);
-
-// Create (with validation)
-const user = await userRepo.create({
-  name: 'John',
-  email: 'john@example.com',
-});
-
-// Read
-const user = await userRepo.getById('user-123');
-
-// Update (with validation)
-await userRepo.update('user-123', { name: 'Jane' });
-
-// Delete
-await userRepo.delete('user-123');
-
-// Query (type-safe)
-const users = await userRepo.query().where('status', '==', 'active').get();
-```
-
-### From Other ORMs
-
-If you're coming from SQL ORMs, here's how concepts map:
-
-| TypeORM/Prisma    | FirestoreORM                   |
-| ----------------- | ------------------------------ |
-| `@Entity()`       | `z.object()` Zod schema        |
-| `findOne()`       | `getById()`                    |
-| `find()`          | `query().get()`                |
-| `save()`          | `create()` or `update()`       |
-| `remove()`        | `delete()`                     |
-| `@BeforeInsert()` | `on('beforeCreate')`           |
-| `@AfterUpdate()`  | `on('afterUpdate')`            |
-| Transactions      | `runInTransaction()`           |
-| Relations         | Subcollections or manual joins |
-
-**Key Differences:**
-
-- Firestore is NoSQL, so no joins (use subcollections or denormalization)
-- Firestore queries have limitations (inequality on one field, composite indexes required)
-- No foreign key constraints (handle referential integrity in application)
 
 ## Troubleshooting
 

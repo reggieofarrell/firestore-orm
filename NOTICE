@@ -1,0 +1,25 @@
+@reggieofarrell/firestore-orm
+Copyright (c) 2026 Reggie Farrell
+
+This project is a fork and continuation of spacelabs-firestoreorm.
+
+Upstream project
+  Name:       spacelabs-firestoreorm
+  Repository: https://github.com/HBFLEX/spacelabs-firestoreorm
+  Author:     Happy Banda (HBFL3Xx) — https://github.com/HBFLEX
+  npm:        @spacelabstech/firestoreorm
+  License:    MIT License
+  Copyright:  Copyright (c) 2025 HBFL3Xx
+
+This fork includes substantial modifications to repository contracts, validation,
+query behavior, testing, and tooling while preserving the original project's MIT
+license terms.
+
+License
+  This software is distributed under the MIT License. See the LICENSE file in
+  this repository for the full license text, including the required copyright
+  notices for both the original work and this derivative work.
+
+Attribution
+  When redistributing source or binary forms of this software, retain the MIT
+  license text and copyright notices from LICENSE and this NOTICE file.

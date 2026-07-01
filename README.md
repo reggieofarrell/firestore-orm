@@ -3186,13 +3186,15 @@ npm test
 This project is licensed under the **MIT License**.
 
 - Full license text: [LICENSE](https://github.com/reggieofarrell/firestore-orm/blob/main/LICENSE)
+- Fork attribution notice: [NOTICE](https://github.com/reggieofarrell/firestore-orm/blob/main/NOTICE)
 - Original upstream license: [HBFLEX/spacelabs-firestoreorm LICENSE](https://github.com/HBFLEX/spacelabs-firestoreorm/blob/main/LICENSE)
 
 ### Derivative work notice
 
 This repository is a fork of [HBFLEX/spacelabs-firestoreorm](https://github.com/HBFLEX/spacelabs-firestoreorm).
 Under the MIT License, you may use, modify, and distribute this software provided that **all copies
-include the original copyright notice and permission notice**.
+include the original copyright notice, permission notice, and this repository's NOTICE file** where
+applicable.
 
 Current copyright holders in this repository:
 

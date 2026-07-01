@@ -2,6 +2,10 @@
 
 > A type-safe, feature-rich Firestore ORM built for the Firebase Admin SDK. Designed to make backend
 > Firestore development actually enjoyable.
+>
+> Fork and continuation of
+> [spacelabs-firestoreorm](https://github.com/HBFLEX/spacelabs-firestoreorm) by
+> [HBFL3Xx](https://github.com/HBFLEX).
 
 [![npm version](https://img.shields.io/npm/v/@reggieofarrell/firestore-orm.svg)](https://www.npmjs.com/package/@reggieofarrell/firestore-orm)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -9,7 +13,8 @@
 
 ## Table of Contents
 
-- [The Story Behind This ORM](#the-story-behind-this-orm)
+- [About This Project](#about-this-project)
+- [Fork & Attribution](#fork--attribution)
 - [Why FirestoreORM?](#why-firestoreorm)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
@@ -25,26 +30,49 @@
 - [Contributing](#contributing)
 - [License](#license)
 
-## The Story Behind This ORM
+## About This Project
 
-Hi, I'm Happy Banda (HBFL3Xx), and I've been working with Firestore on the backend for years. If
-you've ever built a production Node.js application with Firestore, you know the pain points:
+`@reggieofarrell/firestore-orm` is a maintained fork and continuation of the original
+[spacelabs-firestoreorm](https://github.com/HBFLEX/spacelabs-firestoreorm) project. It keeps the same
+core goal: make backend Firestore development in Node.js type-safe, productive, and production-ready.
 
-- Writing the same boilerplate CRUD operations over and over
-- Managing delete/archival flows manually across every collection
-- Implementing pagination consistently
-- Dealing with Firestore's composite index errors at runtime
-- Validating data before writes without a clean pattern
-- No lifecycle hooks for logging, auditing, or side effects
-- Query builders that don't feel natural or type-safe
+If you've built with Firestore on the server, you probably recognize the recurring pain points:
 
-I tried other Firestore ORMs. Some were abandoned, others lacked essential features like
-transactions, and many used patterns that didn't fit real-world backend development. Some required
-too much ceremony, while others were too minimal to be practical.
+- Repetitive CRUD boilerplate across collections
+- Inconsistent pagination and query patterns
+- Runtime composite-index failures that only show up in production
+- Validation and lifecycle hooks bolted on ad hoc
+- Update semantics that fight Firestore's native field-path behavior
 
-So I built this. FirestoreORM is the tool I wish I had from day one. It's designed for developers
-who want to move fast without sacrificing code quality, type safety, or maintainability. Whether
-you're building a startup MVP or scaling an enterprise application, this ORM grows with you.
+This package addresses those problems with a repository pattern, Zod validation, lifecycle hooks, a
+chainable query builder, transaction helpers, subcollection support, dot-notation updates, and
+Firestore-native write semantics (including `FieldValue` sentinels).
+
+This fork includes a significant refactor focused on:
+
+- Firestore-native update behavior instead of client-side merge reconstruction
+- Sentinel-aware schema validation for atomic writes
+- Clearer hook contracts and write ordering (`before*` -> validation -> write -> `after*`)
+- Optional Firestore converter support
+- Split unit and emulator-backed integration test coverage
+
+## Fork & Attribution
+
+This project is derived from work originally created by **Happy Banda ([HBFL3Xx](https://github.com/HBFLEX))**
+and published as [`@spacelabstech/firestoreorm`](https://www.npmjs.com/package/@spacelabstech/firestoreorm)
+from the repository [HBFLEX/spacelabs-firestoreorm](https://github.com/HBFLEX/spacelabs-firestoreorm).
+
+That upstream project is licensed under the **MIT License** (Copyright (c) 2025 HBFL3Xx). This fork
+preserves that license and copyright notice, adds copyright for subsequent modifications, and
+continues development under the `@reggieofarrell/firestore-orm` package name.
+
+If you are migrating from the original package:
+
+- Replace `@spacelabstech/firestoreorm` imports with `@reggieofarrell/firestore-orm`
+- Review the [Migration Guide](#migration-guide) for API contract changes introduced in this fork
+- Report issues for this fork at [reggieofarrell/firestore-orm issues](https://github.com/reggieofarrell/firestore-orm/issues)
+
+Thank you to Happy and the original contributors for the foundation this fork builds on.
 
 ## Why FirestoreORM?
 
@@ -3155,8 +3183,24 @@ npm test
 
 ## License
 
-MIT License - see [LICENSE](https://github.com/reggieofarrell/firestore-orm/blob/main/LICENSE) file
-for details.
+This project is licensed under the **MIT License**.
+
+- Full license text: [LICENSE](https://github.com/reggieofarrell/firestore-orm/blob/main/LICENSE)
+- Original upstream license: [HBFLEX/spacelabs-firestoreorm LICENSE](https://github.com/HBFLEX/spacelabs-firestoreorm/blob/main/LICENSE)
+
+### Derivative work notice
+
+This repository is a fork of [HBFLEX/spacelabs-firestoreorm](https://github.com/HBFLEX/spacelabs-firestoreorm).
+Under the MIT License, you may use, modify, and distribute this software provided that **all copies
+include the original copyright notice and permission notice**.
+
+Current copyright holders in this repository:
+
+- Copyright (c) 2025 HBFL3Xx (original work)
+- Copyright (c) 2026 Reggie Farrell (fork modifications)
+
+No additional license restrictions are imposed beyond MIT. There are no copyleft obligations, but
+attribution to the original author must be preserved in source distributions.
 
 ## Support
 
@@ -3166,18 +3210,15 @@ for details.
 
 ## Acknowledgments
 
-Built with frustration and determination by **Happy Banda (HBFL3Xx)** after years of wrestling with
-Firestore on the backend. This ORM is the tool I needed but couldn't find.
+- **Original author:** [Happy Banda (HBFL3Xx)](https://github.com/HBFLEX) for creating
+  [spacelabs-firestoreorm](https://github.com/HBFLEX/spacelabs-firestoreorm) and publishing it under
+  the MIT License
+- **Firebase team** for the Admin SDK
+- **Zod team** for schema validation
+- Everyone who has contributed ideas, issues, and feedback around Firestore ORM ergonomics
 
-Special thanks to:
-
-- The Firebase team for the Admin SDK
-- The Zod team for incredible schema validation
-- The Firebase firestore community for requesting new features to make this ORM better
-- Everyone who's ever struggled with Firestore and thought "there has to be a better way"
-
-If this ORM saves you time and headaches, consider giving it a ⭐ on GitHub. Every star motivates
-continued development and improvements.
+If this package saves you time, consider giving this repository a star and crediting the upstream
+project when sharing derivative work.
 
 ## Roadmap
 
@@ -3187,4 +3228,5 @@ Planned features for future releases:
 
 ---
 
-**Made with ☕ and code by HBFL3Xx**
+**Maintained by [Reggie Farrell](https://github.com/reggieofarrell)** · Forked from work by
+[HBFL3Xx](https://github.com/HBFLEX)

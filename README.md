@@ -33,8 +33,9 @@
 ## About This Project
 
 `@reggieofarrell/firestore-orm` is a maintained fork and continuation of the original
-[spacelabs-firestoreorm](https://github.com/HBFLEX/spacelabs-firestoreorm) project. It keeps the same
-core goal: make backend Firestore development in Node.js type-safe, productive, and production-ready.
+[spacelabs-firestoreorm](https://github.com/HBFLEX/spacelabs-firestoreorm) project. It keeps the
+same core goal: make backend Firestore development in Node.js type-safe, productive, and
+production-ready.
 
 If you've built with Firestore on the server, you probably recognize the recurring pain points:
 
@@ -58,9 +59,10 @@ This fork includes a significant refactor focused on:
 
 ## Fork & Attribution
 
-This project is derived from work originally created by **Happy Banda ([HBFL3Xx](https://github.com/HBFLEX))**
-and published as [`@spacelabstech/firestoreorm`](https://www.npmjs.com/package/@spacelabstech/firestoreorm)
-from the repository [HBFLEX/spacelabs-firestoreorm](https://github.com/HBFLEX/spacelabs-firestoreorm).
+This project is derived from work originally created by **Happy Banda
+([HBFL3Xx](https://github.com/HBFLEX))** and published as
+[`@spacelabstech/firestoreorm`](https://www.npmjs.com/package/@spacelabstech/firestoreorm) from the
+repository [HBFLEX/spacelabs-firestoreorm](https://github.com/HBFLEX/spacelabs-firestoreorm).
 
 That upstream project is licensed under the **MIT License** (Copyright (c) 2025 HBFL3Xx). This fork
 preserves that license and copyright notice, adds copyright for subsequent modifications, and
@@ -285,9 +287,11 @@ try {
 
 - Include a required top-level `id` field in schemas passed to `withSchema(...)`
 - `create()` validates against an internal write schema derived from `schema.omit({ id: true })`
-- `update()` validates against an internal update schema derived from `schema.omit({ id: true }).partial()`
+- `update()` validates against an internal update schema derived from
+  `schema.omit({ id: true }).partial()`
 - top-level `id` is ignored/stripped from create/update/patch payloads before validation and writes
-- only the document-level top-level `id` is stripped; nested IDs (for example `items[].id`) are treated as normal domain data
+- only the document-level top-level `id` is stripped; nested IDs (for example `items[].id`) are
+  treated as normal domain data
 - Write operations follow this sequence: `before*` hook -> validation -> Firestore write -> `after*`
   hook
 - Validation errors are thrown after `before*` hooks run and before any Firestore write occurs
@@ -938,8 +942,8 @@ await userRepo.update('user-123', {
 
 **4. Transaction Requirements**
 
-`updateInTransaction()` supports dot notation directly. Use `getForUpdateInTransaction()` only when your
-transaction logic needs the existing document state.
+`updateInTransaction()` supports dot notation directly. Use `getForUpdateInTransaction()` only when
+your transaction logic needs the existing document state.
 
 ```typescript
 // Valid - read first only when needed by business logic
@@ -3058,65 +3062,27 @@ Based on testing with Firebase Admin SDK:
 
 ## Testing Strategy
 
-This project uses a hybrid strategy with two test tiers:
-
-- **Unit tests**: fast and isolated, with no emulator and no Java requirement.
-- **Integration tests**: run against the Firestore Emulator for real query, transaction, and
-  sentinel semantics.
-
-### Test Commands
+This project uses a **two-tier** strategy: fast **unit** tests (no emulator) and **integration**
+tests against the Firestore emulator. CI merges coverage from both suites and enforces thresholds.
 
 ```bash
-# Run only fast unit tests
-npm run test:unit
-
-# Start Firestore emulator (keep this running in a separate terminal)
-npm run emulator:start
-
-# Run integration tests
-npm run test:integration
-
-# Or run integration tests with emulator auto-start/stop
-npm run test:integration:emulator
-
-# Run both tiers
-npm test
+npm run test:unit              # Fast unit tests
+npm run test:integration:emulator  # Emulator-backed integration tests
+npm test                       # Both tiers
+npm run test:coverage:all      # Full coverage + merge gate
 ```
 
-### Local Prerequisites for Integration Tests
+**Full guide:** [docs/development/testing.md](docs/development/testing.md)
 
-- Node.js and npm
-- Java Runtime (required by Firestore Emulator)
+### Quick prerequisites (integration)
 
-### Environment Variables
+- Java Runtime (Firestore emulator)
+- `FIRESTORE_EMULATOR_HOST` defaults to `127.0.0.1:8080`
 
-Integration tests target the Firestore emulator host via `FIRESTORE_EMULATOR_HOST`. If not set, the
-test harness defaults to `127.0.0.1:8080`.
+### CI
 
-To override the default host/port, set:
-
-```bash
-export FIRESTORE_EMULATOR_HOST=127.0.0.1:8080
-```
-
-Set this when your emulator runs on a non-default port or host.
-
-### CI Notes
-
-- CI should install Java before running integration tests.
-- Use `npm run test:integration:emulator` for a single-command integration run with automatic
-  emulator lifecycle.
-- If using `npm run test:integration` directly in CI, start the Firestore emulator first.
-- Unit and integration tests should run as separate jobs so fast failures are reported quickly.
-
-### Troubleshooting
-
-- **Emulator not reachable at default host**: Start it with `npm run emulator:start`, or export
-  `FIRESTORE_EMULATOR_HOST` to your custom host/port.
-- **Port `8080` already in use**: Stop the conflicting process or change the Firestore emulator port
-  in `firebase.json`.
-- **Java errors when starting emulator**: Ensure a supported JRE/JDK is installed and available in
-  `PATH`.
+GitHub Actions runs unit and integration coverage in parallel, then merges LCOV and gates
+thresholds. See [.github/workflows/tests.yml](.github/workflows/tests.yml).
 
 ## Contributing
 
@@ -3153,15 +3119,17 @@ npm test
 This project is licensed under the **MIT License**.
 
 - Full license text: [LICENSE](https://github.com/reggieofarrell/firestore-orm/blob/main/LICENSE)
-- Fork attribution notice: [NOTICE](https://github.com/reggieofarrell/firestore-orm/blob/main/NOTICE)
-- Original upstream license: [HBFLEX/spacelabs-firestoreorm LICENSE](https://github.com/HBFLEX/spacelabs-firestoreorm/blob/main/LICENSE)
+- Fork attribution notice:
+  [NOTICE](https://github.com/reggieofarrell/firestore-orm/blob/main/NOTICE)
+- Original upstream license:
+  [HBFLEX/spacelabs-firestoreorm LICENSE](https://github.com/HBFLEX/spacelabs-firestoreorm/blob/main/LICENSE)
 
 ### Derivative work notice
 
-This repository is a fork of [HBFLEX/spacelabs-firestoreorm](https://github.com/HBFLEX/spacelabs-firestoreorm).
-Under the MIT License, you may use, modify, and distribute this software provided that **all copies
-include the original copyright notice, permission notice, and this repository's NOTICE file** where
-applicable.
+This repository is a fork of
+[HBFLEX/spacelabs-firestoreorm](https://github.com/HBFLEX/spacelabs-firestoreorm). Under the MIT
+License, you may use, modify, and distribute this software provided that **all copies include the
+original copyright notice, permission notice, and this repository's NOTICE file** where applicable.
 
 Current copyright holders in this repository:
 

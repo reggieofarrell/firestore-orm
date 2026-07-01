@@ -1,5 +1,5 @@
 export { FirestoreRepository } from './core/FirestoreRepository.js';
-export type { ID, HookEvent } from './core/FirestoreRepository.js';
+export type { ID, HookEvent, UpdateOptions } from './core/FirestoreRepository.js';
 export { FirestoreQueryBuilder } from './core/QueryBuilder.js';
 export type { PaginatedResult } from './core/QueryBuilder.js';
 
@@ -14,7 +14,7 @@ export { parseFirestoreError } from './core/ErrorParser.js';
 export { errorHandler } from './core/ErrorHandler.js';
 
 export { makeValidator } from './core/Validation.js';
-export type { Validator } from './core/Validation.js';
+export type { UpdateInput, Validator } from './core/Validation.js';
 
 export {
   isDotNotation,

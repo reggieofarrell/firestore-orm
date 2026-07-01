@@ -185,8 +185,8 @@ const activeUsers = await userRepo
   .limit(10)
   .get();
 
-// Update a user
-await userRepo.update(user.id, {
+// Update a user (returns { id } by default)
+const { id: updatedUserId } = await userRepo.update(user.id, {
   status: 'inactive',
   updatedAt: new Date().toISOString(),
 });
@@ -357,12 +357,16 @@ userRepo.on('afterDelete', async user => {
 - Bulk operations: `beforeBulkCreate`, `afterBulkCreate`, `beforeBulkUpdate`, `afterBulkUpdate`,
   `beforeBulkDelete`, `afterBulkDelete`
 
-**Update Hook Payloads**:
+**Hook Payloads**:
 
+- `beforeCreate` / `afterCreate`: receive create payload (`afterCreate` includes generated `id`)
 - `beforeUpdate`: receives update payload + `id`
 - `afterUpdate`: receives `{ id }`
+- `beforeDelete` / `afterDelete`: receive the deleted document (`T & { id }`)
+- `beforeBulkCreate` / `afterBulkCreate`: receive an array of created documents with `id`
 - `beforeBulkUpdate`: receives `{ id, data }[]`
 - `afterBulkUpdate`: receives `{ ids: string[] }`
+- `beforeBulkDelete` / `afterBulkDelete`: receive `{ ids: string[]; documents: (T & { id })[] }`
 
 ### Query Builder
 
@@ -401,7 +405,7 @@ const usersByEmail = await userRepo.findByField('email', 'alice@example.com');
 const oneUserByEmail = await userRepo.getOneByField('email', 'alice@example.com'); // First match or null
 const strictUserByEmail = await userRepo.getOneByFieldOrThrow('email', 'alice@example.com'); // Throws on zero or multiple matches
 
-// UPDATE
+// UPDATE (default return is { id: 'user-123' })
 await userRepo.update('user-123', {
   name: 'Alice Updated',
 });
@@ -446,7 +450,7 @@ const users = await userRepo.bulkCreate([
   { name: 'Charlie', email: 'charlie@example.com' },
 ]);
 
-// Bulk update
+// Bulk update (returns [{ id: 'user-1' }, { id: 'user-2' }])
 await userRepo.bulkUpdate([
   { id: 'user-1', data: { status: 'active' } },
   { id: 'user-2', data: { status: 'inactive' } },
@@ -611,9 +615,9 @@ await accountRepo.runInTransaction(async (tx, repo) => {
 
 **Important Transaction Limitations**:
 
-1. **No `after` Hooks**: Lifecycle hooks like `afterCreate`, `afterUpdate`, `afterDelete` do NOT run
-   inside transactions. Only `before` hooks execute (before validation + write). This is a Firestore
-   limitation since transactions need to be atomic and cannot have side effects that might fail.
+1. **No `after*` Hooks on Transaction Write Helpers**: `createInTransaction`, `updateInTransaction`,
+   `patchInTransaction`, and `deleteInTransaction` run `before*` hooks (before validation + write)
+   but skip `after*` hooks by design so side effects stay outside the atomic transaction commit.
 
 2. **Use Cases for Transaction Hooks**:
 
@@ -1968,11 +1972,15 @@ export class OrderService {
   }
 
   async updateOrderStatus(orderId: string, status: Order['status'], trackingNumber?: string) {
-    return orderRepo.update(orderId, {
-      status,
-      trackingNumber,
-      updatedAt: new Date().toISOString(),
-    });
+    return orderRepo.update(
+      orderId,
+      {
+        status,
+        trackingNumber,
+        updatedAt: new Date().toISOString(),
+      },
+      { returnDoc: true },
+    );
   }
 
   async cancelOrder(orderId: string) {
@@ -2139,12 +2147,16 @@ export class TenantService {
       enterprise: 100,
     };
 
-    return tenantRepo.update(tenantId, {
-      plan: newPlan,
-      seats: planSeats[newPlan],
-      features: this.getFeaturesForPlan(newPlan),
-      updatedAt: new Date().toISOString(),
-    });
+    return tenantRepo.update(
+      tenantId,
+      {
+        plan: newPlan,
+        seats: planSeats[newPlan],
+        features: this.getFeaturesForPlan(newPlan),
+        updatedAt: new Date().toISOString(),
+      },
+      { returnDoc: true },
+    );
   }
 
   private getFeaturesForPlan(plan: Tenant['plan']): string[] {
@@ -2169,11 +2181,39 @@ export class TenantService {
 ### Example 3: Social Media Feed with Real-Time Updates
 
 ```typescript
+// schemas/post.schema.ts
+import { z } from 'zod';
+
+export const postSchema = z.object({
+  id: z.string(),
+  authorId: z.string(),
+  status: z.enum(['draft', 'published']),
+  content: z.string(),
+  createdAt: z.string(),
+});
+
+export type Post = z.infer<typeof postSchema>;
+
+export const followSchema = z.object({
+  id: z.string(),
+  followerId: z.string(),
+  followingId: z.string(),
+});
+
+export type Follow = z.infer<typeof followSchema>;
+```
+
+```typescript
 // repositories/post.repository.ts
+import { FirestoreRepository } from '@reggieofarrell/firestore-orm';
+import { db } from '../config/firebase';
+import { Follow, followSchema, Post, postSchema } from '../schemas/post.schema';
+
+export const followRepo = FirestoreRepository.withSchema<Follow>(db, 'follows', followSchema);
 export const postRepo = FirestoreRepository.withSchema<Post>(db, 'posts', postSchema);
 
 // Monitor new posts in real-time
-export function subscribeToUserFeed(userId: string, callback: (posts: Post[]) => void) {
+export async function subscribeToUserFeed(userId: string, callback: (posts: Post[]) => void) {
   // Get list of users this user follows
   const following = await followRepo.query().where('followerId', '==', userId).get();
 
@@ -2418,7 +2458,7 @@ builder instance.
 
 Check if any documents match query.
 
-**`paginate(pageSize: number, cursor?: string | null): Promise<{ items: T[], nextCursor: string | null, hasMore: boolean }>`**
+**`paginate(pageSize: number, cursor?: string | null): Promise<{ items: (T & { id: ID })[], nextCursor: string | null, hasMore: boolean }>`**
 
 Cursor-based pagination (recommended for large datasets). Requires at least one `orderBy(...)`.
 
@@ -2426,7 +2466,7 @@ Cursor-based pagination (recommended for large datasets). Requires at least one 
 
 Offset-based pagination. Returns `{ items, total, page, pageSize, totalPages }`.
 
-**`paginateWithCount(pageSize: number, cursor?: string | null): Promise<{ items: T[], nextCursor: string | null, hasMore: boolean, total: number }>`**
+**`paginateWithCount(pageSize: number, cursor?: string | null): Promise<{ items: (T & { id: ID })[], nextCursor: string | null, hasMore: boolean, total: number }>`**
 
 Cursor pagination with total count.
 
@@ -2450,11 +2490,22 @@ Perform Firestore-native average aggregation on a numeric field.
 
 Get distinct values for field.
 
+### Exported Types
+
+Common types re-exported from the package entry point:
+
+- **`ID`**: `string` document identifier alias
+- **`HookEvent`**: union of supported lifecycle hook names
+- **`PaginatedResult<T>`**: `{ items, nextCursor, hasMore }` from cursor pagination
+- **`UpdateInput<T>`**: update payload type (alias for Firestore `PartialWithFieldValue<T>`)
+- **`UpdateOptions`**: `{ merge?: boolean; returnDoc?: boolean }`
+- **`Validator<T>`**: validation contract used by `makeValidator(...)`
+
 **`stream(): AsyncGenerator<T & { id: ID }>`**
 
 Stream results (for large datasets).
 
-**`onSnapshot(callback: (items: T[]) => void, onError?: (error: Error) => void): Promise<() => void>`**
+**`onSnapshot(callback: (items: (T & { id: ID })[]) => void, onError?: (error: Error) => void): Promise<() => void>`**
 
 Subscribe to real-time updates. Returns unsubscribe function.
 
@@ -2587,8 +2638,12 @@ class CachedUserRepository {
     return this.repo.getById(id);
   }
 
-  async create(data: User): Promise<User & { id: string }> {
-    return this.repo.create(data);
+  async create(data: Omit<User, 'id' | 'createdAt' | 'updatedAt'>): Promise<User & { id: string }> {
+    return this.repo.create({
+      ...data,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
   }
 
   // Delegate other methods to repo...
@@ -2896,7 +2951,7 @@ build.
 ### 2. Hooks Not Running in Transactions
 
 ```typescript
-// After hooks don't run
+// after* hooks do not run for transaction-scoped write helpers
 await repo.runInTransaction(async (tx, repo) => {
   await repo.createInTransaction(tx, data);
   // afterCreate hook will NOT run here

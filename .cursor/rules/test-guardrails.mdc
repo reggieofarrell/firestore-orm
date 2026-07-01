@@ -1,0 +1,22 @@
+---
+description: Critical guardrails for firestore-orm test files
+globs: src/tests/**/*.test.ts
+alwaysApply: false
+---
+
+# Test Guardrails
+
+- Mock at the **Firestore boundary** — use `createMockFirestoreDb()` from
+  `src/tests/shared/mocks/firestore.mocks.ts` for unit tests
+- Mock factories hold **`jest.fn()` spies** — never reimplement Firestore or ORM logic inside
+  `jest.mock()` factories
+- Import factories from **specific module paths** (no barrel re-exports):
+  - `src/tests/shared/factories/user.factory.ts` — `createTestUserInput`, `createTestUser`
+  - `src/tests/shared/factories/hookValidatedUser.factory.ts` — `createHookValidatedUserInput`
+  - `src/tests/shared/factories/counters.ts` — `resetTestFactoryCounters`
+- Use `createUserRepoHarness()` from `src/tests/integration/helpers/firestoreIntegrationHarness.ts`
+  for emulator integration tests
+- Call `resetTestFactoryCounters()` in `beforeEach` when factory ID order must be deterministic
+- Add a **JSDoc header** to new test files describing strategy and verification points
+- Prefer **behavior-focused** assertions on public API contracts, not private implementation details
+- **Unit tests** for pure logic; **integration tests** for emulator-dependent repository/query behavior

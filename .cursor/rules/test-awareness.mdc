@@ -1,0 +1,19 @@
+---
+description: Remind agent to suggest writing or updating tests after code changes
+alwaysApply: true
+---
+
+# Test Awareness
+
+After completing implementation changes in Agent mode, remind the user that tests should be written
+or updated for the changed files. Suggest the appropriate skill:
+
+- **`src/utils/**`, `ErrorParser`, `ErrorHandler`, `Validation`** → unit-testing skill
+- **`FirestoreRepository`, `QueryBuilder`, hooks, transactions** → integration-testing skill
+
+When suggesting tests:
+
+- Be specific about which files need coverage and which skill to use
+- Do NOT auto-write tests without user approval unless explicitly asked
+- If tests already exist, mention they may need updating
+- Skip the reminder for trivial doc-only or config comment changes

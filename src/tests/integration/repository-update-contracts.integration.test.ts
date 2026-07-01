@@ -1,4 +1,5 @@
 import { ConflictError, NotFoundError } from '../../core/Errors.js';
+import { createTestUserInput } from '../shared/factories/user.factory.js';
 import { createUserRepoHarness } from './helpers/firestoreIntegrationHarness.js';
 
 describe('FirestoreRepository update return and hook contracts', () => {
@@ -14,10 +15,7 @@ describe('FirestoreRepository update return and hook contracts', () => {
   });
 
   it('should return only the updated document id from update()', async () => {
-    const user = await userRepo.create({
-      name: 'Return Shape Test',
-      email: 'return-shape@example.com',
-    });
+    const user = await userRepo.create(createTestUserInput({ name: 'Return Shape Test' }));
     trackUser(user.id);
 
     const result = await userRepo.update(user.id, {

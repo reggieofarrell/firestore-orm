@@ -1,9 +1,9 @@
-# firestore-orm
+# @reggieofarrell/firestore-orm
 
 > A type-safe, feature-rich Firestore ORM built for the Firebase Admin SDK. Designed to make backend
 > Firestore development actually enjoyable.
 
-[![npm version](https://img.shields.io/npm/v/firestore-orm.svg)](https://www.npmjs.com/package/firestore-orm)
+[![npm version](https://img.shields.io/npm/v/@reggieofarrell/firestore-orm.svg)](https://www.npmjs.com/package/@reggieofarrell/firestore-orm)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
 
@@ -76,15 +76,15 @@ Works seamlessly with:
 ## Installation
 
 ```bash
-npm install firestore-orm firebase-admin zod
+npm install @reggieofarrell/firestore-orm firebase-admin zod
 ```
 
 ```bash
-yarn add firestore-orm firebase-admin zod
+yarn add @reggieofarrell/firestore-orm firebase-admin zod
 ```
 
 ```bash
-pnpm add firestore-orm firebase-admin zod
+pnpm add @reggieofarrell/firestore-orm firebase-admin zod
 ```
 
 ### Peer Dependencies
@@ -128,7 +128,7 @@ export type User = z.infer<typeof userSchema>;
 ### 3. Create Your Repository
 
 ```typescript
-import { FirestoreRepository } from 'firestore-orm';
+import { FirestoreRepository } from '@reggieofarrell/firestore-orm';
 import { db } from './firebase';
 import { userSchema, User } from './schemas';
 
@@ -992,7 +992,7 @@ import {
   NotFoundError,
   ConflictError,
   FirestoreIndexError,
-} from 'firestore-orm';
+} from '@reggieofarrell/firestore-orm';
 
 try {
   await userRepo.create(invalidData);
@@ -1017,7 +1017,7 @@ try {
 The ORM includes a pre-built Express middleware for consistent error responses:
 
 ```typescript
-import { errorHandler } from 'firestore-orm';
+import { errorHandler } from '@reggieofarrell/firestore-orm';
 import express from 'express';
 
 const app = express();
@@ -1044,7 +1044,7 @@ This automatically maps errors to HTTP status codes:
 
 ```typescript
 // repositories/user.repository.ts
-import { FirestoreRepository } from 'firestore-orm';
+import { FirestoreRepository } from '@reggieofarrell/firestore-orm';
 import { db } from '../config/firebase';
 import { userSchema, User } from '../schemas/user.schema';
 
@@ -1055,7 +1055,7 @@ export const userRepo = FirestoreRepository.withSchema<User>(db, 'users', userSc
 // routes/user.routes.ts
 import express from 'express';
 import { userRepo } from '../repositories/user.repository';
-import { ValidationError, NotFoundError } from 'firestore-orm';
+import { ValidationError, NotFoundError } from '@reggieofarrell/firestore-orm';
 
 const router = express.Router();
 
@@ -1133,7 +1133,7 @@ export default router;
 ```typescript
 // app.ts
 import express from 'express';
-import { errorHandler } from 'firestore-orm';
+import { errorHandler } from '@reggieofarrell/firestore-orm';
 import userRoutes from './routes/user.routes';
 
 const app = express();
@@ -1209,7 +1209,7 @@ export class DatabaseModule {}
 // modules/user/user.repository.ts
 import { Injectable, Inject } from '@nestjs/common';
 import { Firestore } from 'firebase-admin/firestore';
-import { FirestoreRepository } from 'firestore-orm';
+import { FirestoreRepository } from '@reggieofarrell/firestore-orm';
 import { User, userSchema } from '../../schemas/user.schema';
 
 @Injectable()
@@ -1265,7 +1265,7 @@ export class UserRepository {
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { UserRepository } from './user.repository';
 import { CreateUserDto, UpdateUserDto } from '../../schemas/user.schema';
-import { NotFoundError } from 'firestore-orm';
+import { NotFoundError } from '@reggieofarrell/firestore-orm';
 
 @Injectable()
 export class UserService {
@@ -1379,7 +1379,7 @@ export class ZodValidationPipe implements PipeTransform {
 // filters/firestore-exception.filter.ts
 import { ExceptionFilter, Catch, ArgumentsHost, HttpStatus } from '@nestjs/common';
 import { Response } from 'express';
-import { ValidationError, NotFoundError, ConflictError } from 'firestore-orm';
+import { ValidationError, NotFoundError, ConflictError } from '@reggieofarrell/firestore-orm';
 
 @Catch(ValidationError, NotFoundError, ConflictError)
 export class FirestoreExceptionFilter implements ExceptionFilter {
@@ -1453,7 +1453,7 @@ and makes hook management inconsistent.
 ```typescript
 // repositories/index.ts
 import { db } from '../config/firebase';
-import { FirestoreRepository } from 'firestore-orm';
+import { FirestoreRepository } from '@reggieofarrell/firestore-orm';
 import * as schemas from '../schemas';
 
 export const userRepo = FirestoreRepository.withSchema<schemas.User>(
@@ -1837,7 +1837,7 @@ export type Order = z.infer<typeof orderSchema>;
 
 ```typescript
 // repositories/order.repository.ts
-import { FirestoreRepository } from 'firestore-orm';
+import { FirestoreRepository } from '@reggieofarrell/firestore-orm';
 import { db } from '../config/firebase';
 import { orderSchema, Order } from '../schemas/order.schema';
 import { inventoryService } from '../services/inventory.service';
@@ -1894,7 +1894,7 @@ orderRepo.on('afterUpdate', async ({ id }) => {
 // services/order.service.ts
 import { orderRepo } from '../repositories/order.repository';
 import { userRepo } from '../repositories/user.repository';
-import { ConflictError } from 'firestore-orm';
+import { ConflictError } from '@reggieofarrell/firestore-orm';
 
 export class OrderService {
   async createOrder(userId: string, items: OrderItem[]) {
@@ -2758,7 +2758,7 @@ import {
   NotFoundError,
   UpdateInput,
   UpdateOptions,
-} from 'firestore-orm';
+} from '@reggieofarrell/firestore-orm';
 import { Firestore } from 'firebase-admin/firestore';
 
 type Order = {

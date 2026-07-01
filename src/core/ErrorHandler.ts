@@ -12,7 +12,7 @@ import { ConflictError, FirestoreIndexError, NotFoundError, ValidationError } fr
  *
  * @example
  * // Register as global error handler in Express
- * import { errorHandler } from '@spacelabs/firestoreorm/core/ErrorHandler';
+ * import { errorHandler } from '@reggieofarrell/firestore-orm';
  *
  * app.use(errorHandler);
  *

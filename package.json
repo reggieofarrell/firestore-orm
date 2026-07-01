@@ -1,5 +1,5 @@
 {
-  "name": "firestore-orm",
+  "name": "@reggieofarrell/firestore-orm",
   "version": "1.1.0",
   "description": "Type-safe Firestore ORM with validation, lifecycle hooks, and a powerful query builder. Built for Firebase Admin SDK with full TypeScript support.",
   "type": "module",

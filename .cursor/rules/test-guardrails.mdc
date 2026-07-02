@@ -20,3 +20,6 @@ alwaysApply: false
 - Add a **JSDoc header** to new test files describing strategy and verification points
 - Prefer **behavior-focused** assertions on public API contracts, not private implementation details
 - **Unit tests** for pure logic; **integration tests** for emulator-dependent repository/query behavior
+- **Integration is the primary ORM safety net** — never treat unit mocks as sufficient for repository/query changes
+- Each suite has **path-specific coverage gates** — see `scripts/check-coverage-gates.mjs` and
+  `docs/development/testing.md`. Do not rely on merged LCOV or global suite % as a safety metric.

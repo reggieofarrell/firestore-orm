@@ -1,7 +1,10 @@
 # Write Unit Tests
 
-Analyze changed files on the current branch and write or update Jest tests. Proceed directly unless
-business behavior is ambiguous.
+Analyze changed files on the current branch and write or update Jest **unit** tests. Proceed
+directly unless business behavior is ambiguous.
+
+Use **write-integration-tests** for `FirestoreRepository`, `QueryBuilder`, and emulator-dependent
+behavior — integration is the primary ORM safety net for this library.
 
 ## Classify changes
 
@@ -16,7 +19,7 @@ business behavior is ambiguous.
 ## Skills
 
 - Unit → `.cursor/skills/unit-testing/SKILL.md`
-- Integration → `.cursor/skills/integration-testing/SKILL.md`
+- Integration → `.cursor/skills/integration-testing/SKILL.md` (or `write-integration-tests` command)
 
 ## Steps
 
@@ -25,4 +28,6 @@ business behavior is ambiguous.
 3. Use shared factories/mocks — no duplicate helpers
 4. Add JSDoc header to new test files
 5. Run `npm run test:unit` or `npm run test:integration:emulator`
-6. If coverage infrastructure changed, run `npm run test:coverage:all`
+6. If coverage infrastructure changed, run `npm run test:coverage:all` (both suites + dual gates)
+7. After unit changes, confirm `npm run test:coverage:gate:unit` still passes
+8. After integration changes, confirm `npm run test:coverage:gate:integration` still passes

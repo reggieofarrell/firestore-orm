@@ -17,6 +17,7 @@ Tracked gaps beyond the current test suite. Remove items when covered.
 
 ## Infrastructure
 
+- Dual per-suite coverage gates (`scripts/check-coverage-gates.mjs`) — integration owns ORM core
 - [ ] ESLint rules for test files (optional)
 - [ ] SonarQube upload (only if org adopts it)
 

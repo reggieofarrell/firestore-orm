@@ -10,15 +10,31 @@ description:
 
 ## Scope
 
-- Runner: **Jest** with `jest.config.unit.js`
+- Runner: **Jest** (`jest.config.unit.js`) — not Vitest
 - Location: `src/tests/unit/**/*.unit.test.ts`
 - No Firestore emulator — mock at boundaries
+- Does **not** gate `FirestoreRepository` or `QueryBuilder` coverage (integration-owned)
 
 ## Commands
 
 - `npm run test:unit`
 - `npm run test:unit:coverage`
+- `npm run test:coverage:gate:unit` — enforces path thresholds for utils, errors, validation,
+  exports
 - `npm run test:watch`
+
+## Coverage gates (unit-owned paths)
+
+Pre-push and CI run `test:coverage:gate:unit` after unit coverage. Gates apply only to files this
+suite is responsible for — not `FirestoreRepository` or `QueryBuilder` (integration-owned).
+
+| Scope              | Paths                                                 | Thresholds (lines / branches / functions) |
+| ------------------ | ----------------------------------------------------- | ----------------------------------------- |
+| Pure utilities     | `src/utils/**`                                        | 95% / 90% / 90%                           |
+| Error / validation | `Errors`, `ErrorParser`, `ErrorHandler`, `Validation` | 90% / 85% / 90%                           |
+| Package exports    | `src/index.ts`                                        | 100% / 100% / 65%                         |
+
+See `scripts/check-coverage-gates.mjs` and `docs/development/testing.md`.
 
 ## Workflow
 

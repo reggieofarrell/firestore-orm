@@ -11,9 +11,25 @@ or updated for the changed files. Suggest the appropriate skill:
 - **`src/utils/**`, `ErrorParser`, `ErrorHandler`, `Validation`** → unit-testing skill
 - **`FirestoreRepository`, `QueryBuilder`, hooks, transactions** → integration-testing skill
 
+**Integration tests are the primary confidence layer** for this database library — emulator-backed
+reads/writes, batching, and hooks. Unit tests cover pure logic fast; they do not replace integration
+coverage for ORM core paths.
+
+**Runner:** Jest (not Vitest). See `docs/development/testing.md` for full policy.
+
 When suggesting tests:
 
 - Be specific about which files need coverage and which skill to use
+- Mention which **coverage gate** owns the changed paths (unit vs integration)
 - Do NOT auto-write tests without user approval unless explicitly asked
 - If tests already exist, mention they may need updating
 - Skip the reminder for trivial doc-only or config comment changes
+
+## Coverage gate ownership
+
+| Changed paths | Suite | Gate command |
+| ------------- | ----- | ------------ |
+| `src/utils/**`, `ErrorParser`, `ErrorHandler`, `Validation`, `index.ts` | Unit | `test:coverage:gate:unit` |
+| `FirestoreRepository`, `QueryBuilder`, emulator validation paths | Integration | `test:coverage:gate:integration` |
+
+Merged LCOV is not used as a gate — each suite enforces its own path-specific thresholds.

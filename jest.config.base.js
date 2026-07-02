@@ -31,6 +31,8 @@ export const baseConfig = {
   ],
   coverageReporters: ['lcov', 'text-summary'],
   coverageProvider: 'v8',
+  // Path-specific thresholds are enforced per suite by scripts/check-coverage-gates.mjs.
+  // Jest coverageThreshold is not used — a single config cannot express dual gate ownership.
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
   modulePathIgnorePatterns: ['<rootDir>/package/', '<rootDir>/dist/'],
   testPathIgnorePatterns: ['/node_modules/', '/package/', '/dist/'],

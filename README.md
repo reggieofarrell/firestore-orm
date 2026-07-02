@@ -55,7 +55,8 @@ This fork includes a significant refactor focused on:
 - Sentinel-aware schema validation for atomic writes
 - Clearer hook contracts and write ordering (`before*` -> validation -> write -> `after*`)
 - Optional Firestore converter support
-- Split unit and emulator-backed integration test coverage
+- Jest unit + emulator integration suites with **dual path-specific coverage gates** (integration
+  owns ORM core; merged LCOV is not gated)
 
 ## Fork & Attribution
 
@@ -3062,14 +3063,21 @@ Based on testing with Firebase Admin SDK:
 
 ## Testing Strategy
 
-This project uses a **two-tier** strategy: fast **unit** tests (no emulator) and **integration**
-tests against the Firestore emulator. CI merges coverage from both suites and enforces thresholds.
+This project uses a **two-tier Jest** strategy:
+
+| Tier            | Runner                                            | Role                                            |
+| --------------- | ------------------------------------------------- | ----------------------------------------------- |
+| **Unit**        | `jest.config.unit.js`                             | Fast checks on utils, errors, validation, mocks |
+| **Integration** | `jest.config.integration.js` + Firestore emulator | **Primary ORM safety net** — real reads/writes  |
+
+Each suite enforces **path-specific coverage gates** (not merged LCOV). A merged report would count
+a line as covered if either suite hit it, which overstates confidence for a database library.
 
 ```bash
 npm run test:unit              # Fast unit tests
 npm run test:integration:emulator  # Emulator-backed integration tests
 npm test                       # Both tiers
-npm run test:coverage:all      # Full coverage + merge gate
+npm run test:coverage:all      # Full coverage + dual gates
 ```
 
 **Full guide:** [docs/development/testing.md](docs/development/testing.md)
@@ -3079,10 +3087,12 @@ npm run test:coverage:all      # Full coverage + merge gate
 - Java Runtime (Firestore emulator)
 - `FIRESTORE_EMULATOR_HOST` defaults to `127.0.0.1:8080`
 
-### CI
+### Hooks and CI
 
-GitHub Actions runs unit and integration coverage in parallel, then merges LCOV and gates
-thresholds. See [.github/workflows/tests.yml](.github/workflows/tests.yml).
+- **Pre-push:** unit coverage + unit gate (no emulator)
+- **CI:** unit and integration jobs run in parallel; each enforces its own gate
+
+See [.github/workflows/tests.yml](.github/workflows/tests.yml).
 
 ## Contributing
 
@@ -3091,10 +3101,12 @@ Contributions are welcome! Please follow these guidelines:
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Make your changes
-4. Add tests if applicable
-5. Commit with clear messages (`git commit -m 'Add amazing feature'`)
-6. Push to your branch (`git push origin feature/amazing-feature`)
-7. Open a Pull Request
+4. Add tests — **unit** for pure logic; **integration (emulator)** for repository/query behavior
+5. Run `npm test` before opening a PR; run `npm run test:coverage:all` when changing test infra
+6. Commit with clear messages (`git commit -m 'Add amazing feature'`)
+7. Push to your branch (`git push origin feature/amazing-feature`) — pre-push runs unit coverage
+   gate
+8. Open a Pull Request — CI runs both suite gates
 
 ### Development Setup
 
@@ -3110,8 +3122,9 @@ npm test
 
 - Use TypeScript strict mode
 - Follow existing code style
-- Write tests for new features
-- Update documentation
+- Write **integration** tests for `FirestoreRepository` / `QueryBuilder` changes; **unit** tests for
+  utils and error layer
+- Update documentation (including `docs/development/testing.md` when test policy changes)
 - Keep commits focused and atomic
 
 ## License

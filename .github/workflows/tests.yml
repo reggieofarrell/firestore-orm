@@ -1,5 +1,8 @@
 name: Tests
 
+# Dual per-suite coverage gates — see docs/development/testing.md and
+# scripts/check-coverage-gates.mjs. Merged LCOV is not used as a gate.
+
 on:
   push:
     branches:
@@ -23,11 +26,13 @@ jobs:
         include:
           - label: Unit tests (coverage)
             key: unit
-            script: test:unit:coverage
+            coverage_script: test:unit:coverage
+            gate_script: test:coverage:gate:unit
             needs_java: false
           - label: Integration tests (coverage)
             key: integration
-            script: test:integration:coverage
+            coverage_script: test:integration:coverage
+            gate_script: test:coverage:gate:integration
             needs_java: true
 
     steps:
@@ -53,7 +58,12 @@ jobs:
       - name: Run ${{ matrix.label }}
         env:
           CI: true
-        run: npm run ${{ matrix.script }}
+        run: npm run ${{ matrix.coverage_script }}
+
+      - name: Enforce ${{ matrix.key }} coverage gates
+        env:
+          CI: true
+        run: npm run ${{ matrix.gate_script }}
 
       - name: Upload ${{ matrix.key }} coverage
         if: always()
@@ -61,47 +71,4 @@ jobs:
         with:
           name: coverage-${{ matrix.key }}
           path: coverage/${{ matrix.key }}
-          if-no-files-found: warn
-
-  merge:
-    name: Check coverage thresholds
-    runs-on: ubuntu-latest
-    needs: test
-    timeout-minutes: 10
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Download unit coverage
-        uses: actions/download-artifact@v4
-        with:
-          name: coverage-unit
-          path: coverage/unit
-
-      - name: Download integration coverage
-        uses: actions/download-artifact@v4
-        with:
-          name: coverage-integration
-          path: coverage/integration
-
-      - name: Merge coverage and enforce thresholds
-        env:
-          CI: true
-        run: npm run test:coverage:merge
-
-      - name: Upload merged coverage
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-merged
-          path: coverage/merged
           if-no-files-found: warn

@@ -4,12 +4,9 @@ name: Tests
 # scripts/check-coverage-gates.mjs. Merged LCOV is not used as a gate.
 
 on:
-  push:
+  pull_request:
     branches:
       - main
-      - master
-      - rf/**
-  pull_request:
 
 concurrency:
   group: tests-${{ github.ref }}

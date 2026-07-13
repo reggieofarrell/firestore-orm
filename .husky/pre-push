@@ -1,6 +1,3 @@
-#!/usr/bin/env sh
-. "$(dirname -- "$0")/_/husky.sh"
-
 # Fast local gate: unit path-specific thresholds only (no Java/emulator).
 # Integration gate runs in CI — see docs/development/testing.md.
 npm run test:unit:coverage && npm run test:coverage:gate:unit

@@ -88,6 +88,8 @@ Thank you to Happy and the original contributors for the foundation this fork bu
   logic
 - **Powerful Query Builder** - Intuitive, chainable queries with pagination, aggregation, and
   streaming
+- **Vector Search Extension** - Opt-in KNN similarity search via
+  `@reggieofarrell/firestore-orm/vector` ([guide](docs/vector-search.md))
 - **Transaction Support** - ACID guarantees for critical operations
 - **Subcollection Support** - Navigate document hierarchies naturally
 - **Dot Notation Updates** - Update nested fields without replacing entire objects
@@ -120,8 +122,12 @@ pnpm add @reggieofarrell/firestore-orm firebase-admin zod
 
 ### Peer Dependencies
 
-- `firebase-admin`: ^12.0.0 || ^13.0.0
+- `firebase-admin`: ^12.0.0 || ^13.0.0 (vector extension: >= 12 basic, >= 13 recommended)
 - `zod`: ^3.25.0 || ^4.0.0
+
+> **2.0.0** is the first release version for this maintained package under
+> `@reggieofarrell/firestore-orm`. See [CHANGELOG.md](CHANGELOG.md) for migration notes from
+> `@spacelabstech/firestoreorm`.
 
 ## Quick Start
 
@@ -390,6 +396,38 @@ const results = await orderRepo
 
 **Performance Note**: Firestore charges you per document read. Use `limit()` and pagination to
 control costs on large collections.
+
+### Vector Search (Extension)
+
+Vector similarity search is **opt-in** — import from `@reggieofarrell/firestore-orm/vector` and wrap
+your repository with `withVectorSearch()`. The core `FirestoreQueryBuilder` is unchanged.
+
+**Full guide:** [docs/vector-search.md](docs/vector-search.md)
+
+```typescript
+import { withVectorSearch } from '@reggieofarrell/firestore-orm/vector';
+import { FieldValue } from 'firebase-admin/firestore';
+
+const vectorRepo = withVectorSearch(articleRepo);
+
+await vectorRepo.create({
+  title: 'Article',
+  embedding: FieldValue.vector([0.1, 0.2, 0.3]),
+});
+
+const results = await vectorRepo
+  .query()
+  .findNearest({
+    vectorField: 'embedding',
+    queryVector: [0.1, 0.2, 0.3],
+    limit: 10,
+    distanceMeasure: 'COSINE',
+  })
+  .get();
+```
+
+Use a **top-level `embedding` field** (not nested) for reliable emulator testing and simpler index
+configuration.
 
 ## Complete Feature Guide
 

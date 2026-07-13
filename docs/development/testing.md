@@ -122,6 +122,7 @@ thresholds via `scripts/check-coverage-gates.mjs`.
 | ORM core                    | `FirestoreRepository.ts` | 90%   | 75%      | 85%       |
 | Query layer                 | `QueryBuilder.ts`        | 90%   | 75%      | 95%       |
 | Validation (emulator paths) | `Validation.ts`          | 90%   | 80%      | 95%       |
+| Vector extension (emulator) | `src/vector/**`          | 90%   | 75%      | 90%       |
 
 **Pre-push** runs `test:unit:coverage` + `test:coverage:gate:unit` (no Java/emulator).
 

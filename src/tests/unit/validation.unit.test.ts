@@ -16,6 +16,10 @@ describe('Validation utilities', () => {
       expect(isFieldValueSentinel(FieldValue.serverTimestamp())).toBe(true);
     });
 
+    it('should detect FieldValue.vector instances', () => {
+      expect(isFieldValueSentinel(FieldValue.vector([1, 2, 3]))).toBe(true);
+    });
+
     it('should return false for plain objects and primitives', () => {
       expect(isFieldValueSentinel({ foo: 'bar' })).toBe(false);
       expect(isFieldValueSentinel('text')).toBe(false);
@@ -39,6 +43,15 @@ describe('Validation utilities', () => {
           ['tags', 0],
         ]),
       );
+    });
+
+    it('should collect FieldValue.vector sentinel paths', () => {
+      const paths = collectSentinelPaths({
+        name: 'Vector Doc',
+        embedding: FieldValue.vector([1, 2, 3]),
+      });
+
+      expect(paths).toEqual(expect.arrayContaining([['embedding']]));
     });
   });
 
@@ -97,6 +110,37 @@ describe('Validation utilities', () => {
 
       expect(() => validator.parseUpdate({ score: 99 })).toThrow();
       expect(validator.parseUpdate({ name: 'Allowed' })).toEqual({ name: 'Allowed' });
+    });
+
+    it('should allow vector sentinel-only validation failures on update', () => {
+      const vectorSchema = z.object({
+        id: z.string(),
+        name: z.string().min(1),
+        embedding: z.array(z.number()).min(3),
+      });
+      const validator = makeValidator(vectorSchema);
+
+      const parsed = validator.parseUpdate({
+        embedding: FieldValue.vector([1, 2, 3]) as unknown as number[],
+      });
+
+      expect(parsed.embedding).toBeDefined();
+    });
+
+    it('should throw when vector sentinel is paired with invalid non-sentinel fields on update', () => {
+      const vectorSchema = z.object({
+        id: z.string(),
+        name: z.string().min(1),
+        embedding: z.array(z.number()).min(3),
+      });
+      const validator = makeValidator(vectorSchema);
+
+      expect(() =>
+        validator.parseUpdate({
+          name: '',
+          embedding: FieldValue.vector([1, 2, 3]) as unknown as number[],
+        }),
+      ).toThrow();
     });
   });
 });

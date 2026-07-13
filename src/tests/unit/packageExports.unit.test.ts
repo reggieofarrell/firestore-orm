@@ -24,4 +24,9 @@ describe('package exports', () => {
     expect(orm.flattenToDotNotation).toBeDefined();
     expect(orm.mergeDotNotationUpdate).toBeDefined();
   });
+
+  it('should not export vector extension symbols from the main entry', () => {
+    expect((orm as Record<string, unknown>).withVectorSearch).toBeUndefined();
+    expect((orm as Record<string, unknown>).vectorEmbeddingSchema).toBeUndefined();
+  });
 });

@@ -152,6 +152,11 @@ const INTEGRATION_GATES = [
     match: file => file === 'src/core/Validation.ts',
     thresholds: { lines: 90, branches: 80, functions: 95 },
   },
+  {
+    name: 'Vector extension (emulator)',
+    match: file => file.startsWith('src/vector/'),
+    thresholds: { lines: 90, branches: 75, functions: 90 },
+  },
 ];
 
 const gates = suiteName === 'unit' ? UNIT_GATES : INTEGRATION_GATES;

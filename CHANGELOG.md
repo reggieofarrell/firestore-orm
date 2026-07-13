@@ -125,6 +125,8 @@ the upstream package.
   **peer dependencies only** and are no longer installed transitively. The `zod` peer range was
   tightened to `^3.25.0 || ^4.0.0` (dropping `3.0.0`–`3.24.x`); the `firebase-admin` peer range is
   unchanged (`^12.0.0 || ^13.0.0`, with `>= 13` recommended for the vector extension).
+- **Breaking:** minimum supported Node raised to `>=18.0.0` (from upstream's `>=16.0.0`) via
+  `engines.node`. `firebase-admin@13` requires Node 18+, and Node 16 is end-of-life.
 - `query().update()` was rewritten: it validates and sanitizes each matching document's payload
   (stripping top-level `undefined`, converting Zod failures to `ValidationError`, skipping documents
   that reduce to no fields) and no longer supports dot-notation deep-merge. Dot-notation **path

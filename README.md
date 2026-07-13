@@ -3141,7 +3141,10 @@ Contributions are welcome! Please follow these guidelines:
 3. Make your changes
 4. Add tests — **unit** for pure logic; **integration (emulator)** for repository/query behavior
 5. Run `npm test` before opening a PR; run `npm run test:coverage:all` when changing test infra
-6. Commit with clear messages (`git commit -m 'Add amazing feature'`)
+6. Commit using [Conventional Commits](https://www.conventionalcommits.org/) (e.g.
+   `git commit -m 'feat(query): add distinct filter'`) — a `commit-msg` hook validates the format,
+   and the changelog is generated from these messages (see
+   [docs/development/releasing.md](docs/development/releasing.md))
 7. Push to your branch (`git push origin feature/amazing-feature`) — pre-push runs unit coverage
    gate
 8. Open a Pull Request — CI runs both suite gates

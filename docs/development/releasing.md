@@ -87,7 +87,8 @@ git push --follow-tags
 
 The publish workflow then:
 
-1. Installs dependencies and sets up Java (required for the Firestore emulator).
+1. Installs dependencies on Node 24 (from `.nvmrc`, which ships npm ≥ 11.5.1 for OIDC) and JDK 21
+   (required for the Firestore emulator; `firebase-tools@15` drops Java < 21).
 2. Runs `npm run test:coverage:all` — unit coverage + unit gate, then emulator integration
    coverage + integration gate (same dual gates as PR CI / local full check).
 3. Builds the package and publishes to npm via

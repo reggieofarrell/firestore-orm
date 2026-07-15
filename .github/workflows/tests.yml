@@ -34,11 +34,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
+          # Pin via .nvmrc (Node 24) so CI matches local/dev and ships npm ≥ 11.5.1.
           node-version-file: .nvmrc
           cache: npm
 
@@ -46,8 +47,9 @@ jobs:
         if: matrix.needs_java
         uses: actions/setup-java@v5
         with:
+          # firebase-tools@15 will require JDK 21+ for the Firestore emulator.
           distribution: temurin
-          java-version: 17
+          java-version: 21
 
       - name: Install dependencies
         run: npm ci

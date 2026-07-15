@@ -63,8 +63,8 @@ src/tests/
 
 ### Local integration prerequisites
 
-- Node.js 20+
-- Java (Firestore emulator)
+- Node.js 24 (see `.nvmrc`; CI and publish use the same pin)
+- JDK 21+ (Firestore emulator; `firebase-tools@15` drops Java < 21)
 - `FIRESTORE_EMULATOR_HOST` defaults to `127.0.0.1:8080`
 
 ## Integration harness

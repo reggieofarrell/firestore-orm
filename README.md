@@ -3137,7 +3137,7 @@ publish — it is not a live Codecov-style percentage.
 
 ### Quick prerequisites (integration)
 
-- Java Runtime (Firestore emulator)
+- JDK 21+ (Firestore emulator; required ahead of `firebase-tools@15`)
 - `FIRESTORE_EMULATOR_HOST` defaults to `127.0.0.1:8080`
 
 ### Hooks and CI

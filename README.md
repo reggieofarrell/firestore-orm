@@ -1,7 +1,6 @@
 # @reggieofarrell/firestore-orm
 
-A type-safe, feature-rich Firestore ORM built for the Firebase Admin SDK. Designed to make backend
-> Firestore development actually enjoyable.
+A type-safe, feature-rich Firestore ORM built for the Firebase Admin SDK. Designed to make backend Firestore development actually enjoyable.
 
 [![npm version](https://img.shields.io/npm/v/@reggieofarrell/firestore-orm.svg)](https://www.npmjs.com/package/@reggieofarrell/firestore-orm)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)

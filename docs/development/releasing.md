@@ -59,7 +59,8 @@ chore(deps): bump firebase-tools to ^14.28.0
 
 ## Cutting a release
 
-Releases are cut **locally** — you stay in control of when to publish.
+Version bumps and tags are cut **locally**. Publishing to npm happens in CI when you push a `v*` tag
+(see [`.github/workflows/publish.yml`](../../.github/workflows/publish.yml)).
 
 ```bash
 # preview the next version + changelog without writing anything
@@ -72,9 +73,8 @@ npm run release
 npm run release -- --release-as minor
 npm run release -- --release-as 2.1.0
 
-# push the release commit and its tag, then publish
+# push the release commit and tag — CI runs coverage gates, builds, and publishes
 git push --follow-tags
-npm publish
 ```
 
 `npm run release` will:
@@ -84,6 +84,27 @@ npm publish
    run Prettier over it.
 3. Bump `version` in `package.json`.
 4. Create a `chore(release): x.y.z` commit and a `vx.y.z` git tag.
+
+The publish workflow then:
+
+1. Installs dependencies and sets up Java (required for the Firestore emulator).
+2. Runs `npm run test:coverage:all` — unit coverage + unit gate, then emulator integration
+   coverage + integration gate (same dual gates as PR CI / local full check).
+3. Builds the package and publishes to npm via
+   [Trusted Publishing (OIDC)](https://docs.npmjs.com/trusted-publishers/) — no long-lived
+   `NPM_TOKEN`.
+
+### First-time npm setup
+
+Trusted Publishing only works after the package exists on the registry. Bootstrap once:
+
+1. Publish the first version manually (`npm login` then `npm publish --access public`), **or** use a
+   one-time granular token and revoke it afterward.
+2. On npmjs.com → package **Settings → Trusted Publisher**, choose GitHub Actions and set:
+   - Organization or user / repository: `reggieofarrell` / `firestore-orm`
+   - Workflow filename: `publish.yml` (must match exactly)
+   - Allowed action: `npm publish`
+3. After a successful OIDC publish: **Publishing access** → require 2FA and **disallow tokens**.
 
 ### One-time baseline tag
 
@@ -98,9 +119,15 @@ git push origin v2.0.0
 
 After that, every `npm run release` diffs from the most recent `vx.y.z` tag.
 
+> **Note:** Pushing `v2.0.0` will trigger the publish workflow. Complete the first-time npm setup
+> above before pushing that tag if you want CI to publish `2.0.0`, or publish `2.0.0` manually first
+> and use tags only for subsequent releases.
+
 ## Configuration
 
 - [`.versionrc.json`](../../.versionrc.json) — changelog section mapping, commit/compare URL
   formats, and the `postchangelog` Prettier hook.
 - [`commitlint.config.js`](../../commitlint.config.js) — extends `@commitlint/config-conventional`.
 - [`.husky/commit-msg`](../../.husky/commit-msg) — runs commitlint on each commit message.
+- [`.github/workflows/publish.yml`](../../.github/workflows/publish.yml) — tag-triggered npm publish
+  with coverage gates and OIDC Trusted Publishing.

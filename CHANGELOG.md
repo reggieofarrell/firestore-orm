@@ -5,6 +5,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1](https://github.com/reggieofarrell/firestore-orm/compare/v2.0.0...v2.0.1) (2026-07-15)
+
+### Documentation
+
+- add coverage badge and release thresholds to README
+  ([#4](https://github.com/reggieofarrell/firestore-orm/issues/4))
+  ([6a4c428](https://github.com/reggieofarrell/firestore-orm/commit/6a4c428890fbefbc25eac5a3ef2e90888fe482ab))
+
 ## [2.0.0] - 2026-07-08
 
 First intentional release under `@reggieofarrell/firestore-orm`. This is a maintained fork and major

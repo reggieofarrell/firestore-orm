@@ -1,0 +1,77 @@
+name: Publish Package
+
+# Publishes @reggieofarrell/firestore-orm to npm when a release tag is pushed.
+# Auth uses npm Trusted Publishing (OIDC) — no long-lived NPM_TOKEN secret.
+# See: https://docs.npmjs.com/trusted-publishers/
+#
+# Prerequisites (one-time, on npmjs.com after the first manual publish):
+#   Package Settings → Trusted Publisher → GitHub Actions
+#   - Repository: reggieofarrell/firestore-orm
+#   - Workflow filename: publish.yml  (must match this file's name exactly)
+#   - Allowed action: npm publish
+# After OIDC works: Publishing access → require 2FA and disallow tokens.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  # Required so the npm CLI can exchange a short-lived GitHub OIDC token
+  # for publish rights. Without this, Trusted Publishing cannot authenticate.
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    name: Test, build, and publish
+    runs-on: ubuntu-latest
+    # Emulator-backed integration coverage can take longer than unit-only CI jobs.
+    timeout-minutes: 20
+    # Uncomment after creating a matching GitHub Environment and wiring it
+    # into the Trusted Publisher config on npmjs.com (optional approval gate):
+    # environment: npm
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          # Pin via .nvmrc so publish uses the same Node line as local/dev CI.
+          # Trusted Publishing also requires Node ≥ 22.14 and npm CLI ≥ 11.5.1.
+          node-version-file: .nvmrc
+          registry-url: 'https://registry.npmjs.org'
+          cache: npm
+
+      # Firestore emulator (firebase emulators:exec) needs a JRE. Same setup
+      # as the integration matrix job in tests.yml — without this, coverage:all fails.
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Same dual-suite gate used as the local release confidence check:
+      # unit coverage + unit gate, then emulator integration coverage + integration gate.
+      # See docs/development/testing.md — merged LCOV is intentionally not a gate.
+      - name: Run tests with coverage gates
+        env:
+          CI: true
+        run: npm run test:coverage:all
+
+      # Explicit build before publish so a compile failure fails the job before
+      # talking to the registry. prepublishOnly also builds; this makes the
+      # release path obvious in the Actions log.
+      - name: Build
+        run: npm run build
+
+      # No NODE_AUTH_TOKEN — the npm CLI detects the OIDC environment and
+      # authenticates via Trusted Publishing. Provenance is attached automatically
+      # for public packages from public repos.
+      - name: Publish to npm
+        run: npm publish

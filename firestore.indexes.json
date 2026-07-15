@@ -1,0 +1,35 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "test_vectors",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "embedding",
+          "vectorConfig": {
+            "dimension": 3,
+            "flat": {}
+          }
+        }
+      ]
+    },
+    {
+      "collectionGroup": "test_vectors_prefilter",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "category",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "embedding",
+          "vectorConfig": {
+            "dimension": 3,
+            "flat": {}
+          }
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

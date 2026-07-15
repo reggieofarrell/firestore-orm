@@ -1,50 +1,50 @@
 name: Tests
 
+# Dual per-suite coverage gates — see docs/development/testing.md and
+# scripts/check-coverage-gates.mjs. Merged LCOV is not used as a gate.
+
 on:
-  push:
+  pull_request:
     branches:
       - main
-      - master
-      - rf/**
-  pull_request:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  unit-tests:
-    name: Unit Tests
+  test:
+    name: ${{ matrix.label }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Unit tests (coverage)
+            key: unit
+            coverage_script: test:unit:coverage
+            gate_script: test:coverage:gate:unit
+            needs_java: false
+          - label: Integration tests (coverage)
+            key: integration
+            coverage_script: test:integration:coverage
+            gate_script: test:coverage:gate:integration
+            needs_java: true
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run unit tests
-        run: npm run test:unit
-
-  integration-tests:
-    name: Integration Tests (Firestore Emulator)
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
+          node-version-file: .nvmrc
           cache: npm
 
       - name: Setup Java
-        uses: actions/setup-java@v4
+        if: matrix.needs_java
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
@@ -52,5 +52,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run integration tests against emulator
-        run: npm run test:integration:emulator
+      - name: Run ${{ matrix.label }}
+        env:
+          CI: true
+        run: npm run ${{ matrix.coverage_script }}
+
+      - name: Enforce ${{ matrix.key }} coverage gates
+        env:
+          CI: true
+        run: npm run ${{ matrix.gate_script }}
+
+      - name: Upload ${{ matrix.key }} coverage
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-${{ matrix.key }}
+          path: coverage/${{ matrix.key }}
+          if-no-files-found: warn

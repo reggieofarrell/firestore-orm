@@ -728,6 +728,14 @@ export class FirestoreQueryBuilder<T extends { id?: string }> {
   }
 
   /**
+   * Returns the underlying Firestore query for package-internal composition.
+   * @internal Used by `@reggieofarrell/firestore-orm/vector`.
+   */
+  getUnderlyingQuery(): Query<any> {
+    return this.query;
+  }
+
+  /**
    * Execute the query and return all matching documents.
    * This is the main method to retrieve query results.
    *
@@ -757,4 +765,14 @@ export class FirestoreQueryBuilder<T extends { id?: string }> {
       throw parseFirestoreError(error);
     }
   }
+}
+
+/**
+ * Returns the underlying Firestore Query for package-internal composition.
+ * Used by the vector search extension (`@reggieofarrell/firestore-orm/vector`).
+ */
+export function getQueryRef<T extends { id?: string }>(
+  builder: FirestoreQueryBuilder<T>,
+): Query<any> {
+  return builder.getUnderlyingQuery();
 }

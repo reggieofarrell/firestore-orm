@@ -33,8 +33,9 @@
 ## About This Project
 
 `@reggieofarrell/firestore-orm` is a maintained fork and continuation of the original
-[spacelabs-firestoreorm](https://github.com/HBFLEX/spacelabs-firestoreorm) project. It keeps the same
-core goal: make backend Firestore development in Node.js type-safe, productive, and production-ready.
+[spacelabs-firestoreorm](https://github.com/HBFLEX/spacelabs-firestoreorm) project. It keeps the
+same core goal: make backend Firestore development in Node.js type-safe, productive, and
+production-ready.
 
 If you've built with Firestore on the server, you probably recognize the recurring pain points:
 
@@ -54,13 +55,15 @@ This fork includes a significant refactor focused on:
 - Sentinel-aware schema validation for atomic writes
 - Clearer hook contracts and write ordering (`before*` -> validation -> write -> `after*`)
 - Optional Firestore converter support
-- Split unit and emulator-backed integration test coverage
+- Jest unit + emulator integration suites with **dual path-specific coverage gates** (integration
+  owns ORM core; merged LCOV is not gated)
 
 ## Fork & Attribution
 
-This project is derived from work originally created by **Happy Banda ([HBFL3Xx](https://github.com/HBFLEX))**
-and published as [`@spacelabstech/firestoreorm`](https://www.npmjs.com/package/@spacelabstech/firestoreorm)
-from the repository [HBFLEX/spacelabs-firestoreorm](https://github.com/HBFLEX/spacelabs-firestoreorm).
+This project is derived from work originally created by **Happy Banda
+([HBFL3Xx](https://github.com/HBFLEX))** and published as
+[`@spacelabstech/firestoreorm`](https://www.npmjs.com/package/@spacelabstech/firestoreorm) from the
+repository [HBFLEX/spacelabs-firestoreorm](https://github.com/HBFLEX/spacelabs-firestoreorm).
 
 That upstream project is licensed under the **MIT License** (Copyright (c) 2025 HBFL3Xx). This fork
 preserves that license and copyright notice, adds copyright for subsequent modifications, and
@@ -85,6 +88,8 @@ Thank you to Happy and the original contributors for the foundation this fork bu
   logic
 - **Powerful Query Builder** - Intuitive, chainable queries with pagination, aggregation, and
   streaming
+- **Vector Search Extension** - Opt-in KNN similarity search via
+  `@reggieofarrell/firestore-orm/vector` ([guide](docs/vector-search.md))
 - **Transaction Support** - ACID guarantees for critical operations
 - **Subcollection Support** - Navigate document hierarchies naturally
 - **Dot Notation Updates** - Update nested fields without replacing entire objects
@@ -117,8 +122,12 @@ pnpm add @reggieofarrell/firestore-orm firebase-admin zod
 
 ### Peer Dependencies
 
-- `firebase-admin`: ^12.0.0 || ^13.0.0
+- `firebase-admin`: ^12.0.0 || ^13.0.0 (vector extension: >= 12 basic, >= 13 recommended)
 - `zod`: ^3.25.0 || ^4.0.0
+
+> **2.0.0** is the first release version for this maintained package under
+> `@reggieofarrell/firestore-orm`. See [CHANGELOG.md](CHANGELOG.md) for migration notes from
+> `@spacelabstech/firestoreorm`.
 
 ## Quick Start
 
@@ -285,9 +294,11 @@ try {
 
 - Include a required top-level `id` field in schemas passed to `withSchema(...)`
 - `create()` validates against an internal write schema derived from `schema.omit({ id: true })`
-- `update()` validates against an internal update schema derived from `schema.omit({ id: true }).partial()`
+- `update()` validates against an internal update schema derived from
+  `schema.omit({ id: true }).partial()`
 - top-level `id` is ignored/stripped from create/update/patch payloads before validation and writes
-- only the document-level top-level `id` is stripped; nested IDs (for example `items[].id`) are treated as normal domain data
+- only the document-level top-level `id` is stripped; nested IDs (for example `items[].id`) are
+  treated as normal domain data
 - Write operations follow this sequence: `before*` hook -> validation -> Firestore write -> `after*`
   hook
 - Validation errors are thrown after `before*` hooks run and before any Firestore write occurs
@@ -385,6 +396,38 @@ const results = await orderRepo
 
 **Performance Note**: Firestore charges you per document read. Use `limit()` and pagination to
 control costs on large collections.
+
+### Vector Search (Extension)
+
+Vector similarity search is **opt-in** — import from `@reggieofarrell/firestore-orm/vector` and wrap
+your repository with `withVectorSearch()`. The core `FirestoreQueryBuilder` is unchanged.
+
+**Full guide:** [docs/vector-search.md](docs/vector-search.md)
+
+```typescript
+import { withVectorSearch } from '@reggieofarrell/firestore-orm/vector';
+import { FieldValue } from 'firebase-admin/firestore';
+
+const vectorRepo = withVectorSearch(articleRepo);
+
+await vectorRepo.create({
+  title: 'Article',
+  embedding: FieldValue.vector([0.1, 0.2, 0.3]),
+});
+
+const results = await vectorRepo
+  .query()
+  .findNearest({
+    vectorField: 'embedding',
+    queryVector: [0.1, 0.2, 0.3],
+    limit: 10,
+    distanceMeasure: 'COSINE',
+  })
+  .get();
+```
+
+Use a **top-level `embedding` field** (not nested) for reliable emulator testing and simpler index
+configuration.
 
 ## Complete Feature Guide
 
@@ -938,8 +981,8 @@ await userRepo.update('user-123', {
 
 **4. Transaction Requirements**
 
-`updateInTransaction()` supports dot notation directly. Use `getForUpdateInTransaction()` only when your
-transaction logic needs the existing document state.
+`updateInTransaction()` supports dot notation directly. Use `getForUpdateInTransaction()` only when
+your transaction logic needs the existing document state.
 
 ```typescript
 // Valid - read first only when needed by business logic
@@ -3058,65 +3101,36 @@ Based on testing with Firebase Admin SDK:
 
 ## Testing Strategy
 
-This project uses a hybrid strategy with two test tiers:
+This project uses a **two-tier Jest** strategy:
 
-- **Unit tests**: fast and isolated, with no emulator and no Java requirement.
-- **Integration tests**: run against the Firestore Emulator for real query, transaction, and
-  sentinel semantics.
+| Tier            | Runner                                            | Role                                            |
+| --------------- | ------------------------------------------------- | ----------------------------------------------- |
+| **Unit**        | `jest.config.unit.js`                             | Fast checks on utils, errors, validation, mocks |
+| **Integration** | `jest.config.integration.js` + Firestore emulator | **Primary ORM safety net** — real reads/writes  |
 
-### Test Commands
-
-```bash
-# Run only fast unit tests
-npm run test:unit
-
-# Start Firestore emulator (keep this running in a separate terminal)
-npm run emulator:start
-
-# Run integration tests
-npm run test:integration
-
-# Or run integration tests with emulator auto-start/stop
-npm run test:integration:emulator
-
-# Run both tiers
-npm test
-```
-
-### Local Prerequisites for Integration Tests
-
-- Node.js and npm
-- Java Runtime (required by Firestore Emulator)
-
-### Environment Variables
-
-Integration tests target the Firestore emulator host via `FIRESTORE_EMULATOR_HOST`. If not set, the
-test harness defaults to `127.0.0.1:8080`.
-
-To override the default host/port, set:
+Each suite enforces **path-specific coverage gates** (not merged LCOV). A merged report would count
+a line as covered if either suite hit it, which overstates confidence for a database library.
 
 ```bash
-export FIRESTORE_EMULATOR_HOST=127.0.0.1:8080
+npm run test:unit              # Fast unit tests
+npm run test:integration:emulator  # Emulator-backed integration tests
+npm test                       # Both tiers
+npm run test:coverage:all      # Full coverage + dual gates
 ```
 
-Set this when your emulator runs on a non-default port or host.
+**Full guide:** [docs/development/testing.md](docs/development/testing.md)
 
-### CI Notes
+### Quick prerequisites (integration)
 
-- CI should install Java before running integration tests.
-- Use `npm run test:integration:emulator` for a single-command integration run with automatic
-  emulator lifecycle.
-- If using `npm run test:integration` directly in CI, start the Firestore emulator first.
-- Unit and integration tests should run as separate jobs so fast failures are reported quickly.
+- Java Runtime (Firestore emulator)
+- `FIRESTORE_EMULATOR_HOST` defaults to `127.0.0.1:8080`
 
-### Troubleshooting
+### Hooks and CI
 
-- **Emulator not reachable at default host**: Start it with `npm run emulator:start`, or export
-  `FIRESTORE_EMULATOR_HOST` to your custom host/port.
-- **Port `8080` already in use**: Stop the conflicting process or change the Firestore emulator port
-  in `firebase.json`.
-- **Java errors when starting emulator**: Ensure a supported JRE/JDK is installed and available in
-  `PATH`.
+- **Pre-push:** unit coverage + unit gate (no emulator)
+- **CI:** unit and integration jobs run in parallel; each enforces its own gate
+
+See [.github/workflows/tests.yml](.github/workflows/tests.yml).
 
 ## Contributing
 
@@ -3125,10 +3139,15 @@ Contributions are welcome! Please follow these guidelines:
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Make your changes
-4. Add tests if applicable
-5. Commit with clear messages (`git commit -m 'Add amazing feature'`)
-6. Push to your branch (`git push origin feature/amazing-feature`)
-7. Open a Pull Request
+4. Add tests — **unit** for pure logic; **integration (emulator)** for repository/query behavior
+5. Run `npm test` before opening a PR; run `npm run test:coverage:all` when changing test infra
+6. Commit using [Conventional Commits](https://www.conventionalcommits.org/) (e.g.
+   `git commit -m 'feat(query): add distinct filter'`) — a `commit-msg` hook validates the format,
+   and the changelog is generated from these messages (see
+   [docs/development/releasing.md](docs/development/releasing.md))
+7. Push to your branch (`git push origin feature/amazing-feature`) — pre-push runs unit coverage
+   gate
+8. Open a Pull Request — CI runs both suite gates
 
 ### Development Setup
 
@@ -3144,8 +3163,9 @@ npm test
 
 - Use TypeScript strict mode
 - Follow existing code style
-- Write tests for new features
-- Update documentation
+- Write **integration** tests for `FirestoreRepository` / `QueryBuilder` changes; **unit** tests for
+  utils and error layer
+- Update documentation (including `docs/development/testing.md` when test policy changes)
 - Keep commits focused and atomic
 
 ## License
@@ -3153,15 +3173,17 @@ npm test
 This project is licensed under the **MIT License**.
 
 - Full license text: [LICENSE](https://github.com/reggieofarrell/firestore-orm/blob/main/LICENSE)
-- Fork attribution notice: [NOTICE](https://github.com/reggieofarrell/firestore-orm/blob/main/NOTICE)
-- Original upstream license: [HBFLEX/spacelabs-firestoreorm LICENSE](https://github.com/HBFLEX/spacelabs-firestoreorm/blob/main/LICENSE)
+- Fork attribution notice:
+  [NOTICE](https://github.com/reggieofarrell/firestore-orm/blob/main/NOTICE)
+- Original upstream license:
+  [HBFLEX/spacelabs-firestoreorm LICENSE](https://github.com/HBFLEX/spacelabs-firestoreorm/blob/main/LICENSE)
 
 ### Derivative work notice
 
-This repository is a fork of [HBFLEX/spacelabs-firestoreorm](https://github.com/HBFLEX/spacelabs-firestoreorm).
-Under the MIT License, you may use, modify, and distribute this software provided that **all copies
-include the original copyright notice, permission notice, and this repository's NOTICE file** where
-applicable.
+This repository is a fork of
+[HBFLEX/spacelabs-firestoreorm](https://github.com/HBFLEX/spacelabs-firestoreorm). Under the MIT
+License, you may use, modify, and distribute this software provided that **all copies include the
+original copyright notice, permission notice, and this repository's NOTICE file** where applicable.
 
 Current copyright holders in this repository:
 

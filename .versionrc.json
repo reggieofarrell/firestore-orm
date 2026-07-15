@@ -1,0 +1,22 @@
+{
+  "header": "# Changelog\n\nAll notable changes to this project are documented in this file.\n\nThe format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project\nadheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).\n",
+  "types": [
+    { "type": "feat", "section": "Added" },
+    { "type": "fix", "section": "Fixed" },
+    { "type": "perf", "section": "Changed" },
+    { "type": "refactor", "section": "Changed" },
+    { "type": "revert", "section": "Changed" },
+    { "type": "docs", "section": "Documentation" },
+    { "type": "chore", "hidden": true },
+    { "type": "style", "hidden": true },
+    { "type": "test", "hidden": true },
+    { "type": "build", "hidden": true },
+    { "type": "ci", "hidden": true }
+  ],
+  "commitUrlFormat": "https://github.com/reggieofarrell/firestore-orm/commit/{{hash}}",
+  "compareUrlFormat": "https://github.com/reggieofarrell/firestore-orm/compare/{{previousTag}}...{{currentTag}}",
+  "issueUrlFormat": "https://github.com/reggieofarrell/firestore-orm/issues/{{id}}",
+  "scripts": {
+    "postchangelog": "prettier --write CHANGELOG.md"
+  }
+}

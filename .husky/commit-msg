@@ -1,0 +1,2 @@
+# Validate the commit message against Conventional Commits (drives changelog generation)
+npx --no-install commitlint --edit "$1"

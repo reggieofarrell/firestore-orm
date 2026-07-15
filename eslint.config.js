@@ -12,6 +12,7 @@ export default [
       '**/*.test.ts',
       '**/*.spec.ts',
       '**/benchmarks/**',
+      'scripts/**',
     ],
   },
   // Recommended JavaScript rules

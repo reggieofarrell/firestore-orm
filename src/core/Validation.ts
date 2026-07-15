@@ -20,6 +20,23 @@ type PathSegment = string | number;
 type Path = PathSegment[];
 
 /**
+ * Detects Firestore vector write values produced by `FieldValue.vector()`.
+ * In current firebase-admin releases this is a `VectorValue` instance, not a `FieldValue`.
+ */
+function isVectorWriteValue(value: unknown): boolean {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const vectorValue = value as { _values?: unknown };
+  return (
+    Array.isArray(vectorValue._values) &&
+    vectorValue._values.length > 0 &&
+    vectorValue._values.every(entry => typeof entry === 'number' && !Number.isNaN(entry))
+  );
+}
+
+/**
  * Checks whether a value is a Firestore FieldValue sentinel instance.
  * Uses the exported FieldValue class first and a structural fallback for edge cases.
  */
@@ -28,16 +45,24 @@ export function isFieldValueSentinel(value: unknown): boolean {
     return false;
   }
 
+  if (isVectorWriteValue(value)) {
+    return true;
+  }
+
   if (value instanceof FieldValue) {
     return true;
   }
 
   const sentinel = value as { isEqual?: unknown; toString?: unknown };
-  return (
+  if (
     typeof sentinel.isEqual === 'function' &&
     typeof sentinel.toString === 'function' &&
     String(sentinel.toString()).includes('FieldValue')
-  );
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 /**

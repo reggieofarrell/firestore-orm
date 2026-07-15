@@ -343,4 +343,41 @@ describe('FirestoreRepository hook-first validation ordering', () => {
       await cleanupValidatedRepo(repo);
     }
   });
+
+  it('should reject create payloads when sentinel fields pass but other fields fail validation', async () => {
+    const repo = createValidatedRepo(db);
+
+    try {
+      await expect(
+        repo.create({
+          name: '',
+          score: 1,
+          createdAt: FieldValue.serverTimestamp() as unknown as string,
+        } as HookValidatedUser),
+      ).rejects.toBeInstanceOf(ValidationError);
+    } finally {
+      await cleanupValidatedRepo(repo);
+    }
+  });
+
+  it('should reject update payloads when sentinel fields pass but other fields fail validation', async () => {
+    const repo = createValidatedRepo(db);
+
+    try {
+      const created = await repo.create({
+        name: 'Mixed Sentinel Failure',
+        score: 1,
+        createdAt: new Date().toISOString(),
+      } as HookValidatedUser);
+
+      await expect(
+        repo.update(created.id, {
+          name: '',
+          score: FieldValue.increment(1) as unknown as number,
+        }),
+      ).rejects.toBeInstanceOf(ValidationError);
+    } finally {
+      await cleanupValidatedRepo(repo);
+    }
+  });
 });

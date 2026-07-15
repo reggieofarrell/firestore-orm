@@ -169,3 +169,49 @@ export async function cleanupValidatedRepo(
     await repo.bulkDelete(docs.map(doc => doc.id));
   }
 }
+
+/**
+ * Document shape for vector search integration tests.
+ * Uses a top-level `embedding` field (recommended for emulator reliability).
+ */
+export interface VectorDoc {
+  id: string;
+  name: string;
+  category?: string;
+  status?: string;
+}
+
+const VECTOR_COLLECTION = 'test_vectors';
+const VECTOR_PREFILTER_COLLECTION = 'test_vectors_prefilter';
+
+/**
+ * Creates repositories for vector search integration tests.
+ * Collection names are fixed to align with firestore.indexes.json vector indexes.
+ */
+export function createVectorDocRepoHarness() {
+  const db = getIntegrationDb();
+  const vectorRepo = new FirestoreRepository<VectorDoc>(db, VECTOR_COLLECTION);
+  const prefilterRepo = new FirestoreRepository<VectorDoc>(db, VECTOR_PREFILTER_COLLECTION);
+
+  const cleanupVectorCollections = async () => {
+    const [vectorDocs, prefilterDocs] = await Promise.all([
+      vectorRepo.query().get(),
+      prefilterRepo.query().get(),
+    ]);
+
+    if (vectorDocs.length > 0) {
+      await vectorRepo.bulkDelete(vectorDocs.map(doc => doc.id));
+    }
+
+    if (prefilterDocs.length > 0) {
+      await prefilterRepo.bulkDelete(prefilterDocs.map(doc => doc.id));
+    }
+  };
+
+  return {
+    db,
+    vectorRepo,
+    prefilterRepo,
+    cleanupVectorCollections,
+  };
+}

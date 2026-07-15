@@ -1,11 +1,7 @@
 # @reggieofarrell/firestore-orm
 
-> A type-safe, feature-rich Firestore ORM built for the Firebase Admin SDK. Designed to make backend
+A type-safe, feature-rich Firestore ORM built for the Firebase Admin SDK. Designed to make backend
 > Firestore development actually enjoyable.
->
-> Fork and continuation of
-> [spacelabs-firestoreorm](https://github.com/HBFLEX/spacelabs-firestoreorm) v.1.1.0 by
-> [HBFL3Xx](https://github.com/HBFLEX).
 
 [![npm version](https://img.shields.io/npm/v/@reggieofarrell/firestore-orm.svg)](https://www.npmjs.com/package/@reggieofarrell/firestore-orm)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -33,7 +29,7 @@
 ## About This Project
 
 `@reggieofarrell/firestore-orm` is a maintained fork and continuation of the original
-[spacelabs-firestoreorm](https://github.com/HBFLEX/spacelabs-firestoreorm) project. It keeps the
+[spacelabs-firestoreorm](https://github.com/HBFLEX/spacelabs-firestoreorm) (v1.0.0) project. It keeps the
 same core goal: make backend Firestore development in Node.js type-safe, productive, and
 production-ready.
 

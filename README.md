@@ -4,7 +4,7 @@
 > Firestore development actually enjoyable.
 >
 > Fork and continuation of
-> [spacelabs-firestoreorm](https://github.com/HBFLEX/spacelabs-firestoreorm) by
+> [spacelabs-firestoreorm](https://github.com/HBFLEX/spacelabs-firestoreorm) v.1.1.0 by
 > [HBFL3Xx](https://github.com/HBFLEX).
 
 [![npm version](https://img.shields.io/npm/v/@reggieofarrell/firestore-orm.svg)](https://www.npmjs.com/package/@reggieofarrell/firestore-orm)

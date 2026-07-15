@@ -1,8 +1,10 @@
 # @reggieofarrell/firestore-orm
 
-A type-safe, feature-rich Firestore ORM built for the Firebase Admin SDK. Designed to make backend Firestore development actually enjoyable.
+A type-safe, thoroughly tested, feature-rich Firestore ORM built for the Firebase Admin SDK.
+Designed to make backend Firestore development actually enjoyable.
 
 [![npm version](https://img.shields.io/npm/v/@reggieofarrell/firestore-orm.svg)](https://www.npmjs.com/package/@reggieofarrell/firestore-orm)
+[![Coverage](https://img.shields.io/badge/coverage-dual%20gated-brightgreen.svg)](#coverage-thresholds)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
 
@@ -28,8 +30,8 @@ A type-safe, feature-rich Firestore ORM built for the Firebase Admin SDK. Design
 ## About This Project
 
 `@reggieofarrell/firestore-orm` is a maintained fork and continuation of the original
-[spacelabs-firestoreorm](https://github.com/HBFLEX/spacelabs-firestoreorm) (v1.0.0) project. It keeps the
-same core goal: make backend Firestore development in Node.js type-safe, productive, and
+[spacelabs-firestoreorm](https://github.com/HBFLEX/spacelabs-firestoreorm) (v1.0.0) project. It
+keeps the same core goal: make backend Firestore development in Node.js type-safe, productive, and
 production-ready.
 
 If you've built with Firestore on the server, you probably recognize the recurring pain points:
@@ -3115,6 +3117,24 @@ npm run test:coverage:all      # Full coverage + dual gates
 
 **Full guide:** [docs/development/testing.md](docs/development/testing.md)
 
+### Coverage thresholds
+
+Releases require `npm run test:coverage:all` to pass (publish CI runs the same check). Thresholds
+are enforced per suite by `scripts/check-coverage-gates.mjs` — not by a single global percentage.
+
+| Suite           | Scope                                         | Lines | Branches | Functions |
+| --------------- | --------------------------------------------- | ----- | -------- | --------- |
+| **Unit**        | `src/utils/**`                                | 95%   | 90%      | 90%       |
+| **Unit**        | Errors, ErrorParser, ErrorHandler, Validation | 90%   | 85%      | 90%       |
+| **Unit**        | `src/index.ts`                                | 100%  | 100%     | 65%       |
+| **Integration** | `FirestoreRepository.ts`                      | 90%   | 75%      | 85%       |
+| **Integration** | `QueryBuilder.ts`                             | 90%   | 75%      | 95%       |
+| **Integration** | `Validation.ts` (emulator paths)              | 90%   | 80%      | 95%       |
+| **Integration** | `src/vector/**`                               | 90%   | 75%      | 90%       |
+
+The static **coverage** badge above means these dual gates are enforced on PR CI and before npm
+publish — it is not a live Codecov-style percentage.
+
 ### Quick prerequisites (integration)
 
 - Java Runtime (Firestore emulator)
@@ -3124,8 +3144,10 @@ npm run test:coverage:all      # Full coverage + dual gates
 
 - **Pre-push:** unit coverage + unit gate (no emulator)
 - **CI:** unit and integration jobs run in parallel; each enforces its own gate
+- **Publish:** `test:coverage:all` must pass before the package is published to npm
 
-See [.github/workflows/tests.yml](.github/workflows/tests.yml).
+See [.github/workflows/tests.yml](.github/workflows/tests.yml) and
+[docs/development/releasing.md](docs/development/releasing.md).
 
 ## Contributing
 

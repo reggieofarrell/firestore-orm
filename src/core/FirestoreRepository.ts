@@ -697,6 +697,41 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
   }
 
   /**
+   * Reconstruct the read-typed document from a raw Firestore snapshot.
+   *
+   * This is for snapshots the repository did not read itself — most commonly the snapshot delivered
+   * to a Firestore trigger cloud function (`onDocumentCreated` / `onDocumentUpdated` /
+   * `onDocumentDeleted`). Such snapshots are **not** converter-applied (the Admin SDK only runs a
+   * converter's `fromFirestore` for refs built via `withConverter`) and carry no `id` in
+   * `snapshot.data()`, so a bare `snapshot.data() as T` cast is unsafe. `fromSnapshot` applies this
+   * repository's converter `fromFirestore` when one is configured, then overlays the document `id`
+   * from `snapshot.id` — mirroring exactly what a normal repository read returns.
+   *
+   * Does no Firestore I/O. Returns the read model `T` (not the write model `W`), and `null` when the
+   * snapshot does not exist. Validation is not performed here (reads are not validated); to validate
+   * at a trust boundary, run the result through the read schema, e.g.
+   * `repo.schemas?.read.parse(repo.fromSnapshot(snap))`.
+   *
+   * @param snapshot - A Firestore `DocumentSnapshot` / `QueryDocumentSnapshot`
+   * @returns The document as `T & { id }`, or `null` if the snapshot does not exist
+   *
+   * @example
+   * // firebase-functions v2 trigger
+   * export const onUserCreated = onDocumentCreated('users/{userId}', event => {
+   *   const user = event.data && userRepo.fromSnapshot(event.data);
+   *   if (!user) return;
+   *   // `user` is a fully reconstructed User & { id }
+   * });
+   */
+  fromSnapshot(snapshot: FirebaseFirestore.DocumentSnapshot): (T & { id: ID }) | null {
+    if (!snapshot.exists) return null;
+    const data = this.converter
+      ? this.converter.fromFirestore(snapshot as FirebaseFirestore.QueryDocumentSnapshot)
+      : (snapshot.data() as T);
+    return { ...(data as T), id: snapshot.id };
+  }
+
+  /**
    * Update an existing document with partial data.
    * Supports both regular fields and dot notation for nested updates.
    *

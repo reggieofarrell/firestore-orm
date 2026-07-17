@@ -45,6 +45,7 @@ covers installation and a quick start; everything below goes deeper, one topic p
 | Page                                                | What it covers                                      |
 | --------------------------------------------------- | --------------------------------------------------- |
 | [Framework Integration](./framework-integration.md) | Express.js and NestJS wiring                        |
+| [Firestore Triggers](./triggers.md)                 | Mapping trigger snapshots with `fromSnapshot`       |
 | [Vector Search](./vector-search.md)                 | The optional `./vector` extension and `findNearest` |
 
 ### Guidance

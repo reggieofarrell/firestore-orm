@@ -60,6 +60,13 @@ Get document by ID. Resolves to `null` when the document does not exist.
 
 Get document by ID; throws `NotFoundError` when missing.
 
+**`fromSnapshot(snapshot: DocumentSnapshot): (T & { id: ID }) | null`**
+
+Map a raw Firestore snapshot — e.g. the one delivered to a trigger cloud function — to `T & { id }`,
+applying the repository's converter `fromFirestore` when configured and overlaying the document
+`id`. Does no Firestore I/O; returns the read model `T` (not `W`), and `null` for a non-existent
+snapshot. Not validated (like other reads); see [Using with Firestore triggers](./triggers.md).
+
 **`getAll(): Promise<(T & { id: ID })[]>`**
 
 Get all documents in the collection.

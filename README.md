@@ -401,26 +401,98 @@ const userRepo = FirestoreRepository.withSchema<User>(db, 'users', userWrite, un
 ### Storing a Timestamp, reading a millisecond number
 
 A common pattern is to store a Firestore `Timestamp` but work with milliseconds-since-epoch
-`number`s in application code. Write a native `Date` or `FieldValue.serverTimestamp()` (validated
-with `zDateWrite()`), and convert `Timestamp -> number` on read with a small
-`FirestoreDataConverter`:
+`number`s in application code. Define a plain **base schema** as the read shape (so `z.infer` gives
+a clean, shareable type), then `.extend` the temporal field with `zDateWrite()` for write
+validation, and convert `Timestamp -> number` on read with `createMillisTimestampConverter`:
 
 ```typescript
-import { Timestamp, FieldValue, FirestoreDataConverter } from 'firebase-admin/firestore';
-import { FirestoreRepository, zDateWrite } from '@reggieofarrell/firestore-orm';
+import { FieldValue } from 'firebase-admin/firestore';
+import {
+  FirestoreRepository,
+  zDateWrite,
+  createMillisTimestampConverter,
+} from '@reggieofarrell/firestore-orm';
 import { z } from 'zod';
 
-interface EventDoc {
-  id: string;
-  name: string;
-  happenedAt: number; // ms since epoch on read
-}
-
-const eventWrite = z.object({
+// Base schema = the read shape. `happenedAt` reads as an ms number. This is zod-only, so its
+// inferred type is a clean API-contract type you can share (e.g. with a front-end).
+const eventBase = z.object({
   id: z.string(),
   name: z.string().min(1),
-  happenedAt: zDateWrite(), // Date | serverTimestamp() (a raw number is rejected)
+  happenedAt: z.number(), // ms since epoch on read
 });
+type EventDoc = z.infer<typeof eventBase>;
+
+// Write overlay: swap the temporal field to accept a Date or serverTimestamp() (a raw number is
+// rejected). Only write validation widens — the read type stays the plain `EventDoc`.
+const eventWrite = eventBase.extend({
+  happenedAt: zDateWrite(),
+});
+
+// Recursively converts every stored Timestamp to an ms number on read; toFirestore is pass-through.
+const events = FirestoreRepository.withSchema<EventDoc>(
+  db,
+  'events',
+  eventWrite,
+  createMillisTimestampConverter<EventDoc>(),
+);
+
+// serverTimestamp() is a FieldValue, which every field already accepts — no cast needed.
+await events.create({
+  name: 'launch',
+  happenedAt: FieldValue.serverTimestamp(),
+});
+// A Date is neither `number` nor a FieldValue, so it needs a cast to the read type.
+await events.update(id, { happenedAt: new Date() as unknown as number });
+const ev = await events.getById(id); // ev.happenedAt is a number (ms)
+```
+
+Pass a `fields` array to convert only specific top-level fields (each recursively) and leave every
+other Timestamp intact:
+
+```typescript
+createMillisTimestampConverter<EventDoc>(['happenedAt']);
+```
+
+Notes:
+
+- Write a `Date` or `serverTimestamp()`, not a raw `number` — the Admin SDK stores those as a
+  `Timestamp` on every write path (including `update()`). A `FirestoreDataConverter.toFirestore` is
+  **not** invoked on `update()`, so the converter deliberately does no write-side conversion.
+- The `create` / `update` **input types come from the read generic `U`**, not from the Zod write
+  schema — `zDateWrite()` only widens _runtime_ validation, so `happenedAt` is statically `number`.
+  A `FieldValue` such as `serverTimestamp()` is always accepted (`WithFieldValue` widens every field
+  to `| FieldValue`); a `Date` is neither `number` nor a `FieldValue`, so it needs a cast.
+
+#### Converter helpers
+
+The main entry also exports the primitives the converter is built from:
+
+| Export                                       | Purpose                                                                             |
+| -------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `createMillisTimestampConverter<T>(fields?)` | Build a `FirestoreDataConverter` (recursive read conversion, pass-through write)    |
+| `convertTimestampsToMillis<T>(data)`         | Recursively convert every `Timestamp` in a value to an ms `number` (returns a copy) |
+| `convertTimestampToMillis(ts)`               | Convert a single `Timestamp` to an ms `number` (throws if not a `Timestamp`)        |
+| `convertMillisToTimestamp(ms)`               | Convert an ms `number` to a `Timestamp`                                             |
+
+`convertTimestampsToMillis` uses a structural `toMillis` duck-check and never references
+`firebase-admin`, so it is safe to reuse in shared/browser code; non-`Timestamp` value types (a
+`VectorValue`, `GeoPoint`, or `DocumentReference`) are left untouched.
+
+#### Working in `number` on both sides
+
+The converter only handles the read direction (writes go through native `Date` /
+`serverTimestamp()`). If you want application code to author `number`s on write too, convert in a
+`beforeCreate` / `beforeUpdate` hook with `convertMillisToTimestamp` (hooks run on every write path,
+before validation) and widen the write schema to accept a `Timestamp` at that field.
+
+#### Under the hood
+
+`createMillisTimestampConverter()` is equivalent to a hand-written converter whose `fromFirestore`
+maps stored Timestamps to ms and whose `toFirestore` is a pass-through:
+
+```typescript
+import { Timestamp, FirestoreDataConverter } from 'firebase-admin/firestore';
 
 const eventConverter: FirestoreDataConverter<EventDoc> = {
   toFirestore: data => data as FirebaseFirestore.DocumentData, // pass-through
@@ -429,29 +501,10 @@ const eventConverter: FirestoreDataConverter<EventDoc> = {
     return {
       name: data.name,
       happenedAt: (data.happenedAt as Timestamp).toMillis(),
-    } as EventDoc;
+    } as EventDoc; // `id` is overlaid by the repository, so it is omitted here
   },
 };
-
-const events = FirestoreRepository.withSchema<EventDoc>(db, 'events', eventWrite, eventConverter);
-
-await events.create({
-  name: 'launch',
-  happenedAt: FieldValue.serverTimestamp() as unknown as number,
-});
-await events.update(id, { happenedAt: new Date() as unknown as number });
-const ev = await events.getById(id); // ev.happenedAt is a number (ms)
 ```
-
-Notes:
-
-- Write a `Date` or `serverTimestamp()`, not a raw `number` — the Admin SDK stores those as a
-  `Timestamp` on every write path (including `update()`). A `FirestoreDataConverter.toFirestore` is
-  **not** invoked on `update()`, so do not rely on it to convert numbers on write.
-- Because read and write share one generic `U`, passing a `Date`/`serverTimestamp()` into a field
-  typed as `number` needs a cast (shown above).
-- An ergonomic `createMillisTimestampConverter` helper is planned as a fast-follow — see
-  [`docs/development/timestamp-millis-converter-followup.md`](docs/development/timestamp-millis-converter-followup.md).
 
 ### Lifecycle Hooks
 

@@ -43,3 +43,10 @@ export {
   getRootFields,
   getDotNotationDepth,
 } from './utils/dotNotation.js';
+
+export {
+  convertTimestampToMillis,
+  convertMillisToTimestamp,
+  convertTimestampsToMillis,
+  createMillisTimestampConverter,
+} from './utils/timestamps.js';

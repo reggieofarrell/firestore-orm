@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-08
-- **Deciders:** Reggie Farrell
+- **Deciders:** Reggie O'Farrell
 - **Related:** [`CHANGELOG.md` → 2.0.0](../../CHANGELOG.md), [`NOTICE`](../../NOTICE),
   [README → Fork & Attribution](../../README.md#fork--attribution), PR #1, ADR-0002
 

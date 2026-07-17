@@ -1,8 +1,14 @@
 # Vector Search Extension
 
-Firestore vector search is available as an **opt-in extension** at
-`@reggieofarrell/firestore-orm/vector`. The core package API is unchanged — wrap your repository
-with `withVectorSearch()` when you need KNN similarity search.
+Opt-in KNN similarity search for Firestore, layered onto the core repository without changing its
+API.
+
+[← Documentation index](./README.md) · [Project README](../../README.md)
+
+Firestore vector search ships as an **opt-in extension** at `@reggieofarrell/firestore-orm/vector`.
+The core package API is unchanged — the standard `FirestoreQueryBuilder` behaves exactly as before.
+Wrap your repository with `withVectorSearch()` only when you need nearest-neighbor similarity
+search.
 
 > **Version 2.0.0** is the first intentional release under `@reggieofarrell/firestore-orm`, bundling
 > the maintained fork baseline with this vector extension.
@@ -16,6 +22,9 @@ with `withVectorSearch()` when you need KNN similarity search.
 
 Vector search requires a **vector index** on your embedding field. Create indexes via the Firebase
 Console, `gcloud`, or `firestore.indexes.json` — the ORM does not provision indexes.
+
+There is **no vector-construction helper** in this library. Build stored and query vectors with the
+native `FieldValue.vector(...)` from `firebase-admin/firestore`.
 
 ## Quick start
 
@@ -51,6 +60,11 @@ const neighbors = await vectorArticleRepo
   })
   .get();
 ```
+
+The wrapped repository proxies every core repository method — `create()`, `getById()`, hooks,
+transactions, and so on all work unchanged — and only overrides `query()` to return a
+`VectorQueryBuilder`. The schema still requires a top-level `id: z.string()`, exactly like any
+`withSchema` repository.
 
 ## Top-level embedding fields (recommended)
 
@@ -114,7 +128,13 @@ const results = await vectorArticleRepo
   .get();
 ```
 
+Call `where()` and `select()` **before** `findNearest()`; both throw if invoked after the query has
+entered vector mode.
+
 ## Distance measures
+
+The `distanceMeasure` option accepts the string values below (or the corresponding
+`VectorDistanceMeasure` constant, e.g. `VectorDistanceMeasure.COSINE`):
 
 | Measure       | When to use                                                           |
 | ------------- | --------------------------------------------------------------------- |
@@ -123,6 +143,8 @@ const results = await vectorArticleRepo
 | `EUCLIDEAN`   | When magnitude matters or model was trained with L2 distance          |
 
 ## API reference
+
+All vector exports come from `@reggieofarrell/firestore-orm/vector`.
 
 ### `withVectorSearch(repo)`
 
@@ -139,19 +161,34 @@ return a `VectorQueryBuilder`.
 | `get()`                   | Execute search and return documents                  |
 | `getOne()`                | Return the nearest single document or `null`         |
 
+`findNearest(options)` takes
+`{ vectorField, queryVector, limit, distanceMeasure, distanceResultField?, distanceThreshold? }`. It
+can be called only once per query, `limit` must be a positive integer no greater than
+`VECTOR_MAX_LIMIT`, and `queryVector` must be a non-empty array of finite numbers within
+`VECTOR_MAX_DIMENSIONS`.
+
+`orderBy()`, `onSnapshot()`, and `stream()` are **not supported** on a vector query builder — each
+throws. Apply ordering implicitly through `findNearest()` and pre-filter with `where()` instead.
+
 ### `vectorEmbeddingSchema(dimensions?)`
 
-Zod helper accepting `number[]` or `FieldValue.vector()` write values.
+Zod helper accepting `number[]` or `FieldValue.vector()` write values. Pass `dimensions` to
+constrain the embedding length.
+
+### `isVectorFieldValue(value)`
+
+Type guard that returns `true` when a value is a Firestore vector `FieldValue` (the result of
+`FieldValue.vector(...)`).
 
 ### Constants
 
 - `VECTOR_MAX_DIMENSIONS` — 2048
 - `VECTOR_MAX_LIMIT` — 1000
-- `VectorDistanceMeasure` — `EUCLIDEAN`, `COSINE`, `DOT_PRODUCT`
+- `VectorDistanceMeasure` — `{ EUCLIDEAN, COSINE, DOT_PRODUCT }`
 
 ## Limitations
 
-- No real-time listeners (`onSnapshot`) on vector queries
+- No real-time listeners: `onSnapshot()`, `stream()`, and `orderBy()` throw on vector queries
 - Maximum 2048 embedding dimensions
 - Maximum 1000 results per query
 - Index management is external to the ORM

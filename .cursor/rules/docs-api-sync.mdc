@@ -19,8 +19,11 @@ Triggers:
 
 Then update:
 
-1. **`README.md`** — the feature guide and API reference: method contracts, options, and any code
-   examples that now behave differently. Keep exported names and signatures accurate.
+1. **`docs/usage/`** — the feature guide and API reference now live here, one page per topic (see
+   `docs/usage/api-reference.md` and the relevant topic page). Update method contracts, options, and
+   any code examples that now behave differently; keep exported names and signatures accurate. The
+   root `README.md` keeps only the quick start + a documentation index, so touch it only when the
+   quick-start example or that index needs to change.
 2. **Examples** — fix snippets that would no longer type-check or run.
 3. **ADR** — if it's a contract-level or architectural decision, record one in `docs/adr/`
    (use the `/adr` skill).

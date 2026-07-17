@@ -3,7 +3,7 @@
 - **Status:** Accepted (implemented on branch `feat/timestamp-millis-converter`; pending
   merge/release)
 - **Date:** 2026-07-17
-- **Deciders:** Reggie Farrell
+- **Deciders:** Reggie O'Farrell
 - **Related:** Fast-follow to [ADR-0002](0002-per-field-sentinel-write-validation.md) (which shipped
   `zDateWrite()`); [`src/utils/timestamps.ts`](../../src/utils/timestamps.ts)
 
@@ -83,5 +83,5 @@ entry.
 ## References
 
 - [`src/utils/timestamps.ts`](../../src/utils/timestamps.ts) — the four helpers.
-- [README → Storing a Timestamp, reading a millisecond number](../../README.md#storing-a-timestamp-reading-a-millisecond-number).
+- [Docs → Storing a Timestamp, reading a millisecond number](../usage/timestamps.md#storing-a-timestamp-reading-a-millisecond-number).
 - Branch `feat/timestamp-millis-converter`.

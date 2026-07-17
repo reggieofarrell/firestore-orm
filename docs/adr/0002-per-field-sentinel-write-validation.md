@@ -3,7 +3,7 @@
 - **Status:** Accepted (implemented on branch `feat/per-field-sentinel-validation`; pending
   merge/release)
 - **Date:** 2026-07-16
-- **Deciders:** Reggie Farrell
+- **Deciders:** Reggie O'Farrell
 - **Related:** Refines decision #6 of [ADR-0001](0001-fork-and-2.0.0-rearchitecture.md);
   [`src/core/Validation.ts`](../../src/core/Validation.ts)
 
@@ -105,5 +105,5 @@ behavior as the default.
 
 - [`src/core/Validation.ts`](../../src/core/Validation.ts) — combinators, `whichFieldValue`,
   `sentinelPolicy`, detector fixes.
-- [README → Per-Field Sentinel Approval](../../README.md#per-field-sentinel-approval).
+- [Docs → Per-Field Sentinel Approval](../usage/field-value-sentinels.md#per-field-sentinel-approval).
 - Branch `feat/per-field-sentinel-validation`.

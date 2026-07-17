@@ -39,8 +39,9 @@ behavior as the default.
 1. **Per-field write combinators** in `src/core/Validation.ts`: `zNumberWrite()`
    (`number | increment`), `zArrayWrite(elem)` (`elem[] | arrayUnion | arrayRemove`), `zDateWrite()`
    (`Date | serverTimestamp`), `withDelete(schema)`, and a generic `zSentinel(...kinds)`. Each is a
-   plain `z.union` of the field's declared type with only its approved sentinel kinds; each accepts
-   `{ allowDelete }`.
+   plain `z.union` of the field's declared type with only its approved sentinel kinds.
+   `zNumberWrite`/`zArrayWrite`/`zDateWrite` take an optional `{ allowDelete }`; `withDelete` always
+   adds `delete`, and `zSentinel` takes the permitted kinds explicitly.
 
 2. **`whichFieldValue(value)` kind classifier** — admin-native and minimal. It gates on
    `isVectorWriteValue` then `instanceof FieldValue`, then reads the admin `methodName` getter (e.g.
@@ -56,12 +57,12 @@ behavior as the default.
    mechanism, strict mode is what _enforces_ them (in permissive mode the escape hatch would still
    waive a wrong-kind sentinel).
 
-4. **Detector fixes.** Remove the dead `toString` fallback (detection now = `instanceof FieldValue`
-   - the `VectorValue` structural check). Narrow sentinel-error waiving to **exact-leaf** matching,
-     so a nested sentinel can no longer excuse an ancestor type error. Leave `isVectorWriteValue`'s
-     `{ _values }` breadth as-is (tightening it would diverge from the vector module's
-     `isVectorFieldValue`, and it is moot under strict mode where the recommended vector path is
-     `vectorEmbeddingSchema`); documented in code.
+4. **Detector fixes.** Remove the dead `toString` fallback (detection is now `instanceof FieldValue`
+   plus the `VectorValue` structural check). Narrow sentinel-error waiving to **exact-leaf**
+   matching, so a nested sentinel can no longer excuse an ancestor type error. Leave
+   `isVectorWriteValue`'s `{ _values }` breadth as-is (tightening it would diverge from the vector
+   module's `isVectorFieldValue`, and it is moot under strict mode where the recommended vector path
+   is `vectorEmbeddingSchema`); documented in code.
 
 5. **Read/write divergence stays a documentation matter.** `withSchema<U>` already decouples the
    read type `U` from the runtime schema, so combinators widen only write-time validation and never

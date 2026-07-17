@@ -26,3 +26,4 @@ consequences. They explain _why_ the codebase looks the way it does, which commi
 | [0002](0002-per-field-sentinel-write-validation.md) | Per-field `FieldValue` sentinel approval via opt-in strict validation        | Accepted | 2026-07-16 |
 | [0003](0003-timestamp-millis-converter-helper.md)   | `Timestamp ↔ millis` converter helper                                        | Accepted | 2026-07-17 |
 | [0004](0004-schema-inferred-write-types.md)         | Schema-inferred write-input types (and optional `id` on create)              | Accepted | 2026-07-17 |
+| [0005](0005-from-snapshot-read-mapper.md)           | `fromSnapshot()` read-mapper for raw Firestore snapshots                     | Accepted | 2026-07-17 |

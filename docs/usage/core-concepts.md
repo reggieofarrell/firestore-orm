@@ -73,7 +73,8 @@ const userRepo = FirestoreRepository.withSchema<User>(db, 'users', userSchema, u
 Because `fromFirestore` receives only the stored document body, it must return data **without** an
 `id` field; the repository reads the snapshot's document id and overlays it onto the result after
 the converter runs. This is why reads resolve to `T & { id }` even though the converter never sets
-`id` itself.
+`id` itself. A raw snapshot from a trigger cloud function is **not** converter-applied and has no
+`id` — use [`fromSnapshot`](./triggers.md) to reconstruct the read shape there.
 
 For the common `Timestamp -> number` case, the built-in
 [`createMillisTimestampConverter`](./timestamps.md) packages exactly this shape (recursive read

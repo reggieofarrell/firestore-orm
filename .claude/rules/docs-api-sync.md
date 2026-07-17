@@ -1,11 +1,37 @@
 ---
+description: Keep README + user-facing docs in sync when the public API surface changes
 paths:
   - 'src/index.ts'
   - 'src/core/**/*.ts'
   - 'src/vector/**/*.ts'
 ---
 
-<!-- Scoped wrapper. Single source of truth: .cursor/rules/docs-api-sync.mdc
-     (Cursor `globs:` → Claude Code `paths:`). Edit the rule body in the .mdc. -->
+<!-- Body inlined from .cursor/rules/docs-api-sync.mdc (Cursor's copy uses `globs:`).
+     Claude Code does not expand @import inside rule files, so the body is duplicated here —
+     keep the two copies in sync when editing. -->
 
-@../../.cursor/rules/docs-api-sync.mdc
+# Public API ↔ Docs Sync
+
+When a change alters the **public API surface**, update the user-facing docs in the same PR. This
+fires on the public source; only act when the _exported/observable contract_ actually changes (not
+internal refactors).
+
+Triggers:
+
+- Added / removed / renamed exports in `src/index.ts` (or the `./vector` entry)
+- Changed method signatures, options, or **return contracts** in `FirestoreRepository` /
+  `QueryBuilder`
+- New or changed validation combinators / `sentinelPolicy` / schema behavior in `Validation.ts`
+- Vector API changes in `src/vector/**`
+
+Then update:
+
+1. **`README.md`** — the feature guide and API reference: method contracts, options, and any code
+   examples that now behave differently. Keep exported names and signatures accurate.
+2. **Examples** — fix snippets that would no longer type-check or run.
+3. **ADR** — if it's a contract-level or architectural decision, record one in `docs/adr/` (use the
+   `/adr` skill).
+4. Do **not** hand-edit `CHANGELOG.md` — it is generated from Conventional Commits; write a clear
+   `feat:` / `fix:` / `feat!:` commit instead.
+
+If you touched any doc links, run `npm run check:docs`.

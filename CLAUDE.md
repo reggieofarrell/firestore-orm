@@ -4,9 +4,10 @@ Auto-loaded every session (canonical project memory).
 
 ## Project rules
 
-Rules live in [`.claude/rules/`](.claude/rules/), single-sourced from `.cursor/rules/*.mdc` (shared
-with Cursor). Each Claude wrapper adds the `paths:` scoping that Cursor expresses via `globs:` (see
-the [memory docs](https://code.claude.com/docs/en/memory)):
+Rules live in [`.claude/rules/`](.claude/rules/) for Claude Code and `.cursor/rules/*.mdc` for
+Cursor. Claude Code does **not** expand `@import` inside rule files, so each Claude rule carries its
+body inline with `paths:` scoping (Cursor uses `globs:`) — keep the two copies in sync when a rule
+changes (see the [memory docs](https://code.claude.com/docs/en/memory)):
 
 - **test-awareness** — always-on (no `paths:`)
 - **test-guardrails** — active for test files (`src/tests/**/*.test.ts`)

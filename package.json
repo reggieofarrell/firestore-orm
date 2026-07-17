@@ -34,6 +34,7 @@
     "format": "prettier --write .",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
+    "check:docs": "node scripts/check-doc-links.mjs",
     "test": "npm run test:unit && npm run test:integration:emulator",
     "test:unit": "jest --config jest.config.unit.js",
     "test:unit:coverage": "jest --config jest.config.unit.js --coverage",
@@ -120,15 +121,6 @@
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.56.0",
     "zod": "^4.0.0"
-  },
-  "lint-staged": {
-    "*.{ts,js}": [
-      "eslint --fix",
-      "prettier --write"
-    ],
-    "*.{json,md,yml,yaml}": [
-      "prettier --write --ignore-unknown"
-    ]
   },
   "publishConfig": {
     "access": "public"

@@ -71,3 +71,20 @@ jobs:
           name: coverage-${{ matrix.key }}
           path: coverage/${{ matrix.key }}
           if-no-files-found: warn
+
+  docs-links:
+    name: Doc links
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
+      # No install needed — the checker uses only Node built-ins.
+      - name: Check documentation links
+        run: npm run check:docs

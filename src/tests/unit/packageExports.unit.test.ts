@@ -36,6 +36,13 @@ describe('package exports', () => {
     expect(orm.withDelete).toBeDefined();
   });
 
+  it('should export timestamp <-> millis converter helpers', () => {
+    expect(orm.convertTimestampToMillis).toBeDefined();
+    expect(orm.convertMillisToTimestamp).toBeDefined();
+    expect(orm.convertTimestampsToMillis).toBeDefined();
+    expect(orm.createMillisTimestampConverter).toBeDefined();
+  });
+
   it('should not export vector extension symbols from the main entry', () => {
     expect((orm as Record<string, unknown>).withVectorSearch).toBeUndefined();
     expect((orm as Record<string, unknown>).vectorEmbeddingSchema).toBeUndefined();

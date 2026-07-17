@@ -1,13 +1,15 @@
 /**
- * Strategy: integration coverage for the documented "write Timestamp, read ms-number" recipe.
- * A field is written as `serverTimestamp()` / a `Date` (validated by `zDateWrite()`), stored as a
- * Firestore `Timestamp`, and read back as milliseconds-since-epoch via a small read converter.
- * Confirms the recipe works on both the create (add) and update (partial) write paths.
+ * Strategy: integration coverage for the "write Timestamp, read ms-number" recipe using the
+ * shipped `createMillisTimestampConverter` helper. A field is written as `serverTimestamp()` / a
+ * `Date` (validated by `zDateWrite()`), stored as a Firestore `Timestamp`, and read back as
+ * milliseconds-since-epoch by the helper's converter. Confirms the recipe works on both the create
+ * (add) and update (partial) write paths against the real Admin SDK.
  */
-import { FieldValue, FirestoreDataConverter } from 'firebase-admin/firestore';
+import { FieldValue } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import { FirestoreRepository } from '../../core/FirestoreRepository.js';
 import { zDateWrite } from '../../core/Validation.js';
+import { createMillisTimestampConverter } from '../../utils/timestamps.js';
 import { getIntegrationDb } from './helpers/firestoreIntegrationHarness.js';
 
 interface EventDoc {
@@ -23,23 +25,10 @@ const eventWriteSchema = z.object({
   happenedAt: zDateWrite(),
 });
 
-// Read converter: turn the stored Timestamp into ms-since-epoch. Write side is pass-through —
-// the Admin SDK stores Date/serverTimestamp as a Timestamp on all write paths. `id` is overlaid
-// by the repository, so fromFirestore must not return it.
-const eventConverter: FirestoreDataConverter<EventDoc> = {
-  toFirestore: data => data as FirebaseFirestore.DocumentData,
-  fromFirestore: (snapshot: FirebaseFirestore.QueryDocumentSnapshot) => {
-    const data = snapshot.data();
-    const happenedAt = data.happenedAt as { toMillis?: () => number } | number | undefined;
-    return {
-      name: data.name,
-      happenedAt:
-        happenedAt && typeof (happenedAt as { toMillis?: () => number }).toMillis === 'function'
-          ? (happenedAt as { toMillis: () => number }).toMillis()
-          : happenedAt,
-    } as EventDoc;
-  },
-};
+// Read converter: the helper turns stored Timestamps into ms-since-epoch on read and passes the
+// write side through (the Admin SDK stores Date/serverTimestamp as a Timestamp on all write paths;
+// `id` is overlaid by the repository).
+const eventConverter = createMillisTimestampConverter<EventDoc>();
 
 const COLLECTION = `test_events_timestamp_${Date.now()}`;
 

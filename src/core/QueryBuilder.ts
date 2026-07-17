@@ -30,7 +30,7 @@ type FirestoreWriteBatch = (
   actions: ((batch: FirebaseFirestore.WriteBatch) => void)[],
 ) => Promise<void>;
 type RunHook = (event: HookEvent, data: any) => Promise<void>;
-type ValidateUpdate<T> = (data: UpdateInput<T>) => UpdateInput<T>;
+type ValidateUpdate<W> = (data: UpdateInput<W>) => UpdateInput<W>;
 
 export type PaginatedResult<T extends { id?: string }> = {
   items: (T & { id: ID })[];
@@ -38,7 +38,7 @@ export type PaginatedResult<T extends { id?: string }> = {
   hasMore: boolean;
 };
 
-export class FirestoreQueryBuilder<T extends { id?: string }> {
+export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
   private query: Query<any>;
   private hasOrderBy = false;
 
@@ -48,7 +48,7 @@ export class FirestoreQueryBuilder<T extends { id?: string }> {
     private db: Firestore,
     private commitInChunks: FirestoreWriteBatch,
     private runHooks: RunHook,
-    private validateUpdate?: ValidateUpdate<T>,
+    private validateUpdate?: ValidateUpdate<W>,
   ) {
     this.query = baseQuery;
   }
@@ -92,11 +92,11 @@ export class FirestoreQueryBuilder<T extends { id?: string }> {
    * Removes top-level undefined keys from update payloads.
    * This keeps update behavior consistent with repository update semantics.
    */
-  private sanitizeUpdateData(data: UpdateInput<T>): UpdateInput<T> {
+  private sanitizeUpdateData(data: UpdateInput<W>): UpdateInput<W> {
     const entries = Object.entries(data as Record<string, any>).filter(
       ([, value]) => value !== undefined,
     );
-    return Object.fromEntries(entries) as UpdateInput<T>;
+    return Object.fromEntries(entries) as UpdateInput<W>;
   }
 
   /**
@@ -200,7 +200,7 @@ export class FirestoreQueryBuilder<T extends { id?: string }> {
    *     'metadata.updated': new Date().toISOString()
    *   });
    */
-  async update(data: UpdateInput<T>): Promise<number> {
+  async update(data: UpdateInput<W>): Promise<number> {
     try {
       const snapshot = await this.query.get();
 
@@ -208,7 +208,7 @@ export class FirestoreQueryBuilder<T extends { id?: string }> {
 
       const updates = snapshot.docs.map(doc => ({
         id: doc.id,
-        data: { ...(data as Record<string, any>) } as UpdateInput<T>,
+        data: { ...(data as Record<string, any>) } as UpdateInput<W>,
       }));
 
       await this.runHooks('beforeBulkUpdate', updates);
@@ -771,8 +771,8 @@ export class FirestoreQueryBuilder<T extends { id?: string }> {
  * Returns the underlying Firestore Query for package-internal composition.
  * Used by the vector search extension (`@reggieofarrell/firestore-orm/vector`).
  */
-export function getQueryRef<T extends { id?: string }>(
-  builder: FirestoreQueryBuilder<T>,
+export function getQueryRef<T extends { id?: string }, W = T>(
+  builder: FirestoreQueryBuilder<T, W>,
 ): Query<any> {
   return builder.getUnderlyingQuery();
 }

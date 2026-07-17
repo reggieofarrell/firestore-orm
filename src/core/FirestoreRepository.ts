@@ -32,23 +32,25 @@ type BulkHookEvent =
 
 export type HookEvent = SingleHookEvent | BulkHookEvent;
 
-type SingleHookFn<T> = (data: UpdateInput<T> & { id?: ID }) => Promise<void> | void;
-type BulkCreateHookFn<T> = (data: (CreateInput<T> & { id: ID })[]) => Promise<void> | void;
-type BeforeUpdateHookFn<T> = (data: UpdateInput<T> & { id: ID }) => Promise<void> | void;
+// Write-side hooks are typed by the write model `W` (what create/update accept); the delete hook
+// is typed by the read model `T` (it receives persisted documents).
+type SingleHookFn<W> = (data: UpdateInput<W> & { id?: ID }) => Promise<void> | void;
+type BulkCreateHookFn<W> = (data: (CreateInput<W> & { id: ID })[]) => Promise<void> | void;
+type BeforeUpdateHookFn<W> = (data: UpdateInput<W> & { id: ID }) => Promise<void> | void;
 type AfterUpdateHookFn = (data: { id: ID }) => Promise<void> | void;
-type BeforeBulkUpdateHookFn<T> = (data: { id: ID; data: UpdateInput<T> }[]) => Promise<void> | void;
+type BeforeBulkUpdateHookFn<W> = (data: { id: ID; data: UpdateInput<W> }[]) => Promise<void> | void;
 type AfterBulkUpdateHookFn = (data: { ids: ID[] }) => Promise<void> | void;
 type BulkDeleteHookFn<T> = (data: {
   ids: ID[];
   documents: (T & { id: ID })[];
 }) => Promise<void> | void;
 
-type AnyHookFn<T> =
-  | SingleHookFn<T>
-  | BulkCreateHookFn<T>
-  | BeforeUpdateHookFn<T>
+type AnyHookFn<T, W> =
+  | SingleHookFn<W>
+  | BulkCreateHookFn<W>
+  | BeforeUpdateHookFn<W>
   | AfterUpdateHookFn
-  | BeforeBulkUpdateHookFn<T>
+  | BeforeBulkUpdateHookFn<W>
   | AfterBulkUpdateHookFn
   | BulkDeleteHookFn<T>;
 
@@ -77,8 +79,8 @@ type AnyHookFn<T> =
  *   await sendOrderConfirmation(order);
  * });
  */
-export class FirestoreRepository<T extends { id?: ID }> {
-  private hooks: { [K in HookEvent]?: AnyHookFn<T>[] } = {};
+export class FirestoreRepository<T extends { id?: ID }, W = T> {
+  private hooks: { [K in HookEvent]?: AnyHookFn<T, W>[] } = {};
   private parentPath?: string;
   private converter?: FirestoreDataConverter<T>;
   private schemasInternal?: RepositorySchemaSet;
@@ -86,7 +88,7 @@ export class FirestoreRepository<T extends { id?: ID }> {
   constructor(
     private db: Firestore,
     private collectionPath: string,
-    private validator?: Validator<T>,
+    private validator?: Validator<W>,
     parentPath?: string,
     converter?: FirestoreDataConverter<T>,
     schemas?: RepositorySchemaSet,
@@ -192,23 +194,55 @@ export class FirestoreRepository<T extends { id?: ID }> {
    *   }
    * }
    */
+  // Curried form (opt-in): `withSchema<Read>()(db, collection, schema, ...)`. Because the read type
+  // is fixed by the first call, TypeScript can infer the write model from the `schema` argument
+  // (`W = z.infer<schema>`), so combinator fields accept their native values / sentinels on
+  // create/update with no cast while reads stay typed as `Read`.
+  static withSchema<U extends { id?: ID }>(): <S extends z.ZodObject<any>>(
+    db: Firestore,
+    collection: string,
+    schema: S,
+    converter?: FirestoreDataConverter<U>,
+    opts?: { sentinelPolicy?: SentinelPolicy },
+  ) => FirestoreRepository<U, z.infer<S>>;
+  // Direct form (backwards compatible): write inputs are typed by the read type `U`. TypeScript
+  // does not infer a second type argument once `U` is given explicitly, so use the curried form
+  // above when you want write inputs inferred from the schema.
   static withSchema<U extends { id?: ID }>(
     db: Firestore,
     collection: string,
     schema: z.ZodObject<any>,
     converter?: FirestoreDataConverter<U>,
     opts?: { sentinelPolicy?: SentinelPolicy },
-  ): FirestoreRepository<U> {
-    FirestoreRepository.assertSchemaHasRequiredId(schema, 'FirestoreRepository.withSchema');
-    const validator = makeValidator(schema, undefined, opts) as Validator<U>;
-    return new FirestoreRepository<U>(
-      db,
-      collection,
-      validator,
-      undefined,
-      converter,
-      validator.schemas,
-    );
+  ): FirestoreRepository<U>;
+  static withSchema<U extends { id?: ID }>(
+    db?: Firestore,
+    collection?: string,
+    schema?: z.ZodObject<any>,
+    converter?: FirestoreDataConverter<U>,
+    opts?: { sentinelPolicy?: SentinelPolicy },
+  ): unknown {
+    const build = <S extends z.ZodObject<any>>(
+      d: Firestore,
+      c: string,
+      s: S,
+      conv?: FirestoreDataConverter<U>,
+      o?: { sentinelPolicy?: SentinelPolicy },
+    ): FirestoreRepository<U, z.infer<S>> => {
+      FirestoreRepository.assertSchemaHasRequiredId(s, 'FirestoreRepository.withSchema');
+      const validator = makeValidator(s, undefined, o);
+      return new FirestoreRepository<U, z.infer<S>>(
+        d,
+        c,
+        validator,
+        undefined,
+        conv,
+        validator.schemas,
+      );
+    };
+    return db === undefined
+      ? build
+      : build(db, collection as string, schema as z.ZodObject<any>, converter, opts);
   }
 
   /**
@@ -252,13 +286,13 @@ export class FirestoreRepository<T extends { id?: ID }> {
    *   sharedConverter
    * );
    */
-  subcollection<S extends { id?: ID }>(
+  subcollection<U extends { id?: ID }>(
     parentId: ID,
     subcollectionName: string,
     schema?: z.ZodObject<any>,
-    converter?: FirestoreDataConverter<S>,
+    converter?: FirestoreDataConverter<U>,
     opts?: { sentinelPolicy?: SentinelPolicy },
-  ): FirestoreRepository<S> {
+  ): FirestoreRepository<U> {
     const newPath = `${this.collectionPath}/${parentId}/${subcollectionName}`;
     if (schema) {
       FirestoreRepository.assertSchemaHasRequiredId(
@@ -266,9 +300,11 @@ export class FirestoreRepository<T extends { id?: ID }> {
         'FirestoreRepository.subcollection(..., schema, ...)',
       );
     }
-    const validator = schema ? (makeValidator(schema, undefined, opts) as Validator<S>) : undefined;
+    const validator = schema
+      ? (makeValidator(schema, undefined, opts) as unknown as Validator<U>)
+      : undefined;
 
-    return new FirestoreRepository<S>(
+    return new FirestoreRepository<U>(
       this.db,
       newPath,
       validator,
@@ -367,14 +403,14 @@ export class FirestoreRepository<T extends { id?: ID }> {
    *   await auditLog.record('users_deleted', { count: ids.length });
    * });
    */
-  on(event: Exclude<SingleHookEvent, 'beforeUpdate' | 'afterUpdate'>, fn: SingleHookFn<T>): void;
-  on(event: 'beforeUpdate', fn: BeforeUpdateHookFn<T>): void;
+  on(event: Exclude<SingleHookEvent, 'beforeUpdate' | 'afterUpdate'>, fn: SingleHookFn<W>): void;
+  on(event: 'beforeUpdate', fn: BeforeUpdateHookFn<W>): void;
   on(event: 'afterUpdate', fn: AfterUpdateHookFn): void;
-  on(event: 'beforeBulkCreate' | 'afterBulkCreate', fn: BulkCreateHookFn<T>): void;
-  on(event: 'beforeBulkUpdate', fn: BeforeBulkUpdateHookFn<T>): void;
+  on(event: 'beforeBulkCreate' | 'afterBulkCreate', fn: BulkCreateHookFn<W>): void;
+  on(event: 'beforeBulkUpdate', fn: BeforeBulkUpdateHookFn<W>): void;
   on(event: 'afterBulkUpdate', fn: AfterBulkUpdateHookFn): void;
   on(event: 'beforeBulkDelete' | 'afterBulkDelete', fn: BulkDeleteHookFn<T>): void;
-  on(event: HookEvent, fn: AnyHookFn<T>): void {
+  on(event: HookEvent, fn: AnyHookFn<T, W>): void {
     if (!this.hooks[event]) this.hooks[event] = [];
     this.hooks[event]!.push(fn);
   }
@@ -407,11 +443,11 @@ export class FirestoreRepository<T extends { id?: ID }> {
    * Removes top-level undefined keys from update payloads.
    * This preserves prior behavior where undefined update values were ignored.
    */
-  private sanitizeUpdateData(data: UpdateInput<T>): UpdateInput<T> {
+  private sanitizeUpdateData(data: UpdateInput<W>): UpdateInput<W> {
     const entries = Object.entries(data as Record<string, any>).filter(
       ([, value]) => value !== undefined,
     );
-    return Object.fromEntries(entries) as UpdateInput<T>;
+    return Object.fromEntries(entries) as UpdateInput<W>;
   }
 
   /**
@@ -423,7 +459,7 @@ export class FirestoreRepository<T extends { id?: ID }> {
    * from flattening regular nested objects (e.g. profile.name overrides profile.name
    * generated from profile: { name: ... }).
    */
-  private normalizeUpdateDataForMerge(data: UpdateInput<T>): UpdateInput<T> {
+  private normalizeUpdateDataForMerge(data: UpdateInput<W>): UpdateInput<W> {
     const updateObject = data as Record<string, any>;
     const regularObjectEntries: [string, any][] = [];
     const explicitDotNotationEntries: [string, any][] = [];
@@ -444,25 +480,29 @@ export class FirestoreRepository<T extends { id?: ID }> {
     return {
       ...flattenedRegularObject,
       ...explicitDotNotationObject,
-    } as UpdateInput<T>;
+    } as UpdateInput<W>;
   }
 
   /**
    * Validate create payloads using configured schema when available.
    * Falls back to returning the original payload when validation is disabled.
    */
-  private validateCreateData(data: CreateInput<T>): CreateInput<T> {
-    const createPayload = this.stripTopLevelId(data as Record<string, any>) as CreateInput<T>;
-    return this.validator ? this.validator.parseCreate(createPayload) : createPayload;
+  private validateCreateData(data: CreateInput<W>): CreateInput<W> {
+    const createPayload = this.stripTopLevelId(data as Record<string, any>) as CreateInput<W>;
+    return (
+      this.validator ? this.validator.parseCreate(createPayload) : createPayload
+    ) as CreateInput<W>;
   }
 
   /**
    * Validate update payloads using configured schema when available.
    * Falls back to returning the original payload when validation is disabled.
    */
-  private validateUpdateData(data: UpdateInput<T>): UpdateInput<T> {
-    const updatePayload = this.stripTopLevelId(data as Record<string, any>) as UpdateInput<T>;
-    return this.validator ? this.validator.parseUpdate(updatePayload) : updatePayload;
+  private validateUpdateData(data: UpdateInput<W>): UpdateInput<W> {
+    const updatePayload = this.stripTopLevelId(data as Record<string, any>) as UpdateInput<W>;
+    return (
+      this.validator ? this.validator.parseUpdate(updatePayload) : updatePayload
+    ) as UpdateInput<W>;
   }
 
   /**
@@ -500,14 +540,14 @@ export class FirestoreRepository<T extends { id?: ID }> {
    *   }
    * }
    */
-  async create(data: CreateInput<T>): Promise<T & { id: ID }> {
+  async create(data: CreateInput<W>): Promise<T & { id: ID }> {
     try {
       const docToCreate = { ...(data as Record<string, any>) } as Record<string, any>;
       await this.runHooks('beforeCreate', docToCreate);
-      const validData = this.validateCreateData(docToCreate as CreateInput<T>);
+      const validData = this.validateCreateData(docToCreate as CreateInput<W>);
 
       const docRef = await this.col().add(validData as any);
-      const created = { ...validData, id: docRef.id };
+      const created = { ...(validData as Record<string, any>), id: docRef.id };
 
       await this.runHooks('afterCreate', created);
       return created as T & { id: ID };
@@ -544,7 +584,7 @@ export class FirestoreRepository<T extends { id?: ID }> {
    * }));
    * await productRepo.bulkCreate(products);
    */
-  async bulkCreate(dataArray: CreateInput<T>[]): Promise<(T & { id: ID })[]> {
+  async bulkCreate(dataArray: CreateInput<W>[]): Promise<(T & { id: ID })[]> {
     try {
       const colRef = this.col();
       const createdDocs: (T & { id: ID })[] = [];
@@ -554,7 +594,7 @@ export class FirestoreRepository<T extends { id?: ID }> {
         const docData = {
           ...(data as Record<string, any>),
           id: docRef.id,
-        } as unknown as CreateInput<T> & { id: ID };
+        } as unknown as CreateInput<W> & { id: ID };
 
         createdDocs.push(docData as unknown as T & { id: ID });
       }
@@ -565,8 +605,8 @@ export class FirestoreRepository<T extends { id?: ID }> {
       for (const createdDoc of createdDocs) {
         const docRef = colRef.doc(createdDoc.id);
         const draftDoc = createdDoc as Record<string, any>;
-        const validData = this.validateCreateData(draftDoc as CreateInput<T>);
-        const validatedDocData = { ...validData };
+        const validData = this.validateCreateData(draftDoc as CreateInput<W>);
+        const validatedDocData = { ...(validData as Record<string, any>) };
 
         actions.push(batch => batch.set(docRef, validatedDocData as any));
         Object.assign(createdDoc as Record<string, any>, validatedDocData);
@@ -667,25 +707,25 @@ export class FirestoreRepository<T extends { id?: ID }> {
    */
   async update(
     id: ID,
-    data: UpdateInput<T>,
+    data: UpdateInput<W>,
     options: UpdateOptions & { returnDoc: true },
   ): Promise<T & { id: ID }>;
   async update(
     id: ID,
-    data: UpdateInput<T>,
+    data: UpdateInput<W>,
     options?: UpdateOptions & { returnDoc?: false },
   ): Promise<{ id: ID }>;
   async update(
     id: ID,
-    data: UpdateInput<T>,
+    data: UpdateInput<W>,
     options?: UpdateOptions,
   ): Promise<{ id: ID } | (T & { id: ID })> {
     try {
       const docRef = this.col().doc(id);
-      const toUpdate = { ...(data as Record<string, any>), id } as UpdateInput<T> & { id: ID };
+      const toUpdate = { ...(data as Record<string, any>), id } as UpdateInput<W> & { id: ID };
 
       await this.runHooks('beforeUpdate', toUpdate);
-      const validData = this.validateUpdateData(toUpdate as UpdateInput<T>);
+      const validData = this.validateUpdateData(toUpdate as UpdateInput<W>);
       const sanitizedData = this.sanitizeUpdateData(validData);
       const writePayload =
         options?.merge === true ? this.normalizeUpdateDataForMerge(sanitizedData) : sanitizedData;
@@ -714,11 +754,11 @@ export class FirestoreRepository<T extends { id?: ID }> {
    * Convenience alias for merge-style partial updates.
    * Equivalent to update(id, data, { merge: true }).
    */
-  async patch(id: ID, data: UpdateInput<T>, options: { returnDoc: true }): Promise<T & { id: ID }>;
-  async patch(id: ID, data: UpdateInput<T>, options?: { returnDoc?: false }): Promise<{ id: ID }>;
+  async patch(id: ID, data: UpdateInput<W>, options: { returnDoc: true }): Promise<T & { id: ID }>;
+  async patch(id: ID, data: UpdateInput<W>, options?: { returnDoc?: false }): Promise<{ id: ID }>;
   async patch(
     id: ID,
-    data: UpdateInput<T>,
+    data: UpdateInput<W>,
     options?: { returnDoc?: boolean },
   ): Promise<{ id: ID } | (T & { id: ID })> {
     if (options?.returnDoc === true) {
@@ -750,7 +790,7 @@ export class FirestoreRepository<T extends { id?: ID }> {
    *   { id: 'user-2', data: { 'settings.theme': 'dark' } }
    * ]);
    */
-  async bulkUpdate(updates: { id: ID; data: UpdateInput<T> }[]): Promise<{ id: ID }[]> {
+  async bulkUpdate(updates: { id: ID; data: UpdateInput<W> }[]): Promise<{ id: ID }[]> {
     try {
       await this.runHooks('beforeBulkUpdate', updates);
       const actions: ((batch: FirebaseFirestore.WriteBatch) => void)[] = [];
@@ -793,7 +833,7 @@ export class FirestoreRepository<T extends { id?: ID }> {
    *   { id: 'user-2', data: { 'profile.settings.notifications': true } as any },
    * ]);
    */
-  async bulkPatch(updates: { id: ID; data: UpdateInput<T> }[]): Promise<{ id: ID }[]> {
+  async bulkPatch(updates: { id: ID; data: UpdateInput<W> }[]): Promise<{ id: ID }[]> {
     const normalizedUpdates = updates.map(({ id, data }) => ({
       id,
       data: this.normalizeUpdateDataForMerge(data),
@@ -826,11 +866,11 @@ export class FirestoreRepository<T extends { id?: ID }> {
    *   notifications: true
    * });
    */
-  async upsert(id: ID, data: CreateInput<T>, options: { returnDoc: true }): Promise<T & { id: ID }>;
-  async upsert(id: ID, data: CreateInput<T>, options?: { returnDoc?: false }): Promise<{ id: ID }>;
+  async upsert(id: ID, data: CreateInput<W>, options: { returnDoc: true }): Promise<T & { id: ID }>;
+  async upsert(id: ID, data: CreateInput<W>, options?: { returnDoc?: false }): Promise<{ id: ID }>;
   async upsert(
     id: ID,
-    data: CreateInput<T>,
+    data: CreateInput<W>,
     options?: { returnDoc?: boolean },
   ): Promise<{ id: ID } | (T & { id: ID })> {
     try {
@@ -838,9 +878,9 @@ export class FirestoreRepository<T extends { id?: ID }> {
       const shouldReturnDoc = options?.returnDoc === true;
       if (existing) {
         if (shouldReturnDoc) {
-          return await this.update(id, data as unknown as UpdateInput<T>, { returnDoc: true });
+          return await this.update(id, data as unknown as UpdateInput<W>, { returnDoc: true });
         }
-        return await this.update(id, data as unknown as UpdateInput<T>);
+        return await this.update(id, data as unknown as UpdateInput<W>);
       }
 
       const docToCreate = {
@@ -848,8 +888,8 @@ export class FirestoreRepository<T extends { id?: ID }> {
         id,
       } as Record<string, any>;
       await this.runHooks('beforeCreate', docToCreate);
-      const validData = this.validateCreateData(docToCreate as CreateInput<T>);
-      const validatedDocToCreate = { ...validData };
+      const validData = this.validateCreateData(docToCreate as CreateInput<W>);
+      const validatedDocToCreate = { ...(validData as Record<string, any>) };
 
       const docRef = this.col().doc(id);
       await docRef.set(validatedDocToCreate as any);
@@ -1167,8 +1207,8 @@ export class FirestoreRepository<T extends { id?: ID }> {
    *   .orderBy('price', 'desc')
    *   .paginate(20, lastCursor);
    */
-  query(): FirestoreQueryBuilder<T> {
-    return new FirestoreQueryBuilder<T>(
+  query(): FirestoreQueryBuilder<T, W> {
+    return new FirestoreQueryBuilder<T, W>(
       this.col(),
       this.col(),
       this.db,
@@ -1236,11 +1276,11 @@ export class FirestoreRepository<T extends { id?: ID }> {
    * });
    */
   async runInTransaction<R>(
-    fn: (tx: FirebaseFirestore.Transaction, repo: FirestoreRepository<T>) => Promise<R>,
+    fn: (tx: FirebaseFirestore.Transaction, repo: FirestoreRepository<T, W>) => Promise<R>,
   ): Promise<R> {
     try {
       return await this.db.runTransaction(async tx => {
-        const txRepo = new FirestoreRepository<T>(
+        const txRepo = new FirestoreRepository<T, W>(
           this.db,
           this.collectionPath,
           this.validator,
@@ -1251,7 +1291,7 @@ export class FirestoreRepository<T extends { id?: ID }> {
         // Preserve registered hooks so transactional operations follow the same lifecycle behavior.
         txRepo.hooks = Object.fromEntries(
           Object.entries(this.hooks).map(([event, handlers]) => [event, [...(handlers ?? [])]]),
-        ) as { [K in HookEvent]?: AnyHookFn<T>[] };
+        ) as { [K in HookEvent]?: AnyHookFn<T, W>[] };
         // override col() to use transaction reads/writes
         (txRepo as any).col = () => txRepo.createCollectionReference();
         // pass transaction + repo to user callback
@@ -1335,16 +1375,16 @@ export class FirestoreRepository<T extends { id?: ID }> {
   async updateInTransaction(
     tx: FirebaseFirestore.Transaction,
     id: ID,
-    data: UpdateInput<T>,
+    data: UpdateInput<W>,
     options?: UpdateOptions,
   ): Promise<void> {
     try {
       const docRef = this.col().doc(id);
 
-      const toUpdate = { ...(data as Record<string, any>), id } as UpdateInput<T> & { id: ID };
+      const toUpdate = { ...(data as Record<string, any>), id } as UpdateInput<W> & { id: ID };
 
       await this.runHooks('beforeUpdate', toUpdate);
-      const validData = this.validateUpdateData(toUpdate as UpdateInput<T>);
+      const validData = this.validateUpdateData(toUpdate as UpdateInput<W>);
       const sanitizedData = this.sanitizeUpdateData(validData);
       const writePayload =
         options?.merge === true ? this.normalizeUpdateDataForMerge(sanitizedData) : sanitizedData;
@@ -1367,7 +1407,7 @@ export class FirestoreRepository<T extends { id?: ID }> {
   async patchInTransaction(
     tx: FirebaseFirestore.Transaction,
     id: ID,
-    data: UpdateInput<T>,
+    data: UpdateInput<W>,
   ): Promise<void> {
     return this.updateInTransaction(tx, id, data, { merge: true });
   }
@@ -1393,7 +1433,7 @@ export class FirestoreRepository<T extends { id?: ID }> {
    */
   async createInTransaction(
     tx: FirebaseFirestore.Transaction,
-    data: CreateInput<T>,
+    data: CreateInput<W>,
   ): Promise<T & { id: ID }> {
     try {
       const docRef = this.col().doc();
@@ -1403,8 +1443,8 @@ export class FirestoreRepository<T extends { id?: ID }> {
       } as Record<string, any>;
 
       await this.runHooks('beforeCreate', docData);
-      const validData = this.validateCreateData(docData as CreateInput<T>);
-      const validatedDocData = { ...validData };
+      const validData = this.validateCreateData(docData as CreateInput<W>);
+      const validatedDocData = { ...(validData as Record<string, any>) };
 
       tx.set(docRef, validatedDocData as any);
       return { ...validatedDocData, id: docRef.id } as T & { id: ID };

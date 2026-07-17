@@ -15,6 +15,7 @@ import {
   zDateWrite,
   withDelete,
 } from '../../core/Validation.js';
+import type { CreateInput } from '../../core/Validation.js';
 
 describe('Validation utilities', () => {
   describe('isFieldValueSentinel', () => {
@@ -288,6 +289,27 @@ describe('Validation utilities', () => {
           profile: { updatedAt: FieldValue.serverTimestamp() } as unknown as string,
         }),
       ).toThrow();
+    });
+  });
+
+  // Compile-time contract for the exported CreateInput type (verified by ts-jest). These would
+  // fail the build if CreateInput regressed to requiring `id` or accepting a wrong-typed one.
+  describe('CreateInput type contract', () => {
+    type Doc = { id: string; name: string; count: number };
+
+    it('allows omitting id, allows a string id, and rejects a wrong-typed id', () => {
+      const withoutId: CreateInput<Doc> = { name: 'a', count: 1 };
+      const withId: CreateInput<Doc> = { id: 'x', name: 'a', count: 1 };
+      const badId: CreateInput<Doc> = {
+        // @ts-expect-error id must be a string when supplied
+        id: 123,
+        name: 'a',
+        count: 1,
+      };
+
+      expect(withoutId).toBeDefined();
+      expect(withId).toBeDefined();
+      expect(badId).toBeDefined();
     });
   });
 });

@@ -88,3 +88,25 @@ jobs:
       # No install needed — the checker uses only Node built-ins.
       - name: Check documentation links
         run: npm run check:docs
+
+  types:
+    name: Type checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Type-checks src + *.type-test.ts (the write-input type assertions), which the jest suites
+      # cannot verify because ts-jest runs with isolatedModules. See docs/development/testing.md.
+      - name: Type-check
+        run: npm run test:types

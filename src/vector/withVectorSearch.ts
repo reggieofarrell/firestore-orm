@@ -7,8 +7,8 @@ import { VectorQueryBuilder } from './VectorQueryBuilder.js';
  * Repository type returned by {@link withVectorSearch}.
  * Identical to {@link FirestoreRepository} except `query()` returns {@link VectorQueryBuilder}.
  */
-export type VectorEnabledRepository<T extends { id?: ID }> = Omit<
-  FirestoreRepository<T>,
+export type VectorEnabledRepository<T extends { id?: ID }, W = T> = Omit<
+  FirestoreRepository<T, W>,
   'query'
 > & {
   query(): VectorQueryBuilder<T>;
@@ -27,9 +27,9 @@ export type VectorEnabledRepository<T extends { id?: ID }> = Omit<
  *   .findNearest({ vectorField: 'embedding', queryVector: [0.1, 0.2], limit: 5, distanceMeasure: 'COSINE' })
  *   .get();
  */
-export function withVectorSearch<T extends { id?: ID }>(
-  repo: FirestoreRepository<T>,
-): VectorEnabledRepository<T> {
+export function withVectorSearch<T extends { id?: ID }, W = T>(
+  repo: FirestoreRepository<T, W>,
+): VectorEnabledRepository<T, W> {
   return new Proxy(repo, {
     get(target, property, receiver) {
       if (property === 'query') {
@@ -46,5 +46,5 @@ export function withVectorSearch<T extends { id?: ID }>(
       }
       return value;
     },
-  }) as unknown as VectorEnabledRepository<T>;
+  }) as unknown as VectorEnabledRepository<T, W>;
 }

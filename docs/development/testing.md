@@ -8,17 +8,18 @@ and conventions for adding new tests.
 These choices are intentional for a **database library** — false confidence is worse than a lower
 global percentage.
 
-| Decision             | Choice                                               | Rationale                                                                         |
-| -------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Test runner          | **Jest** (not Vitest)                                | Matches existing suite, ts-jest ESM setup, Firebase emulator `exec` workflow      |
-| Primary confidence   | **Integration** (emulator)                           | Real Firestore reads/writes, batching, indexes, hooks — what can wreck a database |
-| Secondary confidence | **Unit** (mocks)                                     | Fast feedback on pure logic, errors, validation, dot notation                     |
-| Coverage gates       | **Dual, path-specific** per suite                    | Merged LCOV counts a line covered if _either_ suite hit it — overstates safety    |
-| Gate enforcement     | `scripts/check-coverage-gates.mjs`                   | Jest `coverageThreshold` cannot express per-suite ownership of the same files     |
-| Pre-push hook        | Doc links + unit coverage + unit gate                | No Java/emulator required for everyday pushes                                     |
-| CI                   | Parallel unit + integration jobs, each with its gate | Full ORM surface checked on every PR                                              |
-| Shared test infra    | Factories + mocks under `src/tests/shared/`          | No barrel re-exports; import specific modules                                     |
-| File naming          | `*.unit.test.ts` / `*.integration.test.ts`           | Clear tier at a glance                                                            |
+| Decision             | Choice                                             | Rationale                                                                              |
+| -------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Test runner          | **Jest** (not Vitest)                              | Matches existing suite, ts-jest ESM setup, Firebase emulator `exec` workflow           |
+| Primary confidence   | **Integration** (emulator)                         | Real Firestore reads/writes, batching, indexes, hooks — what can wreck a database      |
+| Secondary confidence | **Unit** (mocks)                                   | Fast feedback on pure logic, errors, validation, dot notation                          |
+| Coverage gates       | **Dual, path-specific** per suite                  | Merged LCOV counts a line covered if _either_ suite hit it — overstates safety         |
+| Gate enforcement     | `scripts/check-coverage-gates.mjs`                 | Jest `coverageThreshold` cannot express per-suite ownership of the same files          |
+| Pre-push hook        | Type check + doc links + unit coverage + unit gate | No Java/emulator required for everyday pushes                                          |
+| CI                   | Parallel unit + integration + type-check jobs      | Full ORM surface + type-level assertions checked on every PR                           |
+| Type-level tests     | `*.type-test.ts` via `npm run test:types` (`tsc`)  | ts-jest runs `isolatedModules` (no type-checking); `tsc` verifies write-type contracts |
+| Shared test infra    | Factories + mocks under `src/tests/shared/`        | No barrel re-exports; import specific modules                                          |
+| File naming          | `*.unit.test.ts` / `*.integration.test.ts`         | Clear tier at a glance                                                                 |
 
 ## Test pyramid
 
@@ -59,6 +60,7 @@ src/tests/
 | `npm run test:coverage:gate:unit`        | Enforce unit-suite path thresholds           |
 | `npm run test:coverage:gate:integration` | Enforce integration-suite path thresholds    |
 | `npm run test:coverage:all`              | Full local coverage run + both gates         |
+| `npm run test:types`                     | Type-check `src` + `*.type-test.ts` (`tsc`)  |
 | `npm test`                               | Unit + integration (emulator auto-start)     |
 
 ### Local integration prerequisites
@@ -128,10 +130,11 @@ thresholds via `scripts/check-coverage-gates.mjs`.
 | Validation (emulator paths) | `Validation.ts`          | 90%   | 80%      | 95%       |
 | Vector extension (emulator) | `src/vector/**`          | 90%   | 75%      | 90%       |
 
-**Pre-push** runs `check:docs` + `test:unit:coverage` + `test:coverage:gate:unit` (no
+**Pre-push** runs `test:types` + `check:docs` + `test:unit:coverage` + `test:coverage:gate:unit` (no
 Java/emulator).
 
-**CI** runs each suite with coverage, then its gate, in parallel matrix jobs.
+**CI** runs each suite with coverage, then its gate, in parallel matrix jobs, plus a `Type checks`
+job (`test:types`).
 
 **Local full check:** `npm run test:coverage:all`
 
@@ -147,10 +150,20 @@ ratcheting.
 
 ## Git hooks
 
-| Hook           | Command                                                         | Purpose                                             |
-| -------------- | --------------------------------------------------------------- | --------------------------------------------------- |
-| **pre-commit** | `lint-staged`                                                   | ESLint + Prettier on staged files                   |
-| **pre-push**   | `check:docs` + `test:unit:coverage` + `test:coverage:gate:unit` | Fast doc-link + path-specific gate without emulator |
+| Hook           | Command                                                                        | Purpose                                                   |
+| -------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------- |
+| **pre-commit** | `lint-staged`                                                                  | ESLint + Prettier on staged files                         |
+| **pre-push**   | `test:types` + `check:docs` + `test:unit:coverage` + `test:coverage:gate:unit` | Type check + doc links + path-specific gate (no emulator) |
+
+## Type-level tests
+
+`src/tests/types/*.type-test.ts` files are checked by `npm run test:types`
+(`tsc --noEmit -p tsconfig.typecheck.json`), **not** by jest — the jest suites run ts-jest with
+`isolatedModules`, which transpiles without type-checking, so `@ts-expect-error` and type
+regressions are invisible to them. Type-test files are excluded from the build (`**/*.type-test.ts`
+in `tsconfig.json`) and are never executed; each `@ts-expect-error` fails the type check if the line
+below it stops being an error. Use them to pin compile-time contracts (e.g. the repository's
+write-input types).
 
 ## Anti-patterns
 

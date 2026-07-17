@@ -1,0 +1,11 @@
+{
+  "//": "Type-checks src plus *.type-test.ts files (which jest cannot check: it runs ts-jest with isolatedModules). Run via `npm run test:types`. noEmit only.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"]
+}

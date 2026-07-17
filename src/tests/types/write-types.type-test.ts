@@ -59,3 +59,15 @@ export async function directForm() {
   // `create` still does not require `id` (the CreateInput change), typed by the read type.
   await legacy.create({ name: 'a', loginCount: 0, happenedAt: 123 });
 }
+
+// ── Curried subcollection: same inference as the curried withSchema ───────────────────────────
+type Order = { id: string; total: number };
+const orderWrite = z.object({ id: z.string(), total: zNumberWrite() });
+const orders = legacy.subcollection<Order>()('u1', 'orders', orderWrite);
+
+export async function curriedSubcollection() {
+  await orders.create({ total: 0 }); // no id, no cast
+  await orders.update('o1', { total: FieldValue.increment(5) }); // no cast
+  // @ts-expect-error create validates scalar types: a string is not a number field
+  await orders.create({ total: 'nope' });
+}

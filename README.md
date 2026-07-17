@@ -402,6 +402,10 @@ The plain direct form — `withSchema<User>(db, 'users', schema, …)` — is un
 by the read type `User` (so a combinator value such as a `Date`/sentinel needs a cast). Use the
 curried form when you want cast-free combinator writes.
 
+`subcollection` has the same curried opt-in form —
+`repo.subcollection<Read>()(parentId, name, schema, …)` — with identical inference; its direct form
+stays read-typed.
+
 #### Sharing schema-derived types with a front-end
 
 `withSchema<U>` takes the read type `U` as an explicit generic, decoupled from the runtime schema.
@@ -2650,6 +2654,10 @@ Register lifecycle hook.
 
 Access subcollection. Converters are explicit per repository instance and are not inherited from
 parent repositories.
+
+A curried form — `subcollection<Read>()(parentId, subcollectionName, schema, converter?, opts?)` —
+mirrors [`withSchema`](#per-field-sentinel-approval): it infers the write-input type from `schema`
+so combinator fields are writable with no cast, while reads stay typed as `Read`.
 
 **`getParentId(): ID | null`**
 

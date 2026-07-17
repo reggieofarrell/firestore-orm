@@ -115,3 +115,43 @@ describe('curried withSchema infers write-input types from the write schema', ()
     ).rejects.toBeInstanceOf(ValidationError);
   });
 });
+
+describe('curried subcollection infers write-input types', () => {
+  const db = getIntegrationDb();
+  const parent = FirestoreRepository.withSchema<EventDoc>()(
+    db,
+    `${COLLECTION}_parent`,
+    eventWrite,
+    undefined,
+    { sentinelPolicy: 'strict' },
+  );
+  // Curried subcollection: write types inferred from `eventWrite`, so the combinator writes below
+  // need no cast; the child lives at `<collection>_parent/parent-1/children`.
+  const sub = parent.subcollection<EventDoc>()('parent-1', 'children', eventWrite, undefined, {
+    sentinelPolicy: 'strict',
+  });
+
+  afterAll(async () => {
+    const docs = await sub.query().get();
+    if (docs.length > 0) {
+      await sub.bulkDelete(docs.map(doc => doc.id));
+    }
+  });
+
+  it('creates and increments a combinator field on the subcollection — no casts', async () => {
+    expect(sub.getCollectionPath()).toContain('/parent-1/children');
+
+    const created = await sub.create({
+      name: 'child',
+      score: 2,
+      tags: ['x'],
+      happenedAt: new Date('2020-01-02T03:04:05.000Z'),
+    });
+
+    await sub.update(created.id, { score: FieldValue.increment(4) });
+
+    const persisted = await sub.getById(created.id);
+    expect(persisted?.score).toBe(6);
+    expect(persisted?.tags).toEqual(['x']);
+  });
+});

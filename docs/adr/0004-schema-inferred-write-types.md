@@ -48,8 +48,8 @@ so type-level regressions (and `@ts-expect-error`) are invisible to them.
 2. **Write generic on the repository.** `FirestoreRepository<T, W = T>` — `T` read model, `W` write
    model. `create`/`bulkCreate`/`update`/`upsert`/`query().update()`/transactions and the write-side
    hooks are typed by `W`; reads (`T`), the converter, and the delete hook stay on `T`. `W` is
-   unconstrained (`= T`). `subcollection` stays single-generic (`W = U`, read-typed writes) — it is
-   not curried.
+   unconstrained (`= T`). `subcollection` gets the same curried opt-in form
+   (`repo.subcollection<Read>()(parentId, name, schema, …)`); its direct form stays read-typed.
 
 3. **Optional `id` on create.** `CreateInput<T> = WithFieldValue<Omit<T, 'id'>> & { id?: string }`.
 
@@ -73,8 +73,8 @@ so type-level regressions (and `@ts-expect-error`) are invisible to them.
 - The type safety is **partial and documented as such**: `update` (`PartialWithFieldValue`) is
   looser than `create` for object-typed fields, and the sentinel **kind** is never compile-checked
   (only runtime `'strict'` enforces it).
-- Two call shapes for one method (direct vs curried) is a small surface/learning cost.
-- `subcollection` does not infer write types (its combinator writes are read-typed, needing a cast).
+- Two call shapes for one method (direct vs curried), on both `withSchema` and `subcollection`, is a
+  small surface/learning cost.
 - `FirestoreRepository`/`FirestoreQueryBuilder` gained a `W` type parameter (source-compatible via
   the `= T` default; the vector wrapper is made `W`-tolerant).
 

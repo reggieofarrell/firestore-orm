@@ -272,6 +272,11 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    *   .subcollection<Reply>('comment-456', 'replies', replySchema, replyConverter);
    *
    * @example
+   * // Curried form: infer write-input types from the schema (like withSchema)
+   * const userOrders = userRepo.subcollection<Order>()('user-123', 'orders', orderWrite);
+   * await userOrders.update('o1', { total: FieldValue.increment(5) }); // no cast
+   *
+   * @example
    * // Explicitly reuse the same converter for parent and child repositories
    * const sharedConverter = {
    *   toFirestore: (doc: { name: string }) => doc,
@@ -286,32 +291,58 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    *   sharedConverter
    * );
    */
+  // Curried form (opt-in): `repo.subcollection<Read>()(parentId, name, schema, ...)`. As with
+  // `withSchema`, fixing the read type in the first call lets TypeScript infer the write model from
+  // the `schema` argument (`W = z.infer<schema>`), so combinator fields are writable with no cast.
+  subcollection<U extends { id?: ID }>(): <S extends z.ZodObject<any>>(
+    parentId: ID,
+    subcollectionName: string,
+    schema: S,
+    converter?: FirestoreDataConverter<U>,
+    opts?: { sentinelPolicy?: SentinelPolicy },
+  ) => FirestoreRepository<U, z.infer<S>>;
+  // Direct form (backwards compatible): write inputs are typed by the read type `U`.
   subcollection<U extends { id?: ID }>(
     parentId: ID,
     subcollectionName: string,
     schema?: z.ZodObject<any>,
     converter?: FirestoreDataConverter<U>,
     opts?: { sentinelPolicy?: SentinelPolicy },
-  ): FirestoreRepository<U> {
-    const newPath = `${this.collectionPath}/${parentId}/${subcollectionName}`;
-    if (schema) {
-      FirestoreRepository.assertSchemaHasRequiredId(
-        schema,
-        'FirestoreRepository.subcollection(..., schema, ...)',
+  ): FirestoreRepository<U>;
+  subcollection<U extends { id?: ID }>(
+    parentId?: ID,
+    subcollectionName?: string,
+    schema?: z.ZodObject<any>,
+    converter?: FirestoreDataConverter<U>,
+    opts?: { sentinelPolicy?: SentinelPolicy },
+  ): unknown {
+    const build = <S extends z.ZodObject<any>>(
+      pid: ID,
+      name: string,
+      s?: S,
+      conv?: FirestoreDataConverter<U>,
+      o?: { sentinelPolicy?: SentinelPolicy },
+    ): FirestoreRepository<U, z.infer<S>> => {
+      const newPath = `${this.collectionPath}/${pid}/${name}`;
+      if (s) {
+        FirestoreRepository.assertSchemaHasRequiredId(
+          s,
+          'FirestoreRepository.subcollection(..., schema, ...)',
+        );
+      }
+      const validator = s ? makeValidator(s, undefined, o) : undefined;
+      return new FirestoreRepository<U, z.infer<S>>(
+        this.db,
+        newPath,
+        validator,
+        newPath, // for tracking parent path for reference
+        conv,
+        validator?.schemas,
       );
-    }
-    const validator = schema
-      ? (makeValidator(schema, undefined, opts) as unknown as Validator<U>)
-      : undefined;
-
-    return new FirestoreRepository<U>(
-      this.db,
-      newPath,
-      validator,
-      newPath, // for tracking parent path for reference
-      converter,
-      validator?.schemas,
-    );
+    };
+    return parentId === undefined
+      ? build
+      : build(parentId, subcollectionName as string, schema, converter, opts);
   }
 
   /**

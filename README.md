@@ -299,8 +299,11 @@ try {
 - Write operations follow this sequence: `before*` hook -> validation -> Firestore write -> `after*`
   hook
 - Validation errors are thrown after `before*` hooks run and before any Firestore write occurs
-- Firestore `FieldValue` sentinels are supported in write payloads; sentinel-valued paths are
-  skipped during schema validation while non-sentinel paths are still validated
+- Firestore `FieldValue` sentinels are supported in write payloads. By default
+  (`sentinelPolicy: 'permissive'`) any sentinel is accepted on any field — sentinel-valued paths are
+  skipped during schema validation while non-sentinel paths are still validated. To enforce which
+  sentinels a field may receive, declare them with the per-field combinators and opt into
+  `sentinelPolicy: 'strict'` (see [Per-Field Sentinel Approval](#per-field-sentinel-approval))
 
 **Accessing Derived Schemas**:
 
@@ -314,6 +317,141 @@ const readSchema = userRepo.schemas?.read;
 const createSchema = userRepo.schemas?.create; // userSchema without id
 const updateSchema = userRepo.schemas?.update; // create schema made partial
 ```
+
+### Per-Field Sentinel Approval
+
+By default, validation accepts **any** `FieldValue` sentinel on **any** field
+(`sentinelPolicy: 'permissive'`). That means a `FieldValue.increment()` written into a `z.string()`
+field passes validation. To tighten this so a write must be either the field's declared type **or**
+a specific approved sentinel, declare each field with a **write combinator** and opt into
+`sentinelPolicy: 'strict'`.
+
+| Combinator            | Field accepts                                                 |
+| --------------------- | ------------------------------------------------------------- |
+| `zNumberWrite()`      | `number` or `FieldValue.increment()`                          |
+| `zArrayWrite(elem)`   | `elem[]` or `FieldValue.arrayUnion()` / `arrayRemove()`       |
+| `zDateWrite()`        | `Date` or `FieldValue.serverTimestamp()`                      |
+| `withDelete(schema)`  | the wrapped type or `FieldValue.delete()`                     |
+| `zSentinel(...kinds)` | a sentinel of one of the named kinds (compose with `z.union`) |
+
+Each accepts `{ allowDelete: true }` to additionally permit `FieldValue.delete()`.
+
+```typescript
+import {
+  FirestoreRepository,
+  zNumberWrite,
+  zArrayWrite,
+  zSentinel,
+} from '@reggieofarrell/firestore-orm';
+import { z } from 'zod';
+
+const userSchema = z.object({
+  id: z.string(),
+  name: z.string().min(1), // plain -> no sentinel allowed under 'strict'
+  loginCount: zNumberWrite(), // number | increment
+  tags: zArrayWrite(z.string()), // string[] | arrayUnion | arrayRemove
+  updatedAt: z.union([z.string(), zSentinel('serverTimestamp')]), // string | serverTimestamp
+});
+
+const userRepo = FirestoreRepository.withSchema<User>(
+  db,
+  'users',
+  userSchema,
+  undefined, // converter (unchanged position)
+  { sentinelPolicy: 'strict' },
+);
+
+await userRepo.update('u1', { loginCount: FieldValue.increment(1) }); // ok
+await userRepo.update('u1', { loginCount: FieldValue.arrayUnion('x') }); // throws ValidationError
+await userRepo.update('u1', { name: FieldValue.serverTimestamp() }); // throws ValidationError
+```
+
+`sentinelPolicy` defaults to `'permissive'` and is fully backwards compatible; `'strict'` disables
+the permissive escape hatch so only combinator-declared sentinels pass. The combinators are also
+useful in `'permissive'` mode for documentation, but only `'strict'` **enforces** them.
+
+#### Sharing schema-derived types with a front-end
+
+`withSchema<U>(...)` takes the read type `U` as an explicit generic, decoupled from the runtime
+schema. So keep a **plain base schema** in shared code as the single source of truth for your
+API-contract types, and apply combinators in a thin **server-side overlay** — the combinators (and
+`firebase-admin`) never reach shared/browser code.
+
+```typescript
+// shared/user.schema.ts — importable anywhere; depends only on zod
+export const userBase = z.object({
+  id: z.string(),
+  name: z.string().min(1),
+  loginCount: z.number().int(),
+  tags: z.array(z.string()),
+});
+export type User = z.infer<typeof userBase>; // clean contract type: no sentinels
+
+// server/user.repo.ts — combinators live here only
+import { zNumberWrite, zArrayWrite } from '@reggieofarrell/firestore-orm';
+const userWrite = userBase.extend({
+  loginCount: zNumberWrite(),
+  tags: zArrayWrite(z.string()),
+});
+const userRepo = FirestoreRepository.withSchema<User>(db, 'users', userWrite, undefined, {
+  sentinelPolicy: 'strict',
+});
+```
+
+### Storing a Timestamp, reading a millisecond number
+
+A common pattern is to store a Firestore `Timestamp` but work with milliseconds-since-epoch
+`number`s in application code. Write a native `Date` or `FieldValue.serverTimestamp()` (validated
+with `zDateWrite()`), and convert `Timestamp -> number` on read with a small
+`FirestoreDataConverter`:
+
+```typescript
+import { Timestamp, FieldValue, FirestoreDataConverter } from 'firebase-admin/firestore';
+import { FirestoreRepository, zDateWrite } from '@reggieofarrell/firestore-orm';
+import { z } from 'zod';
+
+interface EventDoc {
+  id: string;
+  name: string;
+  happenedAt: number; // ms since epoch on read
+}
+
+const eventWrite = z.object({
+  id: z.string(),
+  name: z.string().min(1),
+  happenedAt: zDateWrite(), // Date | serverTimestamp() (a raw number is rejected)
+});
+
+const eventConverter: FirestoreDataConverter<EventDoc> = {
+  toFirestore: data => data as FirebaseFirestore.DocumentData, // pass-through
+  fromFirestore: snap => {
+    const data = snap.data();
+    return {
+      name: data.name,
+      happenedAt: (data.happenedAt as Timestamp).toMillis(),
+    } as EventDoc;
+  },
+};
+
+const events = FirestoreRepository.withSchema<EventDoc>(db, 'events', eventWrite, eventConverter);
+
+await events.create({
+  name: 'launch',
+  happenedAt: FieldValue.serverTimestamp() as unknown as number,
+});
+await events.update(id, { happenedAt: new Date() as unknown as number });
+const ev = await events.getById(id); // ev.happenedAt is a number (ms)
+```
+
+Notes:
+
+- Write a `Date` or `serverTimestamp()`, not a raw `number` — the Admin SDK stores those as a
+  `Timestamp` on every write path (including `update()`). A `FirestoreDataConverter.toFirestore` is
+  **not** invoked on `update()`, so do not rely on it to convert numbers on write.
+- Because read and write share one generic `U`, passing a `Date`/`serverTimestamp()` into a field
+  typed as `number` needs a cast (shown above).
+- An ergonomic `createMillisTimestampConverter` helper is planned as a fast-follow — see
+  [`docs/development/timestamp-millis-converter-followup.md`](docs/development/timestamp-millis-converter-followup.md).
 
 ### Lifecycle Hooks
 
@@ -994,8 +1132,11 @@ await repo.runInTransaction(async (tx, repo) => {
 
 **5. Schema Validation with Sentinels**
 
-When using repositories created with `withSchema(...)`, fields assigned to `FieldValue` sentinels
-are ignored by Zod validation. All other fields in the same payload are still validated normally.
+When using repositories created with `withSchema(...)`, the default `sentinelPolicy: 'permissive'`
+ignores fields assigned to `FieldValue` sentinels during Zod validation while still validating all
+other fields in the payload. To restrict which sentinels a field may receive, declare fields with
+the write combinators and use `sentinelPolicy: 'strict'` — see
+[Per-Field Sentinel Approval](#per-field-sentinel-approval).
 
 ### Use Cases
 
@@ -3165,6 +3306,10 @@ Contributions are welcome! Please follow these guidelines:
 7. Push to your branch (`git push origin feature/amazing-feature`) — pre-push runs unit coverage
    gate
 8. Open a Pull Request — CI runs both suite gates
+
+For significant architectural or contract-level changes, record the decision as an
+[Architecture Decision Record](docs/adr/README.md) (start from
+[`docs/adr/0000-template.md`](docs/adr/0000-template.md)).
 
 ### Development Setup
 

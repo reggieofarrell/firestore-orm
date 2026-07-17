@@ -15,7 +15,7 @@ global percentage.
 | Secondary confidence | **Unit** (mocks)                                     | Fast feedback on pure logic, errors, validation, dot notation                     |
 | Coverage gates       | **Dual, path-specific** per suite                    | Merged LCOV counts a line covered if _either_ suite hit it — overstates safety    |
 | Gate enforcement     | `scripts/check-coverage-gates.mjs`                   | Jest `coverageThreshold` cannot express per-suite ownership of the same files     |
-| Pre-push hook        | Unit coverage + unit gate only                       | No Java/emulator required for everyday pushes                                     |
+| Pre-push hook        | Doc links + unit coverage + unit gate                | No Java/emulator required for everyday pushes                                     |
 | CI                   | Parallel unit + integration jobs, each with its gate | Full ORM surface checked on every PR                                              |
 | Shared test infra    | Factories + mocks under `src/tests/shared/`          | No barrel re-exports; import specific modules                                     |
 | File naming          | `*.unit.test.ts` / `*.integration.test.ts`           | Clear tier at a glance                                                            |
@@ -28,10 +28,10 @@ global percentage.
 /   Unit (Jest, Node, mocks)   \   More — fast, isolated logic
 ```
 
-| Tier            | What it tests                                                      | When to use                                                                     |
-| --------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
-| **Unit**        | Pure utilities, validation, error mapping, mocked Firestore wiring | Logic that does not need emulator semantics                                     |
-| **Integration** | Repository, QueryBuilder, hooks, transactions, sentinels           | Firestore behavior, batching, indexes, real writes — **primary ORM safety net** |
+| Tier            | What it tests                                                                            | When to use                                                                     |
+| --------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| **Unit**        | Pure utilities, validation, error mapping, mocked Firestore wiring                       | Logic that does not need emulator semantics                                     |
+| **Integration** | Repository, QueryBuilder, hooks, transactions, sentinels (permissive + strict per-field) | Firestore behavior, batching, indexes, real writes — **primary ORM safety net** |
 
 ## Directory layout
 
@@ -70,10 +70,14 @@ src/tests/
 ## Integration harness
 
 Use
-[firestoreIntegrationHarness.ts](../src/tests/integration/helpers/firestoreIntegrationHarness.ts):
+[firestoreIntegrationHarness.ts](../../src/tests/integration/helpers/firestoreIntegrationHarness.ts):
 
 - `createUserRepoHarness(prefix)` — isolated collection per suite, `trackUser`, cleanup helpers
-- `createValidatedRepo(db)` — schema-validated repo for sentinel/hook tests
+- `createValidatedRepo(db)` — schema-validated repo for sentinel/hook tests (default
+  `sentinelPolicy: 'permissive'`)
+- `createStrictRepo(db)` — `sentinelPolicy: 'strict'` repo built from the combinator-based
+  `strictHookValidatedUserSchema`, for per-field sentinel-approval tests
+- `cleanupValidatedRepo(repo)` — deletes all docs in a validated/strict repo's collection
 - Unique collection names prevent cross-test interference
 
 ## Shared factories
@@ -124,7 +128,8 @@ thresholds via `scripts/check-coverage-gates.mjs`.
 | Validation (emulator paths) | `Validation.ts`          | 90%   | 80%      | 95%       |
 | Vector extension (emulator) | `src/vector/**`          | 90%   | 75%      | 90%       |
 
-**Pre-push** runs `test:unit:coverage` + `test:coverage:gate:unit` (no Java/emulator).
+**Pre-push** runs `check:docs` + `test:unit:coverage` + `test:coverage:gate:unit` (no
+Java/emulator).
 
 **CI** runs each suite with coverage, then its gate, in parallel matrix jobs.
 
@@ -142,10 +147,10 @@ ratcheting.
 
 ## Git hooks
 
-| Hook           | Command                                          | Purpose                                  |
-| -------------- | ------------------------------------------------ | ---------------------------------------- |
-| **pre-commit** | `lint-staged`                                    | ESLint + Prettier on staged files        |
-| **pre-push**   | `test:unit:coverage` + `test:coverage:gate:unit` | Fast path-specific gate without emulator |
+| Hook           | Command                                                         | Purpose                                             |
+| -------------- | --------------------------------------------------------------- | --------------------------------------------------- |
+| **pre-commit** | `lint-staged`                                                   | ESLint + Prettier on staged files                   |
+| **pre-push**   | `check:docs` + `test:unit:coverage` + `test:coverage:gate:unit` | Fast doc-link + path-specific gate without emulator |
 
 ## Anti-patterns
 
@@ -157,7 +162,7 @@ ratcheting.
 
 ## AI-assisted testing
 
-Cursor rules and skills live under `.cursor/`:
+Cursor rules and skills live under `.cursor/` (the single source of truth):
 
 - `rules/test-awareness.mdc` — suggests tests after code changes
 - `rules/test-guardrails.mdc` — scoped guardrails for `src/tests/**`
@@ -165,6 +170,12 @@ Cursor rules and skills live under `.cursor/`:
 - `skills/integration-testing/SKILL.md` — emulator integration patterns
 - `commands/write-unit-tests.md` — diff-based unit test workflow
 - `commands/write-integration-tests.md` — diff-based integration test workflow
+
+Claude Code reads the same content via `.claude/`: `.claude/skills/` and `.claude/commands/` are
+symlinks to `.cursor/` (single source). Rules can't be symlinked or `@import`ed the same way —
+Claude Code does not expand `@import` inside rule files — so `.claude/rules/*.md` carry each rule
+body **inline** with Claude's `paths:` scoping; keep them in sync with the `.cursor/rules/*.mdc`
+bodies when a rule changes.
 
 ## Related docs
 

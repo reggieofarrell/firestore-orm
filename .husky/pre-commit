@@ -1,2 +1,9 @@
+# Ensure the repo's Node (via nvm/.nvmrc) is on PATH before lint-staged.
+# Sourced — not executed — so nvm's PATH changes persist in this shell.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck disable=SC1091
+. "$REPO_ROOT/scripts/check-node-version.sh"
+
 # Run lint-staged so only staged files are linted and formatted
 npx lint-staged

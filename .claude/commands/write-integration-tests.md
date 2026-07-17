@@ -1,0 +1,1 @@
+../../.cursor/commands/write-integration-tests.md

@@ -2,9 +2,11 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { ValidationError } from '../../core/Errors.js';
 import {
   cleanupValidatedRepo,
+  createStrictRepo,
   createUserRepoHarness,
   createValidatedRepo,
   HookValidatedUser,
+  strictHookValidatedUserSchema,
 } from './helpers/firestoreIntegrationHarness.js';
 
 describe('FirestoreRepository hook-first validation ordering', () => {
@@ -375,6 +377,247 @@ describe('FirestoreRepository hook-first validation ordering', () => {
           name: '',
           score: FieldValue.increment(1) as unknown as number,
         }),
+      ).rejects.toBeInstanceOf(ValidationError);
+    } finally {
+      await cleanupValidatedRepo(repo);
+    }
+  });
+});
+
+describe('FirestoreRepository strict sentinelPolicy (per-field combinators)', () => {
+  const harness = createUserRepoHarness('test_users_strict_policy');
+  const { db, cleanupCollection } = harness;
+
+  afterAll(async () => {
+    await cleanupCollection();
+  });
+
+  it('accepts approved sentinels on combinator fields across create and update', async () => {
+    const repo = createStrictRepo(db);
+
+    try {
+      const created = await repo.create({
+        name: 'Strict Approved',
+        score: 1,
+        loginCount: 1,
+        tags: ['a'],
+        createdAt: FieldValue.serverTimestamp() as unknown as string,
+      } as HookValidatedUser);
+
+      await repo.update(created.id, {
+        loginCount: FieldValue.increment(2) as unknown as number,
+        tags: FieldValue.arrayUnion('b') as unknown as string[],
+      });
+
+      const updated = await repo.getById(created.id);
+      expect(updated?.loginCount).toBe(3);
+      expect(updated?.tags).toEqual(expect.arrayContaining(['a', 'b']));
+      // serverTimestamp resolved to a Timestamp server-side
+      expect((updated as any)?.createdAt?.toDate).toBeDefined();
+    } finally {
+      await cleanupValidatedRepo(repo);
+    }
+  });
+
+  it('rejects a wrong-kind sentinel on a combinator field', async () => {
+    const repo = createStrictRepo(db);
+
+    try {
+      const created = await repo.create({
+        name: 'Strict WrongKind',
+        score: 1,
+        loginCount: 1,
+        createdAt: new Date().toISOString(),
+      } as HookValidatedUser);
+
+      await expect(
+        // arrayUnion is not permitted on a numeric (zNumberWrite) field
+        repo.update(created.id, {
+          loginCount: FieldValue.arrayUnion('x') as unknown as number,
+        }),
+      ).rejects.toBeInstanceOf(ValidationError);
+    } finally {
+      await cleanupValidatedRepo(repo);
+    }
+  });
+
+  it('rejects any sentinel on a plain (non-combinator) field', async () => {
+    const repo = createStrictRepo(db);
+
+    try {
+      const created = await repo.create({
+        name: 'Strict Plain',
+        score: 1,
+        createdAt: new Date().toISOString(),
+      } as HookValidatedUser);
+
+      await expect(
+        // score is plain z.number() → no sentinel permitted under strict
+        repo.update(created.id, {
+          score: FieldValue.increment(1) as unknown as number,
+        }),
+      ).rejects.toBeInstanceOf(ValidationError);
+    } finally {
+      await cleanupValidatedRepo(repo);
+    }
+  });
+
+  // The policy lives in the validator closure, so it should propagate through every write
+  // path, not just create/update. These lock that in across the paths with distinct wiring.
+
+  it('propagates strict policy through subcollection()', async () => {
+    const parent = createStrictRepo(db);
+    const parentDoc = await parent.create({
+      name: 'Strict Parent',
+      score: 1,
+      createdAt: new Date().toISOString(),
+    } as HookValidatedUser);
+
+    const subRepo = parent.subcollection<HookValidatedUser>(
+      parentDoc.id,
+      'strict_subs',
+      strictHookValidatedUserSchema,
+      undefined,
+      { sentinelPolicy: 'strict' },
+    );
+
+    try {
+      const created = await subRepo.create({
+        name: 'Strict Child',
+        score: 1,
+        loginCount: 1,
+        createdAt: new Date().toISOString(),
+      } as HookValidatedUser);
+
+      // approved sentinel passes
+      await subRepo.update(created.id, {
+        loginCount: FieldValue.increment(1) as unknown as number,
+      });
+      expect((await subRepo.getById(created.id))?.loginCount).toBe(2);
+
+      // wrong-kind rejected
+      await expect(
+        subRepo.update(created.id, {
+          loginCount: FieldValue.arrayUnion('x') as unknown as number,
+        }),
+      ).rejects.toBeInstanceOf(ValidationError);
+    } finally {
+      await cleanupValidatedRepo(subRepo);
+      await cleanupValidatedRepo(parent);
+    }
+  });
+
+  it('propagates strict policy through query().update()', async () => {
+    const repo = createStrictRepo(db);
+
+    try {
+      const user = await repo.create({
+        name: 'Strict Query',
+        score: 1,
+        loginCount: 1,
+        createdAt: new Date().toISOString(),
+      } as HookValidatedUser);
+
+      // approved sentinel passes
+      await repo
+        .query()
+        .where('name', '==', user.name)
+        .update({ loginCount: FieldValue.increment(2) as unknown as number });
+      expect((await repo.getById(user.id))?.loginCount).toBe(3);
+
+      // wrong-kind rejected
+      await expect(
+        repo
+          .query()
+          .where('name', '==', user.name)
+          .update({ loginCount: FieldValue.arrayUnion('x') as unknown as number }),
+      ).rejects.toBeInstanceOf(ValidationError);
+    } finally {
+      await cleanupValidatedRepo(repo);
+    }
+  });
+
+  it('propagates strict policy through updateInTransaction()', async () => {
+    const repo = createStrictRepo(db);
+
+    try {
+      const created = await repo.create({
+        name: 'Strict Tx',
+        score: 1,
+        loginCount: 1,
+        createdAt: new Date().toISOString(),
+      } as HookValidatedUser);
+
+      // approved sentinel passes inside a transaction
+      await repo.runInTransaction(async (tx, txRepo) => {
+        await txRepo.updateInTransaction(tx, created.id, {
+          loginCount: FieldValue.increment(3) as unknown as number,
+        });
+      });
+      expect((await repo.getById(created.id))?.loginCount).toBe(4);
+
+      // wrong-kind rejected inside a transaction
+      await expect(
+        repo.runInTransaction(async (tx, txRepo) => {
+          await txRepo.updateInTransaction(tx, created.id, {
+            loginCount: FieldValue.arrayUnion('x') as unknown as number,
+          });
+        }),
+      ).rejects.toBeInstanceOf(ValidationError);
+    } finally {
+      await cleanupValidatedRepo(repo);
+    }
+  });
+
+  it('propagates strict policy through bulkUpdate()', async () => {
+    const repo = createStrictRepo(db);
+
+    try {
+      const user = await repo.create({
+        name: 'Strict Bulk',
+        score: 1,
+        loginCount: 1,
+        createdAt: new Date().toISOString(),
+      } as HookValidatedUser);
+
+      // approved sentinel passes
+      await repo.bulkUpdate([
+        { id: user.id, data: { loginCount: FieldValue.increment(2) as unknown as number } },
+      ]);
+      expect((await repo.getById(user.id))?.loginCount).toBe(3);
+
+      // wrong-kind rejected
+      await expect(
+        repo.bulkUpdate([
+          { id: user.id, data: { loginCount: FieldValue.arrayUnion('x') as unknown as number } },
+        ]),
+      ).rejects.toBeInstanceOf(ValidationError);
+    } finally {
+      await cleanupValidatedRepo(repo);
+    }
+  });
+
+  it('propagates strict policy through upsert() create and update paths', async () => {
+    const repo = createStrictRepo(db);
+    const upsertId = `strict-upsert-${Date.now()}`;
+
+    try {
+      // upsert create-path: approved serverTimestamp sentinel on createdAt passes
+      await repo.upsert(upsertId, {
+        name: 'Strict Upsert',
+        score: 1,
+        loginCount: 1,
+        createdAt: FieldValue.serverTimestamp() as unknown as string,
+      } as HookValidatedUser);
+
+      // upsert update-path: wrong-kind sentinel rejected
+      await expect(
+        repo.upsert(upsertId, {
+          name: 'Strict Upsert',
+          score: 1,
+          loginCount: FieldValue.arrayUnion('x') as unknown as number,
+          createdAt: new Date().toISOString(),
+        } as HookValidatedUser),
       ).rejects.toBeInstanceOf(ValidationError);
     } finally {
       await cleanupValidatedRepo(repo);

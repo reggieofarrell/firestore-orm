@@ -25,6 +25,17 @@ describe('package exports', () => {
     expect(orm.mergeDotNotationUpdate).toBeDefined();
   });
 
+  it('should export sentinel detection and per-field write combinators', () => {
+    expect(orm.whichFieldValue).toBeDefined();
+    expect(orm.isFieldValueSentinel).toBeDefined();
+    expect(orm.collectSentinelPaths).toBeDefined();
+    expect(orm.zSentinel).toBeDefined();
+    expect(orm.zNumberWrite).toBeDefined();
+    expect(orm.zArrayWrite).toBeDefined();
+    expect(orm.zDateWrite).toBeDefined();
+    expect(orm.withDelete).toBeDefined();
+  });
+
   it('should not export vector extension symbols from the main entry', () => {
     expect((orm as Record<string, unknown>).withVectorSearch).toBeUndefined();
     expect((orm as Record<string, unknown>).vectorEmbeddingSchema).toBeUndefined();

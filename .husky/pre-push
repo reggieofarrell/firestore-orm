@@ -1,3 +1,10 @@
-# Fast local gate: unit path-specific thresholds only (no Java/emulator).
+# Ensure the repo's Node (via nvm/.nvmrc) is on PATH before local gates.
+# Sourced — not executed — so nvm's PATH changes persist in this shell.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck disable=SC1091
+. "$REPO_ROOT/scripts/check-node-version.sh"
+
+# Fast local gate: doc links + unit path-specific thresholds only (no Java/emulator).
 # Integration gate runs in CI — see docs/development/testing.md.
-npm run test:unit:coverage && npm run test:coverage:gate:unit
+npm run check:docs && npm run test:unit:coverage && npm run test:coverage:gate:unit

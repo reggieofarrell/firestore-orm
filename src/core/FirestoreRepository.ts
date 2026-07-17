@@ -3,6 +3,7 @@ import {
   CreateInput,
   makeValidator,
   RepositorySchemaSet,
+  SentinelPolicy,
   UpdateInput,
   Validator,
 } from './Validation.js';
@@ -19,12 +20,7 @@ export type UpdateOptions = {
 };
 
 type SingleHookEvent =
-  | 'beforeCreate'
-  | 'afterCreate'
-  | 'beforeUpdate'
-  | 'afterUpdate'
-  | 'beforeDelete'
-  | 'afterDelete';
+  'beforeCreate' | 'afterCreate' | 'beforeUpdate' | 'afterUpdate' | 'beforeDelete' | 'afterDelete';
 
 type BulkHookEvent =
   | 'beforeBulkCreate'
@@ -167,6 +163,10 @@ export class FirestoreRepository<T extends { id?: ID }> {
    * @param collection - Collection path
    * @param schema - Zod schema for validation
    * @param converter - Optional Firestore converter for custom serialization/deserialization
+   * @param opts - Optional validation options. `sentinelPolicy: 'strict'` disables the
+   *   permissive sentinel escape hatch, so only sentinels a field's schema explicitly permits
+   *   (via `zNumberWrite`/`zArrayWrite`/`zDateWrite`/`withDelete`/`zSentinel`) pass. Defaults to
+   *   `'permissive'` (backwards compatible).
    * @returns Repository instance with validation enabled
    *
    * @example
@@ -197,9 +197,10 @@ export class FirestoreRepository<T extends { id?: ID }> {
     collection: string,
     schema: z.ZodObject<any>,
     converter?: FirestoreDataConverter<U>,
+    opts?: { sentinelPolicy?: SentinelPolicy },
   ): FirestoreRepository<U> {
     FirestoreRepository.assertSchemaHasRequiredId(schema, 'FirestoreRepository.withSchema');
-    const validator = makeValidator(schema) as Validator<U>;
+    const validator = makeValidator(schema, undefined, opts) as Validator<U>;
     return new FirestoreRepository<U>(
       db,
       collection,
@@ -256,6 +257,7 @@ export class FirestoreRepository<T extends { id?: ID }> {
     subcollectionName: string,
     schema?: z.ZodObject<any>,
     converter?: FirestoreDataConverter<S>,
+    opts?: { sentinelPolicy?: SentinelPolicy },
   ): FirestoreRepository<S> {
     const newPath = `${this.collectionPath}/${parentId}/${subcollectionName}`;
     if (schema) {
@@ -264,7 +266,7 @@ export class FirestoreRepository<T extends { id?: ID }> {
         'FirestoreRepository.subcollection(..., schema, ...)',
       );
     }
-    const validator = schema ? (makeValidator(schema) as Validator<S>) : undefined;
+    const validator = schema ? (makeValidator(schema, undefined, opts) as Validator<S>) : undefined;
 
     return new FirestoreRepository<S>(
       this.db,

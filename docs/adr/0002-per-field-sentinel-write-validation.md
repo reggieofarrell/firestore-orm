@@ -5,8 +5,7 @@
 - **Date:** 2026-07-16
 - **Deciders:** Reggie Farrell
 - **Related:** Refines decision #6 of [ADR-0001](0001-fork-and-2.0.0-rearchitecture.md);
-  [`src/core/Validation.ts`](../../src/core/Validation.ts);
-  [timestamp helper follow-up](../development/timestamp-millis-converter-followup.md)
+  [`src/core/Validation.ts`](../../src/core/Validation.ts)
 
 ## Context
 
@@ -70,11 +69,6 @@ behavior as the default.
    recommended pattern is a plain base schema (shared, `zod`-only) plus a server-side `.extend(...)`
    overlay that applies combinators.
 
-6. **Timestamp ↔ millis: documentation only in this change.** Document the `zDateWrite()` + small
-   read-converter recipe (write `Date`/`serverTimestamp()`, read back an ms `number`). An ergonomic
-   `createMillisTimestampConverter` helper is **deferred** to a fast-follow, specified in
-   [`docs/development/timestamp-millis-converter-followup.md`](../development/timestamp-millis-converter-followup.md).
-
 ## Consequences
 
 **Positive**
@@ -112,5 +106,4 @@ behavior as the default.
 - [`src/core/Validation.ts`](../../src/core/Validation.ts) — combinators, `whichFieldValue`,
   `sentinelPolicy`, detector fixes.
 - [README → Per-Field Sentinel Approval](../../README.md#per-field-sentinel-approval).
-- [Timestamp helper follow-up](../development/timestamp-millis-converter-followup.md).
 - Branch `feat/per-field-sentinel-validation`.

@@ -90,6 +90,21 @@ so type-level regressions (and `@ts-expect-error`) are invisible to them.
 - **Constrain `W extends { id?: ID }`.** Rejected: an inferred `z.infer<S>` is not statically known
   to satisfy that bound.
 
+## Future direction
+
+The curry is required only because TypeScript has no partial type-argument inference (naming the
+read type defaults the write-type parameter instead of inferring it) — not for backwards
+compatibility. A future **major** could retire the curry by inferring the read type from a _value_
+too: e.g. `withSchema(db, collection, readSchema, writeOverlaySchema?, converter?, opts?)`, where
+both the read type (`z.infer<readSchema>`) and the write type (`z.infer<writeOverlaySchema>`) come
+from arguments, so no explicit type parameter is given and single-call inference works (verified).
+The trade-off: the read type must be schema-derived (not a hand-written interface decoupled from a
+schema), and it is a breaking API change. Tracked as a v3 candidate in
+[issue #10](https://github.com/reggieofarrell/firestore-orm/issues/10). (If TypeScript ever ships
+partial type-argument inference, the single-generic `withSchema<Read>(db, collection, schema)` form
+would infer the write type directly and the curry could collapse with no redesign — but that is not
+something to design around.)
+
 ## References
 
 - [`src/core/FirestoreRepository.ts`](../../src/core/FirestoreRepository.ts) — curried/direct

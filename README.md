@@ -470,22 +470,31 @@ const eventWrite = eventBase.extend({
   happenedAt: zDateWrite(),
 });
 
-// Recursively converts every stored Timestamp to an ms number on read; toFirestore is pass-through.
-const events = FirestoreRepository.withSchema<EventDoc>(
-  db,
-  'events',
-  eventWrite,
-  createMillisTimestampConverter<EventDoc>(),
-);
+// The read converter recursively maps stored Timestamps to ms numbers; toFirestore is pass-through.
+const converter = createMillisTimestampConverter<EventDoc>();
+```
 
-// serverTimestamp() is a FieldValue, which every field already accepts — no cast needed.
-await events.create({
-  name: 'launch',
-  happenedAt: FieldValue.serverTimestamp(),
-});
-// A Date is neither `number` nor a FieldValue, so it needs a cast to the read type.
-await events.update(id, { happenedAt: new Date() as unknown as number });
+Build the repository with the **curried** form so write inputs are inferred from `eventWrite` — a
+`Date` / `serverTimestamp()` is then accepted with **no cast**, while reads still return `EventDoc`
+(`happenedAt: number`):
+
+```typescript
+const events = FirestoreRepository.withSchema<EventDoc>()(db, 'events', eventWrite, converter);
+
+await events.create({ name: 'launch', happenedAt: FieldValue.serverTimestamp() });
+await events.update(id, { happenedAt: new Date() }); // no cast
 const ev = await events.getById(id); // ev.happenedAt is a number (ms)
+```
+
+The **direct** form is equivalent at runtime but types write inputs by the read type, so a `Date`
+needs a cast (a `FieldValue` such as `serverTimestamp()` does not — every field already accepts
+one):
+
+```typescript
+const events = FirestoreRepository.withSchema<EventDoc>(db, 'events', eventWrite, converter);
+
+await events.create({ name: 'launch', happenedAt: FieldValue.serverTimestamp() });
+await events.update(id, { happenedAt: new Date() as unknown as number }); // cast required
 ```
 
 Pass a `fields` array to convert only specific top-level fields (each recursively) and leave every
@@ -500,10 +509,12 @@ Notes:
 - Write a `Date` or `serverTimestamp()`, not a raw `number` — the Admin SDK stores those as a
   `Timestamp` on every write path (including `update()`). A `FirestoreDataConverter.toFirestore` is
   **not** invoked on `update()`, so the converter deliberately does no write-side conversion.
-- The `create` / `update` **input types come from the read generic `U`**, not from the Zod write
-  schema — `zDateWrite()` only widens _runtime_ validation, so `happenedAt` is statically `number`.
-  A `FieldValue` such as `serverTimestamp()` is always accepted (`WithFieldValue` widens every field
-  to `| FieldValue`); a `Date` is neither `number` nor a `FieldValue`, so it needs a cast.
+- Prefer the **curried** `withSchema<EventDoc>()(...)`: it infers the write type from `eventWrite`,
+  so a `Date` is accepted on `create`/`update` with no cast, while reads stay typed as `EventDoc`.
+  The **direct** form types write inputs by the read type (`happenedAt: number`), so `zDateWrite()`
+  only widens _runtime_ validation there — a `FieldValue` such as `serverTimestamp()` is still
+  accepted without a cast (`WithFieldValue` widens every field to `| FieldValue`), but a `Date`
+  needs one. See [Per-Field Sentinel Approval](#per-field-sentinel-approval) for the full contract.
 
 #### Converter helpers
 

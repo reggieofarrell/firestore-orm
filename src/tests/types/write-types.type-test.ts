@@ -12,7 +12,12 @@
  */
 import { FieldValue } from 'firebase-admin/firestore';
 import { z } from 'zod';
-import { FirestoreRepository, zDateWrite, zNumberWrite } from '../../index.js';
+import {
+  FirestoreRepository,
+  zDateWrite,
+  zNumberWrite,
+  createMillisTimestampConverter,
+} from '../../index.js';
 
 declare const db: FirebaseFirestore.Firestore;
 
@@ -70,4 +75,20 @@ export async function curriedSubcollection() {
   await orders.update('o1', { total: FieldValue.increment(5) }); // no cast
   // @ts-expect-error create validates scalar types: a string is not a number field
   await orders.create({ total: 'nope' });
+}
+
+// ── README "Storing a Timestamp" example: curried withSchema + createMillisTimestampConverter ──
+type EventDoc = { id: string; name: string; happenedAt: number };
+const eventWrite = z.object({ id: z.string(), name: z.string(), happenedAt: zDateWrite() });
+const events = FirestoreRepository.withSchema<EventDoc>()(
+  db,
+  'events',
+  eventWrite,
+  createMillisTimestampConverter<EventDoc>(),
+);
+
+export async function timestampReadmeExample() {
+  // Cast-free on the curried form, exactly as the README shows.
+  await events.create({ name: 'launch', happenedAt: FieldValue.serverTimestamp() });
+  await events.update('id', { happenedAt: new Date() });
 }

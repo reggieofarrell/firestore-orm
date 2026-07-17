@@ -2,6 +2,7 @@ import { getApp, getApps, initializeApp } from 'firebase-admin/app';
 import { Firestore, getFirestore } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import { FirestoreRepository } from '../../../core/FirestoreRepository.js';
+import { zArrayWrite, zNumberWrite, zSentinel } from '../../../core/Validation.js';
 
 /**
  * Canonical project id used by local and CI emulator-backed integration tests.
@@ -56,6 +57,20 @@ export const hookValidatedUserSchema = z.object({
   createdAt: z.string().datetime(),
   tags: z.array(z.string()).optional(),
   loginCount: z.number().int().min(0).optional(),
+});
+
+/**
+ * Strict, combinator-based schema: each field declares exactly which sentinels it permits.
+ * `score` is plain (no sentinel), `createdAt` accepts a string or serverTimestamp, `tags`
+ * accepts an array or arrayUnion/arrayRemove, and `loginCount` accepts a number or increment.
+ */
+export const strictHookValidatedUserSchema = z.object({
+  id: z.string(),
+  name: z.string().min(1),
+  score: z.number().min(0),
+  createdAt: z.union([z.string(), zSentinel('serverTimestamp')]),
+  tags: zArrayWrite(z.string()).optional(),
+  loginCount: zNumberWrite().optional(),
 });
 
 /**
@@ -155,6 +170,20 @@ export function createValidatedRepo(db: Firestore) {
     db,
     makeCollectionName('test_users_hook_order'),
     hookValidatedUserSchema,
+  );
+}
+
+/**
+ * Builds an isolated repository with `sentinelPolicy: 'strict'` and the combinator-based
+ * schema, so only sentinels each field explicitly permits are accepted.
+ */
+export function createStrictRepo(db: Firestore) {
+  return FirestoreRepository.withSchema<HookValidatedUser>(
+    db,
+    makeCollectionName('test_users_strict'),
+    strictHookValidatedUserSchema,
+    undefined,
+    { sentinelPolicy: 'strict' },
   );
 }
 

@@ -13,8 +13,25 @@ export {
 export { parseFirestoreError } from './core/ErrorParser.js';
 export { errorHandler } from './core/ErrorHandler.js';
 
-export { makeValidator } from './core/Validation.js';
-export type { UpdateInput, Validator } from './core/Validation.js';
+export {
+  makeValidator,
+  whichFieldValue,
+  isFieldValueSentinel,
+  collectSentinelPaths,
+  zSentinel,
+  zNumberWrite,
+  zArrayWrite,
+  zDateWrite,
+  withDelete,
+} from './core/Validation.js';
+export type {
+  UpdateInput,
+  CreateInput,
+  Validator,
+  RepositorySchemaSet,
+  SentinelPolicy,
+  FieldValueKind,
+} from './core/Validation.js';
 
 export {
   isDotNotation,

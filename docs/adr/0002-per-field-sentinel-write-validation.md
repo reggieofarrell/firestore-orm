@@ -106,8 +106,6 @@ behavior as the default.
   behavior. Deferred to a future major.
 - **Adopt an SDK-agnostic, duck-typed detector.** Rejected: its Web-SDK signals are dead weight for
   an Admin-only library and widen the false-positive surface.
-- **Ship the timestamp converter helper now.** Deferred to keep this change focused; the documented
-  `zDateWrite()` + read-converter recipe covers the need in the interim.
 
 ## References
 

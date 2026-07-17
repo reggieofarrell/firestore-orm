@@ -49,7 +49,7 @@ the upstream package.
     `assertVectorSearchSupported()`
   - `getUnderlyingQuery()` / `getQueryRef()` internal composition helpers on the core query builder
   - `firestore.indexes.json` with vector index definitions for the integration tests
-  - [Vector search documentation](docs/vector-search.md)
+  - Vector search documentation
 - **Read-after-write control** — `update()`, `upsert()`, and `patch()` accept `{ returnDoc: true }`
   (new exported `UpdateOptions` type) to return the full re-read document instead of the default
   `{ id }` payload
@@ -90,7 +90,7 @@ the upstream package.
   `.unit.js` / `.integration.js`)
 - **Documentation & attribution** — `NOTICE` (fork/upstream MIT attribution),
   `docs/vector-search.md`, and `docs/development/` testing guides; `LICENSE` retains the upstream
-  `Copyright (c) 2025 HBFL3Xx` and adds `Copyright (c) 2026 Reggie Farrell`
+  `Copyright (c) 2025 HBFL3Xx` and adds `Copyright (c) 2026 Reggie O'Farrell`
 - Package `files` now ships `CHANGELOG.md`, `docs/vector-search.md`, and `NOTICE`; keyword
   `vector-search` added
 
@@ -193,7 +193,6 @@ the upstream package.
 - `ErrorHandler` HTTP status mappings are unchanged (`ValidationError` → 400, `NotFoundError` → 404,
   `FirestoreIndexError` → 404, `ConflictError` → 409, otherwise 500).
 - `src/utils/dotNotation.ts` is functionally unchanged from upstream (reformatting only).
-- Recommended: use top-level `embedding` fields for vector search; see the
-  [vector search docs](docs/vector-search.md).
+- Recommended: use top-level `embedding` fields for vector search.
 
 [2.0.0]: https://github.com/reggieofarrell/firestore-orm/releases/tag/v2.0.0

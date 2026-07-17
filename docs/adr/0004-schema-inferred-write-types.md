@@ -3,7 +3,7 @@
 - **Status:** Accepted (implemented on branch `feat/schema-inferred-write-types`; pending
   merge/release)
 - **Date:** 2026-07-17
-- **Deciders:** Reggie Farrell
+- **Deciders:** Reggie O'Farrell
 - **Related:** Refines [ADR-0002](0002-per-field-sentinel-write-validation.md) (per-field
   combinators); [`src/core/FirestoreRepository.ts`](../../src/core/FirestoreRepository.ts),
   [`src/core/Validation.ts`](../../src/core/Validation.ts)
@@ -112,5 +112,5 @@ something to design around.)
 - [`src/core/Validation.ts`](../../src/core/Validation.ts) — `CreateInput` (optional `id`).
 - [`src/tests/types/write-types.type-test.ts`](../../src/tests/types/write-types.type-test.ts) +
   `tsconfig.typecheck.json` — the compile-time gate (`npm run test:types`).
-- [README → Per-Field Sentinel Approval](../../README.md#per-field-sentinel-approval).
+- [Docs → Per-Field Sentinel Approval](../usage/field-value-sentinels.md#per-field-sentinel-approval).
 - Branch `feat/schema-inferred-write-types`.

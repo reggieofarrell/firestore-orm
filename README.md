@@ -217,29 +217,38 @@ const productRepo = new FirestoreRepository<Product>(db, 'products'); // Without
 
 ### Firestore Converters
 
-FirestoreORM supports Firestore `withConverter(...)` through optional repository converter
-arguments. This is useful when you need custom serialization/deserialization rules.
+FirestoreORM supports Firestore `withConverter(...)` through optional repository converter arguments
+— mainly for custom **read** deserialization (e.g. `Timestamp -> number`/`Date`).
+
+> **`toFirestore` runs on create-family writes only — do not rely on it for write conversion.** The
+> Admin SDK invokes a converter's `toFirestore` on `add`/`set` (`create`, `bulkCreate`, `upsert`
+> when creating, `createInTransaction`) but **not** on `update()` — so it is **skipped** by
+> `update`, `patch`, `bulkUpdate`, `upsert` (when updating), `updateInTransaction` /
+> `patchInTransaction`, and `query().update()`. `fromFirestore`, by contrast, runs on **every**
+> read. So keep `toFirestore` a pass-through and put read transforms in `fromFirestore`; for
+> write-time normalization that must apply on every path, use a `before*` hook (hooks run before
+> validation on all write paths) — see [Lifecycle Hooks](#lifecycle-hooks).
 
 ```typescript
-import { FirestoreDataConverter } from 'firebase-admin/firestore';
+import { Timestamp, FirestoreDataConverter } from 'firebase-admin/firestore';
 
 const userConverter: FirestoreDataConverter<User> = {
-  toFirestore: user => ({
-    ...user,
-    createdAt: user.createdAt.toISOString(),
-  }),
+  // Pass-through. Do NOT convert here — the Admin SDK skips toFirestore on update().
+  toFirestore: user => user as FirebaseFirestore.DocumentData,
+  // Runs on every read: map the stored Timestamp back to a Date.
   fromFirestore: snapshot => {
     const data = snapshot.data();
-    return {
-      ...data,
-      createdAt: new Date(data.createdAt),
-    } as User;
+    return { ...data, createdAt: (data.createdAt as Timestamp).toDate() } as User;
   },
 };
 
-// Converter + schema validation together
+// Write a Date/serverTimestamp() (stored as a Timestamp on every write path); read back a Date.
 const userRepo = FirestoreRepository.withSchema<User>(db, 'users', userSchema, userConverter);
 ```
+
+For the common `Timestamp -> number` case, the built-in
+[`createMillisTimestampConverter`](#storing-a-timestamp-reading-a-millisecond-number) packages
+exactly this shape (recursive read conversion + pass-through write).
 
 Converter behavior is instance-local by design:
 

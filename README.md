@@ -401,9 +401,9 @@ const userRepo = FirestoreRepository.withSchema<User>(db, 'users', userWrite, un
 ### Storing a Timestamp, reading a millisecond number
 
 A common pattern is to store a Firestore `Timestamp` but work with milliseconds-since-epoch
-`number`s in application code. Write a native `Date` or `FieldValue.serverTimestamp()` (validated
-with `zDateWrite()`), and convert `Timestamp -> number` on read with
-`createMillisTimestampConverter`:
+`number`s in application code. Define a plain **base schema** as the read shape (so `z.infer` gives
+a clean, shareable type), then `.extend` the temporal field with `zDateWrite()` for write
+validation, and convert `Timestamp -> number` on read with `createMillisTimestampConverter`:
 
 ```typescript
 import { FieldValue } from 'firebase-admin/firestore';
@@ -414,16 +414,19 @@ import {
 } from '@reggieofarrell/firestore-orm';
 import { z } from 'zod';
 
-interface EventDoc {
-  id: string;
-  name: string;
-  happenedAt: number; // ms since epoch on read
-}
-
-const eventWrite = z.object({
+// Base schema = the read shape. `happenedAt` reads as an ms number. This is zod-only, so its
+// inferred type is a clean API-contract type you can share (e.g. with a front-end).
+const eventBase = z.object({
   id: z.string(),
   name: z.string().min(1),
-  happenedAt: zDateWrite(), // Date | serverTimestamp() (a raw number is rejected)
+  happenedAt: z.number(), // ms since epoch on read
+});
+type EventDoc = z.infer<typeof eventBase>;
+
+// Write overlay: swap the temporal field to accept a Date or serverTimestamp() (a raw number is
+// rejected). Only write validation widens — the read type stays the plain `EventDoc`.
+const eventWrite = eventBase.extend({
+  happenedAt: zDateWrite(),
 });
 
 // Recursively converts every stored Timestamp to an ms number on read; toFirestore is pass-through.

@@ -437,10 +437,12 @@ const events = FirestoreRepository.withSchema<EventDoc>(
   createMillisTimestampConverter<EventDoc>(),
 );
 
+// serverTimestamp() is a FieldValue, which every field already accepts — no cast needed.
 await events.create({
   name: 'launch',
-  happenedAt: FieldValue.serverTimestamp() as unknown as number,
+  happenedAt: FieldValue.serverTimestamp(),
 });
+// A Date is neither `number` nor a FieldValue, so it needs a cast to the read type.
 await events.update(id, { happenedAt: new Date() as unknown as number });
 const ev = await events.getById(id); // ev.happenedAt is a number (ms)
 ```
@@ -457,8 +459,10 @@ Notes:
 - Write a `Date` or `serverTimestamp()`, not a raw `number` — the Admin SDK stores those as a
   `Timestamp` on every write path (including `update()`). A `FirestoreDataConverter.toFirestore` is
   **not** invoked on `update()`, so the converter deliberately does no write-side conversion.
-- Because read and write share one generic `U`, passing a `Date`/`serverTimestamp()` into a field
-  typed as `number` needs a cast (shown above).
+- The `create` / `update` **input types come from the read generic `U`**, not from the Zod write
+  schema — `zDateWrite()` only widens _runtime_ validation, so `happenedAt` is statically `number`.
+  A `FieldValue` such as `serverTimestamp()` is always accepted (`WithFieldValue` widens every field
+  to `| FieldValue`); a `Date` is neither `number` nor a `FieldValue`, so it needs a cast.
 
 #### Converter helpers
 

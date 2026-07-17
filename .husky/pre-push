@@ -5,6 +5,6 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck disable=SC1091
 . "$REPO_ROOT/scripts/check-node-version.sh"
 
-# Fast local gate: doc links + unit path-specific thresholds only (no Java/emulator).
+# Fast local gate: type checks + doc links + unit path-specific thresholds (no Java/emulator).
 # Integration gate runs in CI — see docs/development/testing.md.
-npm run check:docs && npm run test:unit:coverage && npm run test:coverage:gate:unit
+npm run test:types && npm run check:docs && npm run test:unit:coverage && npm run test:coverage:gate:unit

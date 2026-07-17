@@ -13,7 +13,13 @@ export type Validator<T> = {
   schemas: RepositorySchemaSet;
 };
 
-export type CreateInput<T> = WithFieldValue<T>;
+/**
+ * Input accepted by create-family operations (`create`, `bulkCreate`, `upsert`,
+ * `createInTransaction`). The top-level `id` is optional because the repository sources the
+ * document id itself (auto-generated on create, or the explicit `id` argument on `upsert`) and
+ * strips any `id` from the payload — so callers never need to supply one.
+ */
+export type CreateInput<T> = WithFieldValue<Omit<T, 'id'>> & { id?: string };
 export type UpdateInput<T> = PartialWithFieldValue<T>;
 
 /**

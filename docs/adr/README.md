@@ -25,3 +25,4 @@ consequences. They explain _why_ the codebase looks the way it does, which commi
 | [0001](0001-fork-and-2.0.0-rearchitecture.md)       | Fork `spacelabs-firestoreorm` and re-architect as a deliberate `2.0.0` break | Accepted | 2026-07-08 |
 | [0002](0002-per-field-sentinel-write-validation.md) | Per-field `FieldValue` sentinel approval via opt-in strict validation        | Accepted | 2026-07-16 |
 | [0003](0003-timestamp-millis-converter-helper.md)   | `Timestamp ↔ millis` converter helper                                        | Accepted | 2026-07-17 |
+| [0004](0004-schema-inferred-write-types.md)         | Schema-inferred write-input types (and optional `id` on create)              | Accepted | 2026-07-17 |

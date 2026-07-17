@@ -217,29 +217,38 @@ const productRepo = new FirestoreRepository<Product>(db, 'products'); // Without
 
 ### Firestore Converters
 
-FirestoreORM supports Firestore `withConverter(...)` through optional repository converter
-arguments. This is useful when you need custom serialization/deserialization rules.
+FirestoreORM supports Firestore `withConverter(...)` through optional repository converter arguments
+— mainly for custom **read** deserialization (e.g. `Timestamp -> number`/`Date`).
+
+> **`toFirestore` runs on create-family writes only — do not rely on it for write conversion.** The
+> Admin SDK invokes a converter's `toFirestore` on `add`/`set` (`create`, `bulkCreate`, `upsert`
+> when creating, `createInTransaction`) but **not** on `update()` — so it is **skipped** by
+> `update`, `patch`, `bulkUpdate`, `upsert` (when updating), `updateInTransaction` /
+> `patchInTransaction`, and `query().update()`. `fromFirestore`, by contrast, runs on **every**
+> read. So keep `toFirestore` a pass-through and put read transforms in `fromFirestore`; for
+> write-time normalization that must apply on every path, use a `before*` hook (hooks run before
+> validation on all write paths) — see [Lifecycle Hooks](#lifecycle-hooks).
 
 ```typescript
-import { FirestoreDataConverter } from 'firebase-admin/firestore';
+import { Timestamp, FirestoreDataConverter } from 'firebase-admin/firestore';
 
 const userConverter: FirestoreDataConverter<User> = {
-  toFirestore: user => ({
-    ...user,
-    createdAt: user.createdAt.toISOString(),
-  }),
+  // Pass-through. Do NOT convert here — the Admin SDK skips toFirestore on update().
+  toFirestore: user => user as FirebaseFirestore.DocumentData,
+  // Runs on every read: map the stored Timestamp back to a Date.
   fromFirestore: snapshot => {
     const data = snapshot.data();
-    return {
-      ...data,
-      createdAt: new Date(data.createdAt),
-    } as User;
+    return { ...data, createdAt: (data.createdAt as Timestamp).toDate() } as User;
   },
 };
 
-// Converter + schema validation together
+// Write a Date/serverTimestamp() (stored as a Timestamp on every write path); read back a Date.
 const userRepo = FirestoreRepository.withSchema<User>(db, 'users', userSchema, userConverter);
 ```
+
+For the common `Timestamp -> number` case, the built-in
+[`createMillisTimestampConverter`](#storing-a-timestamp-reading-a-millisecond-number) packages
+exactly this shape (recursive read conversion + pass-through write).
 
 Converter behavior is instance-local by design:
 
@@ -294,6 +303,8 @@ try {
 - `update()` validates against an internal update schema derived from
   `schema.omit({ id: true }).partial()`
 - top-level `id` is ignored/stripped from create/update/patch payloads before validation and writes
+- `create()` therefore does **not** require `id` in its input type — the id is auto-generated (or,
+  for `upsert`, taken from the explicit `id` argument); reads always include `id`
 - only the document-level top-level `id` is stripped; nested IDs (for example `items[].id`) are
   treated as normal domain data
 - Write operations follow this sequence: `before*` hook -> validation -> Firestore write -> `after*`
@@ -370,11 +381,45 @@ await userRepo.update('u1', { name: FieldValue.serverTimestamp() }); // throws V
 the permissive escape hatch so only combinator-declared sentinels pass. The combinators are also
 useful in `'permissive'` mode for documentation, but only `'strict'` **enforces** them.
 
+**Optionally get combinator types on `create` / `update` inputs (curried form).** TypeScript can't
+infer a second type argument once you specify the read type, so `withSchema` has a curried opt-in
+form — `withSchema<Read>()(db, collection, schema, …)` — where the first call fixes the read type
+and the schema's write type is then inferred. With it, combinator fields accept their native values
+/ sentinels with **no cast**, while reads stay typed as `Read`:
+
+```typescript
+const userRepo = FirestoreRepository.withSchema<User>()(db, 'users', userSchema, undefined, {
+  sentinelPolicy: 'strict',
+});
+
+await userRepo.create({ name: 'Ada', loginCount: 0, tags: [] }); // no id required
+await userRepo.update('u1', { loginCount: FieldValue.increment(1) }); // no cast
+await userRepo.update('u1', { tags: FieldValue.arrayUnion('x') }); // no cast
+```
+
+What these write types do and don't catch (everything else is enforced at runtime under `'strict'`):
+
+- ✅ Combinator native values / sentinels are accepted with no cast; `create` needs no `id`.
+- ✅ `create` rejects wrong scalar types at compile time (e.g. a string in a number field).
+- ⚠️ `update` is looser (Firestore's `PartialWithFieldValue`): it catches wrong primitives but not,
+  for example, a raw number written into a `Date`-typed field.
+- ⚠️ The sentinel **kind** is never compile-checked — Firestore's `WithFieldValue` accepts any
+  `FieldValue` on any field, so `arrayUnion` into a `zNumberWrite()` field compiles and is rejected
+  only at runtime under `'strict'`.
+
+The plain direct form — `withSchema<User>(db, 'users', schema, …)` — is unchanged and types writes
+by the read type `User` (so a combinator value such as a `Date`/sentinel needs a cast). Use the
+curried form when you want cast-free combinator writes.
+
+`subcollection` has the same curried opt-in form —
+`repo.subcollection<Read>()(parentId, name, schema, …)` — with identical inference; its direct form
+stays read-typed.
+
 #### Sharing schema-derived types with a front-end
 
-`withSchema<U>(...)` takes the read type `U` as an explicit generic, decoupled from the runtime
-schema. So keep a **plain base schema** in shared code as the single source of truth for your
-API-contract types, and apply combinators in a thin **server-side overlay** — the combinators (and
+`withSchema<U>` takes the read type `U` as an explicit generic, decoupled from the runtime schema.
+So keep a **plain base schema** in shared code as the single source of truth for your API-contract
+types, and apply combinators in a thin **server-side overlay** — the combinators (and
 `firebase-admin`) never reach shared/browser code.
 
 ```typescript
@@ -387,15 +432,20 @@ export const userBase = z.object({
 });
 export type User = z.infer<typeof userBase>; // clean contract type: no sentinels
 
-// server/user.repo.ts — combinators live here only
+// server/user.repo.ts — combinators live here only. Curried form so writes are inferred.
 import { zNumberWrite, zArrayWrite } from '@reggieofarrell/firestore-orm';
 const userWrite = userBase.extend({
   loginCount: zNumberWrite(),
   tags: zArrayWrite(z.string()),
 });
-const userRepo = FirestoreRepository.withSchema<User>(db, 'users', userWrite, undefined, {
+const userRepo = FirestoreRepository.withSchema<User>()(db, 'users', userWrite, undefined, {
   sentinelPolicy: 'strict',
 });
+
+// Reads return the plain `User` (loginCount: number); writes accept the combinator types with no
+// cast, and `create` does not require `id`:
+await userRepo.create({ name: 'Ada', loginCount: 0, tags: [] });
+await userRepo.update('u1', { loginCount: FieldValue.increment(1) });
 ```
 
 ### Storing a Timestamp, reading a millisecond number
@@ -429,22 +479,31 @@ const eventWrite = eventBase.extend({
   happenedAt: zDateWrite(),
 });
 
-// Recursively converts every stored Timestamp to an ms number on read; toFirestore is pass-through.
-const events = FirestoreRepository.withSchema<EventDoc>(
-  db,
-  'events',
-  eventWrite,
-  createMillisTimestampConverter<EventDoc>(),
-);
+// The read converter recursively maps stored Timestamps to ms numbers; toFirestore is pass-through.
+const converter = createMillisTimestampConverter<EventDoc>();
+```
 
-// serverTimestamp() is a FieldValue, which every field already accepts — no cast needed.
-await events.create({
-  name: 'launch',
-  happenedAt: FieldValue.serverTimestamp(),
-});
-// A Date is neither `number` nor a FieldValue, so it needs a cast to the read type.
-await events.update(id, { happenedAt: new Date() as unknown as number });
+Build the repository with the **curried** form so write inputs are inferred from `eventWrite` — a
+`Date` / `serverTimestamp()` is then accepted with **no cast**, while reads still return `EventDoc`
+(`happenedAt: number`):
+
+```typescript
+const events = FirestoreRepository.withSchema<EventDoc>()(db, 'events', eventWrite, converter);
+
+await events.create({ name: 'launch', happenedAt: FieldValue.serverTimestamp() });
+await events.update(id, { happenedAt: new Date() }); // no cast
 const ev = await events.getById(id); // ev.happenedAt is a number (ms)
+```
+
+The **direct** form is equivalent at runtime but types write inputs by the read type, so a `Date`
+needs a cast (a `FieldValue` such as `serverTimestamp()` does not — every field already accepts
+one):
+
+```typescript
+const events = FirestoreRepository.withSchema<EventDoc>(db, 'events', eventWrite, converter);
+
+await events.create({ name: 'launch', happenedAt: FieldValue.serverTimestamp() });
+await events.update(id, { happenedAt: new Date() as unknown as number }); // cast required
 ```
 
 Pass a `fields` array to convert only specific top-level fields (each recursively) and leave every
@@ -459,10 +518,12 @@ Notes:
 - Write a `Date` or `serverTimestamp()`, not a raw `number` — the Admin SDK stores those as a
   `Timestamp` on every write path (including `update()`). A `FirestoreDataConverter.toFirestore` is
   **not** invoked on `update()`, so the converter deliberately does no write-side conversion.
-- The `create` / `update` **input types come from the read generic `U`**, not from the Zod write
-  schema — `zDateWrite()` only widens _runtime_ validation, so `happenedAt` is statically `number`.
-  A `FieldValue` such as `serverTimestamp()` is always accepted (`WithFieldValue` widens every field
-  to `| FieldValue`); a `Date` is neither `number` nor a `FieldValue`, so it needs a cast.
+- Prefer the **curried** `withSchema<EventDoc>()(...)`: it infers the write type from `eventWrite`,
+  so a `Date` is accepted on `create`/`update` with no cast, while reads stay typed as `EventDoc`.
+  The **direct** form types write inputs by the read type (`happenedAt: number`), so `zDateWrite()`
+  only widens _runtime_ validation there — a `FieldValue` such as `serverTimestamp()` is still
+  accepted without a cast (`WithFieldValue` widens every field to `| FieldValue`), but a `Date`
+  needs one. See [Per-Field Sentinel Approval](#per-field-sentinel-approval) for the full contract.
 
 #### Converter helpers
 
@@ -2514,9 +2575,16 @@ export class FeedService {
 
 #### Static Methods
 
-**`withSchema<T>(db: Firestore, collection: string, schema: ZodSchema, converter?: FirestoreDataConverter<T>): FirestoreRepository<T>`**
+**`withSchema<T>(db: Firestore, collection: string, schema: ZodSchema, converter?: FirestoreDataConverter<T>, opts?: { sentinelPolicy?: SentinelPolicy }): FirestoreRepository<T>`**
 
-Create a repository with Zod schema validation.
+Create a repository with Zod schema validation. Write inputs are typed by the read type `T`.
+
+**`withSchema<T>()(db: Firestore, collection: string, schema: S, converter?: FirestoreDataConverter<T>, opts?: { sentinelPolicy?: SentinelPolicy }): FirestoreRepository<T, z.infer<S>>`**
+(curried)
+
+Same, but the curried first call fixes the read type `T` so the write-input type is inferred from
+`schema` — combinator fields then accept their native values / sentinels on `create`/`update` with
+no cast. See [Per-Field Sentinel Approval](#per-field-sentinel-approval) for the exact guarantees.
 
 **`new FirestoreRepository<T>(db: Firestore, collectionPath: string, validator?: Validator<T>, parentPath?: string, converter?: FirestoreDataConverter<T>)`**
 
@@ -2606,6 +2674,10 @@ Register lifecycle hook.
 
 Access subcollection. Converters are explicit per repository instance and are not inherited from
 parent repositories.
+
+A curried form — `subcollection<Read>()(parentId, subcollectionName, schema, converter?, opts?)` —
+mirrors [`withSchema`](#per-field-sentinel-approval): it infers the write-input type from `schema`
+so combinator fields are writable with no cast, while reads stay typed as `Read`.
 
 **`getParentId(): ID | null`**
 

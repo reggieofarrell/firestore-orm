@@ -25,7 +25,8 @@ type FirestoreVectorQuery<T> = {
 export class VectorQueryBuilder<T extends { id?: string }> {
   private vectorQuery: FirestoreVectorQuery<T> | null = null;
 
-  constructor(private readonly coreBuilder: FirestoreQueryBuilder<T>) {}
+  // Accepts a core builder with any write model `W`; vector queries do not expose update().
+  constructor(private readonly coreBuilder: FirestoreQueryBuilder<T, any>) {}
 
   /**
    * Throws when vector mode is active and a standard query mutator is invoked.

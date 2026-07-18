@@ -15,8 +15,8 @@
  * - a FieldValue sentinel is preserved while omitted defaults are still stripped;
  * - `parseCreate` still applies every default (the fix must not touch create).
  *
- * Note: these run against the installed Zod (v4). The fix is a pure post-parse key-diff (no schema
- * internals), so it is version-agnostic across the supported `^3.25 || ^4` range.
+ * Note: these run against the supported Zod (`^4`). The fix is a pure post-parse key-diff (no schema
+ * internals), so it is independent of the Zod major; zod v3 is no longer a supported peer.
  */
 import { FieldValue } from 'firebase-admin/firestore';
 import { z } from 'zod';

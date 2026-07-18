@@ -33,7 +33,7 @@ pnpm add @reggieofarrell/firestore-orm firebase-admin zod
 | Package          | Supported range                                            |
 | ---------------- | ---------------------------------------------------------- |
 | `firebase-admin` | `^12.0.0 \|\| ^13.0.0` (vector extension: ≥13 recommended) |
-| `zod`            | `^3.25.0 \|\| ^4.0.0`                                      |
+| `zod`            | `^4.0.0`                                                   |
 
 ## 1. Initialize Firebase Admin
 

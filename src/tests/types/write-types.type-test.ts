@@ -91,14 +91,14 @@ export async function fallbackNegatives() {
   await strict.create({ name: 'a', loginCount: 0, happenedAt: 123 });
 }
 
-// ── D) All options together: converter contextual typing must not break WS inference ──────────
+// ── D) All options together: readConverter contextual typing must not break WS inference ──────
 type EventDoc = { id: string; name: string; happenedAt: number };
 const eventDocRead = z.object({ id: z.string(), name: z.string(), happenedAt: z.number() });
 const eventDocWrite = z.object({ id: z.string(), name: z.string(), happenedAt: zDateWrite() });
 const events = FirestoreRepository.withSchema(db, 'events', eventDocRead, {
   writeSchema: eventDocWrite,
   sentinelPolicy: 'strict',
-  converter: createMillisTimestampConverter<EventDoc>(),
+  readConverter: createMillisTimestampConverter<EventDoc>(),
 });
 
 export async function allOptions() {

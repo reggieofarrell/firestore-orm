@@ -28,7 +28,7 @@ Firestore id (on `create` / `bulkCreate` / `createInTransaction`) or from the `i
 
 ### Static Methods
 
-**`withSchema<RS extends ZodObject, WS extends ZodObject = RS>(db: Firestore, collection: string, readSchema: RS, options?: { writeSchema?: WS; converter?: FirestoreDataConverter<z.infer<RS>>; sentinelPolicy?: SentinelPolicy }): FirestoreRepository<z.infer<RS>, z.infer<WS>>`**
+**`withSchema<RS extends ZodObject, WS extends ZodObject = RS>(db: Firestore, collection: string, readSchema: RS, options?: { writeSchema?: WS; readConverter?: ReadConverter<z.infer<RS>>; sentinelPolicy?: SentinelPolicy }): FirestoreRepository<z.infer<RS>, z.infer<WS>>`**
 
 Create a schema-validated repository. The **read type** is `z.infer<readSchema>` and the
 **write-input type** is `z.infer<writeSchema>` when a `writeSchema` overlay is supplied, otherwise
@@ -42,11 +42,13 @@ Types are inferred from schema **values** — do not pass an explicit read-type 
 `writeSchema` overlay need not include `id`. `options.sentinelPolicy` is `'permissive'` (default) or
 `'strict'`; strict mode enforces which sentinel kind each field accepts.
 
-**`new FirestoreRepository<T extends { id?: ID }, W = T>(db: Firestore, collectionPath: string, validator?: Validator<W>, parentPath?: string, converter?: FirestoreDataConverter<T>, schemas?: RepositorySchemaSet)`**
+**`new FirestoreRepository<T extends { id?: ID }, W = T>(db: Firestore, collectionPath: string, validator?: Validator<W>, parentPath?: string, readConverter?: ReadConverter<T>, schemas?: RepositorySchemaSet)`**
 
-Low-level constructor with optional validation and optional Firestore converter support. There is no
-options / config / debug / logger bag anywhere in the constructor — prefer `withSchema(...)` for
-typical use.
+Low-level constructor with optional validation and an optional read-only converter. A
+`ReadConverter<T>` is the `fromFirestore(snapshot) => T` mapper only; the repository builds the full
+`FirestoreDataConverter` internally and applies it to reads, so `toFirestore` is never invoked.
+There is no options / config / debug / logger bag anywhere in the constructor — prefer
+`withSchema(...)` for typical use.
 
 ### Instance Methods
 
@@ -63,9 +65,10 @@ Get document by ID; throws `NotFoundError` when missing.
 **`fromSnapshot(snapshot: DocumentSnapshot): (T & { id: ID }) | null`**
 
 Map a raw Firestore snapshot — e.g. the one delivered to a trigger cloud function — to `T & { id }`,
-applying the repository's converter `fromFirestore` when configured and overlaying the document
-`id`. Does no Firestore I/O; returns the read model `T` (not `W`), and `null` for a non-existent
-snapshot. Not validated (like other reads); see [Using with Firestore triggers](./triggers/).
+applying the repository's `readConverter` `fromFirestore` when configured and overlaying the
+document `id`. Does no Firestore I/O; returns the read model `T` (not `W`), and `null` for a
+non-existent snapshot. Not validated (like other reads); see
+[Using with Firestore triggers](./triggers/).
 
 **`getAll(): Promise<(T & { id: ID })[]>`**
 
@@ -155,7 +158,7 @@ runtime. Hooks do **not** run inside `query().update()` / `query().delete()`; in
 they run only via the transaction-scoped repo passed to `runInTransaction`. See
 [Lifecycle hooks](./lifecycle-hooks/#lifecycle-hooks) for full detail.
 
-**`subcollection<RS extends ZodObject, WS extends ZodObject = RS>(parentId: ID, subcollectionName: string, readSchema: RS, options?: { writeSchema?: WS; converter?: FirestoreDataConverter<z.infer<RS>>; sentinelPolicy?: SentinelPolicy }): FirestoreRepository<z.infer<RS>, z.infer<WS>>`**
+**`subcollection<RS extends ZodObject, WS extends ZodObject = RS>(parentId: ID, subcollectionName: string, readSchema: RS, options?: { writeSchema?: WS; readConverter?: ReadConverter<z.infer<RS>>; sentinelPolicy?: SentinelPolicy }): FirestoreRepository<z.infer<RS>, z.infer<WS>>`**
 
 Access a subcollection under a specific parent document. Mirrors `withSchema`: read/write types are
 inferred from schema values, and a `writeSchema` overlay enables cast-free combinator writes.
@@ -299,6 +302,8 @@ Types re-exported from the package entry point (`@reggieofarrell/firestore-orm`)
 - **`ID`** — `string` document-identifier alias.
 - **`HookEvent`** — union of supported lifecycle hook names.
 - **`UpdateOptions`** — `{ merge?: boolean; returnDoc?: boolean }`.
+- **`ReadConverter<T>`** — read-only converter: the `fromFirestore(snapshot) => T` mapper passed as
+  `readConverter` (the repository builds the full `FirestoreDataConverter` internally).
 - **`PaginatedResult<T>`** — `{ items; nextCursor; hasMore }` from cursor pagination.
 - **`UpdateInput<T>`** — update payload type (Firestore `PartialWithFieldValue<T>`-style input).
 - **`CreateInput<T>`** — create payload type; permits an optional `id` that is discarded on write.

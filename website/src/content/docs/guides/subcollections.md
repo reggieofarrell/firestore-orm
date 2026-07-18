@@ -43,8 +43,8 @@ const fetched = await userOrders.getById(order.id);
 ### Signature
 
 `subcollection` mirrors [`withSchema`](./schema-validation/#schema-validation): read/write types are
-inferred from schema values, and a trailing options object carries `writeSchema`, `converter`, and
-`sentinelPolicy`.
+inferred from schema values, and a trailing options object carries `writeSchema`, `readConverter`,
+and `sentinelPolicy`.
 
 ```typescript
 subcollection<RS extends z.ZodObject<any>, WS extends z.ZodObject<any> = RS>(
@@ -53,7 +53,7 @@ subcollection<RS extends z.ZodObject<any>, WS extends z.ZodObject<any> = RS>(
   readSchema: RS,
   options?: {
     writeSchema?: WS;
-    converter?: FirestoreDataConverter<z.infer<RS>>;
+    readConverter?: ReadConverter<z.infer<RS>>;
     sentinelPolicy?: 'permissive' | 'strict';
   },
 ): FirestoreRepository<z.infer<RS>, z.infer<WS>>;
@@ -127,7 +127,7 @@ repository. If a child collection needs converter behavior, pass the converter e
 `subcollection()`.
 
 ```typescript
-import type { FirestoreDataConverter } from 'firebase-admin/firestore';
+import { ReadConverter } from '@reggieofarrell/firestore-orm';
 
 const userSchema = z.object({
   id: z.string(),
@@ -135,27 +135,23 @@ const userSchema = z.object({
 });
 type User = z.infer<typeof userSchema>;
 
-// Parent and child each declare their own converter.
-// `fromFirestore` returns data WITHOUT `id` — the repository overlays the document id afterward.
-const userConverter: FirestoreDataConverter<User> = {
-  toFirestore: data => data,
-  fromFirestore: snapshot => snapshot.data() as User,
-};
-const orderConverter: FirestoreDataConverter<Order> = {
-  toFirestore: data => data,
-  fromFirestore: snapshot => snapshot.data() as Order,
-};
+// Parent and child each declare their own read converter (the `fromFirestore` mapper only).
+// The mapper returns data WITHOUT `id` — the repository overlays the document id afterward.
+const userReadConverter: ReadConverter<User> = snapshot => snapshot.data() as User;
+const orderReadConverter: ReadConverter<Order> = snapshot => snapshot.data() as Order;
 
-const users = FirestoreRepository.withSchema(db, 'users', userSchema, { converter: userConverter });
+const users = FirestoreRepository.withSchema(db, 'users', userSchema, {
+  readConverter: userReadConverter,
+});
 
 // No converter inheritance: pass the child converter explicitly.
 const userOrders = users.subcollection('user-123', 'orders', orderSchema, {
-  converter: orderConverter,
+  readConverter: orderReadConverter,
 });
 ```
 
-See [core concepts](./core-concepts/) for the full converter contract (when `toFirestore` and
-`fromFirestore` run, and why `fromFirestore` must omit `id`).
+See [core concepts](./core-concepts/) for the full converter contract (converters are read-only — a
+`fromFirestore` mapper that runs on reads — and why it must omit `id`).
 
 ## Inspecting subcollection metadata
 
@@ -174,8 +170,8 @@ topLevel.isSubcollection(); // false
 ```
 
 `FirestoreRepository`'s constructor is
-`new FirestoreRepository(db, collectionPath, validator?, parentPath?, converter?, schemas?)` — there
-is no options/config/logging bag. In practice, prefer `subcollection()` and the
+`new FirestoreRepository(db, collectionPath, validator?, parentPath?, readConverter?, schemas?)` —
+there is no options/config/logging bag. In practice, prefer `subcollection()` and the
 [`withSchema`](./schema-validation/#schema-validation) factory over constructing repositories by
 hand.
 

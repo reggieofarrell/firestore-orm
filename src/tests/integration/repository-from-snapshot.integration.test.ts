@@ -36,7 +36,7 @@ describe('FirestoreRepository.fromSnapshot (integration)', () => {
   const db = getIntegrationDb();
 
   const converterRepo = FirestoreRepository.withSchema(db, CONVERTER_COLLECTION, eventWriteSchema, {
-    converter: createMillisTimestampConverter<EventDoc>(),
+    readConverter: createMillisTimestampConverter<EventDoc>(),
     sentinelPolicy: 'strict',
   });
 

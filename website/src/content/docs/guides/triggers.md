@@ -24,8 +24,8 @@ underlying read semantics.
 ## `repo.fromSnapshot(snapshot)`
 
 Import your already-configured repository and hand it the snapshot. `fromSnapshot` mirrors a normal
-read: it applies the repository's converter `fromFirestore` (when one is configured), then overlays
-`id` from `snapshot.id`.
+read: it applies the repository's `readConverter` (the `fromFirestore` mapper) when one is
+configured, then overlays `id` from `snapshot.id`.
 
 ```typescript
 fromSnapshot(snapshot: DocumentSnapshot): (T & { id: ID }) | null;

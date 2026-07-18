@@ -44,7 +44,7 @@ This fork includes a significant refactor focused on:
 - Firestore-native update behavior instead of client-side merge reconstruction
 - Sentinel-aware schema validation for atomic writes
 - Clearer hook contracts and write ordering (`before*` -> validation -> write -> `after*`)
-- Optional Firestore converter support
+- Optional read-only Firestore converter support (`readConverter`; `fromFirestore` on reads)
 - Jest unit + emulator integration suites with **dual path-specific coverage gates** (integration
   owns ORM core; merged LCOV is not gated)
 

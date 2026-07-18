@@ -16,7 +16,7 @@ upgrade.
 
 ## Breaking changes
 
-v3 has **two** breaking contracts. Everything else in this guide is optional cleanup.
+v3 has **three** breaking contracts. Everything else in this guide is optional cleanup.
 
 ### 1. Value-inferred `withSchema` / `subcollection`
 
@@ -47,6 +47,32 @@ In v3:
 - It accepts only a `ReadConverter<T>` — the `fromFirestore` mapper `(snapshot) => T`.
 - `createMillisTimestampConverter()` returns that mapper (not a full converter).
 - Any create-time write transform that lived in `toFirestore` must move to a `before*` hook.
+
+### 3. Type-safe, validated dot-notation
+
+Dot-notation is now first-class instead of a stringly-typed, runtime-only feature. Most code needs
+no change — you can **delete the `as any` casts** you previously used on nested updates — but a few
+contracts tightened:
+
+- **Query field paths are typed.** `where`, `orderBy`, `select` (and the vector builder's `where` /
+  `select`) accept `FieldPaths<T> | FieldPath` instead of an arbitrary `string`. Typos and unknown
+  paths are now compile errors, and nested paths (`orderBy('address.city')`) are supported. For a
+  genuinely dynamic field name, pass a `FieldPath` (`where(new FieldPath(name), '==', v)`) instead
+  of a computed string.
+- **`id` is no longer a writable update key**, and **`create`/`upsert` reject dot-notation keys** (a
+  compile error, and a runtime error if forced with a cast — Firestore would create a field whose
+  name literally contains a dot). Use a nested object on create.
+- **Behavior fix (important):** in v2, explicit dot-notation update keys on a **schema-validated**
+  repository were silently stripped and never written. In v3 they are validated and persisted; a bad
+  leaf value or an unknown field path now throws `ValidationError` instead of silently doing
+  nothing. If you relied on that no-op, audit those call sites.
+- `query().update(...)` now returns the number of documents **actually written** (payloads that
+  sanitized to empty are not counted), not the matched count.
+- **`bulkPatch`'s `beforeBulkUpdate` hook now receives the raw (un-flattened) input**, matching
+  single-document `patch`. In v2 it saw pre-flattened dot-notation keys. A hook that read
+  `update.data['profile.verified']` should read `update.data.profile?.verified` (or handle both).
+
+New type helpers `FieldPaths<T>` and `PathValue<T, P>` are exported from the package root.
 
 ## Migration steps
 

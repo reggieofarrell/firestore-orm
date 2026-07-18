@@ -11,7 +11,7 @@ import { z } from 'zod';
 import { ConflictError, NotFoundError, ValidationError } from './Errors.js';
 import { FirestoreQueryBuilder } from './QueryBuilder.js';
 import { parseFirestoreError } from './ErrorParser.js';
-import { flattenToDotNotation, isDotNotation } from '../utils/dotNotation.js';
+import { flattenToDotNotation, hasDotNotationKeys, isDotNotation } from '../utils/dotNotation.js';
 
 export type ID = string;
 export type UpdateOptions = {
@@ -533,10 +533,21 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
     );
     const explicitDotNotationObject = Object.fromEntries(explicitDotNotationEntries);
 
-    return {
+    const merged: Record<string, any> = {
       ...flattenedRegularObject,
       ...explicitDotNotationObject,
-    } as UpdateInput<W>;
+    };
+
+    // Drop undefined leaves so a nested `{ a: { b: undefined } }` behaves identically to an explicit
+    // `{ 'a.b': undefined }` — both are omitted (the existing value is preserved) instead of the
+    // flattened form leaking an undefined path that Firestore rejects.
+    for (const key of Object.keys(merged)) {
+      if (merged[key] === undefined) {
+        delete merged[key];
+      }
+    }
+
+    return merged as UpdateInput<W>;
   }
 
   /**
@@ -545,6 +556,15 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    */
   private validateCreateData(data: CreateInput<W>): CreateInput<W> {
     const createPayload = this.stripTopLevelId(data as Record<string, any>) as CreateInput<W>;
+    // Firestore only interprets dot-notation as a field path on update(); set()/add() would create a
+    // field whose *name* literally contains a dot. The types already forbid dotted keys on create,
+    // so this guards the `as any` bypass with a clear error instead of a silent mis-named field.
+    if (hasDotNotationKeys(createPayload as Record<string, any>)) {
+      throw new Error(
+        'Dot-notation keys are not supported on create/set/upsert-new payloads (Firestore treats ' +
+          'them as literal field names). Use a nested object, or update() for field-path merges.',
+      );
+    }
     return (
       this.validator ? this.validator.parseCreate(createPayload) : createPayload
     ) as CreateInput<W>;
@@ -948,10 +968,15 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
       const toUpdate = { ...(data as Record<string, any>), id } as UpdateInput<W> & { id: ID };
 
       await this.runHooks('beforeUpdate', toUpdate);
-      const validData = this.validateUpdateData(toUpdate as UpdateInput<W>);
-      const sanitizedData = this.sanitizeUpdateData(validData);
-      const writePayload =
-        options?.merge === true ? this.normalizeUpdateDataForMerge(sanitizedData) : sanitizedData;
+      // In merge mode, normalize nested objects into field paths BEFORE validating so each leaf is
+      // validated independently — a partial nested object (`{ address: { city } }`) does not require
+      // its sibling fields, matching the recursively-optional write type.
+      const normalizedData =
+        options?.merge === true
+          ? this.normalizeUpdateDataForMerge(toUpdate as UpdateInput<W>)
+          : (toUpdate as UpdateInput<W>);
+      const validData = this.validateUpdateData(normalizedData);
+      const writePayload = this.sanitizeUpdateData(validData);
 
       if (Object.keys(writePayload as Record<string, any>).length > 0) {
         await docRef.update(writePayload as any);
@@ -1014,6 +1039,20 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * ]);
    */
   async bulkUpdate(updates: { id: ID; data: UpdateInput<W> }[]): Promise<{ id: ID }[]> {
+    return this.bulkWrite(updates, false);
+  }
+
+  /**
+   * Shared batched-write pipeline for {@link bulkUpdate} (replace) and {@link bulkPatch} (merge).
+   * Merge mode normalizes nested objects into field paths BEFORE validating, so each leaf is
+   * validated independently (a partial nested object doesn't require its siblings) — exactly the
+   * order used by single-document `update`/`patch`, so the bulk and single-document variants stay
+   * behaviorally identical.
+   */
+  private async bulkWrite(
+    updates: { id: ID; data: UpdateInput<W> }[],
+    merge: boolean,
+  ): Promise<{ id: ID }[]> {
     try {
       await this.runHooks('beforeBulkUpdate', updates);
       const actions: ((batch: FirebaseFirestore.WriteBatch) => void)[] = [];
@@ -1021,11 +1060,12 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
 
       for (const { id, data } of updates) {
         const docRef = this.writeCol().doc(id);
-        const validData = this.validateUpdateData(data);
-        const sanitizedData = this.sanitizeUpdateData(validData);
+        const normalizedData = merge ? this.normalizeUpdateDataForMerge(data) : data;
+        const validData = this.validateUpdateData(normalizedData);
+        const writePayload = this.sanitizeUpdateData(validData);
 
-        if (Object.keys(sanitizedData as Record<string, any>).length > 0) {
-          actions.push(batch => batch.update(docRef, sanitizedData as any));
+        if (Object.keys(writePayload as Record<string, any>).length > 0) {
+          actions.push(batch => batch.update(docRef, writePayload as any));
         }
         ids.push(id);
       }
@@ -1057,12 +1097,11 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * ]);
    */
   async bulkPatch(updates: { id: ID; data: UpdateInput<W> }[]): Promise<{ id: ID }[]> {
-    const normalizedUpdates = updates.map(({ id, data }) => ({
-      id,
-      data: this.normalizeUpdateDataForMerge(data),
-    }));
-
-    return this.bulkUpdate(normalizedUpdates);
+    // Validate raw input first, then normalize — the same order as single-document patch(). This
+    // keeps patch() and bulkPatch() consistent (a nested object is validated as a whole object, an
+    // explicit dot-notation key is validated at its leaf) rather than validating a pre-flattened
+    // payload.
+    return this.bulkWrite(updates, true);
   }
 
   /**
@@ -1097,6 +1136,16 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
     options?: { returnDoc?: boolean },
   ): Promise<{ id: ID } | (T & { id: ID })> {
     try {
+      // upsert would behave inconsistently with dot-notation keys — the create path (new doc) writes
+      // a literal dot-in-name field, while the update path (existing doc) merges the field path. The
+      // type already forbids dotted keys on `CreateInput`; reject the `as any` bypass up front so the
+      // contract is uniform regardless of whether the document exists.
+      if (hasDotNotationKeys(data as Record<string, any>)) {
+        throw new Error(
+          'Dot-notation keys are not supported on upsert() (Firestore treats them as literal field ' +
+            'names on create). Use a nested object, or update() for field-path merges.',
+        );
+      }
       const existing = await this.getById(id);
       const shouldReturnDoc = options?.returnDoc === true;
       if (existing) {
@@ -1607,10 +1656,14 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
       const toUpdate = { ...(data as Record<string, any>), id } as UpdateInput<W> & { id: ID };
 
       await this.runHooks('beforeUpdate', toUpdate);
-      const validData = this.validateUpdateData(toUpdate as UpdateInput<W>);
-      const sanitizedData = this.sanitizeUpdateData(validData);
-      const writePayload =
-        options?.merge === true ? this.normalizeUpdateDataForMerge(sanitizedData) : sanitizedData;
+      // In merge mode, normalize nested objects into field paths BEFORE validating so each leaf is
+      // validated independently (a partial nested object doesn't require its siblings).
+      const normalizedData =
+        options?.merge === true
+          ? this.normalizeUpdateDataForMerge(toUpdate as UpdateInput<W>)
+          : (toUpdate as UpdateInput<W>);
+      const validData = this.validateUpdateData(normalizedData);
+      const writePayload = this.sanitizeUpdateData(validData);
 
       if (Object.keys(writePayload as Record<string, any>).length > 0) {
         tx.update(docRef, writePayload as any);

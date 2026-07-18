@@ -31,3 +31,4 @@ consequences. They explain _why_ the codebase looks the way it does, which commi
 | [0007](0007-retire-curried-schema-factories.md)                | Retire curried schema factories for value-inferred read/write types          | Accepted                                                      | 2026-07-17 |
 | [0008](0008-read-only-converters.md)                           | Firestore converters are read-only (`readConverter`)                         | Accepted                                                      | 2026-07-18 |
 | [0009](0009-explicit-read-validators.md)                       | Explicit `validate()` / `safeValidate()` read-boundary validators            | Accepted                                                      | 2026-07-18 |
+| [0010](0010-type-safe-dot-notation.md)                         | Type-safe dot-notation and dot-aware write validation                        | Accepted                                                      | 2026-07-18 |

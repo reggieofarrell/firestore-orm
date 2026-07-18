@@ -5,6 +5,24 @@ description: Field-path updates, merge/patch semantics, and FieldValue sentinels
 slug: 2.0/guides/dot-notation
 ---
 
+:::danger[Known v2 limitation: dot-notation is silently dropped on schema-validated repositories]
+In v2, when a repository is created with schema validation (`withSchema(...)`), explicit
+dot-notation update keys (e.g. `{ 'address.city': 'LA' }`) are **silently stripped by validation and
+never written** — the update succeeds with no error but nothing changes. This affects `update`,
+`patch`, `bulkUpdate`, `bulkPatch`, `updateInTransaction`, `patchInTransaction`, and
+`query().update()`. Repositories **without** a schema are not affected.
+
+Workarounds on v2:
+
+- Prefer a **nested object** on schema repos (`patch(id, { address: { city: 'LA' } })`), which is
+  validated and persisted correctly.
+- Or verify the write landed after issuing it.
+
+This is fixed in **v3**, where dot-notation is type-safe and each dotted value is validated and
+persisted (unknown paths throw instead of being dropped). See the
+[v3 Dot Notation guide](../../guides/dot-notation/).
+:::
+
 Update individual nested fields in place — without replacing the whole parent object — using
 Firestore's dot-notation field paths.
 

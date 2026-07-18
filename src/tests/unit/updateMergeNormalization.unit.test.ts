@@ -64,4 +64,21 @@ describe('update merge normalization helper', () => {
       'profile.loginCount': increment,
     });
   });
+
+  it('should drop undefined leaves so nested and explicit-dot forms behave identically', () => {
+    const repo = createRepo();
+
+    const fromNested = (repo as any).normalizeUpdateDataForMerge({
+      address: { city: 'LA', zip: undefined },
+    });
+    const fromDotted = (repo as any).normalizeUpdateDataForMerge({
+      'address.city': 'LA',
+      'address.zip': undefined,
+    });
+
+    // The undefined leaf is omitted in both forms (existing value preserved), not written as
+    // `{ 'address.zip': undefined }` which Firestore would reject.
+    expect(fromNested).toEqual({ 'address.city': 'LA' });
+    expect(fromDotted).toEqual({ 'address.city': 'LA' });
+  });
 });

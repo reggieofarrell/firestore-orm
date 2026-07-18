@@ -28,6 +28,9 @@ export const baseConfig = {
     '!src/**/*.spec.ts',
     '!src/benchmarks/**',
     '!src/tests/**',
+    // Types-only modules emit no runtime code; the V8 provider would otherwise report every line
+    // as uncovered and skew the src/utils gate. Their contracts are enforced by *.type-test.ts.
+    '!src/utils/pathTypes.ts',
   ],
   coverageReporters: ['lcov', 'text-summary'],
   coverageProvider: 'v8',

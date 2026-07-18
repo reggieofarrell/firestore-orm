@@ -22,8 +22,15 @@ export const VECTOR_MAX_LIMIT = 1000;
 /**
  * Options for a Firestore KNN vector similarity search.
  */
-export type FindNearestOptions<T, K extends keyof T | string = keyof T | string> = Readonly<{
-  /** Document field containing the stored vector embedding (top-level recommended). */
+export type FindNearestOptions<
+  T,
+  K extends Extract<keyof T, string> = Extract<keyof T, string>,
+> = Readonly<{
+  /**
+   * Top-level document field containing the stored vector embedding. Firestore vector indexes are
+   * defined on top-level fields, so this is constrained to `T`'s own string keys; use a cast for a
+   * nested or unschematized field.
+   */
   vectorField: K;
   /** Query embedding used to rank nearest neighbors. */
   queryVector: ReadonlyArray<number>;
@@ -87,7 +94,9 @@ export function isVectorFieldValue(value: unknown): boolean {
 /**
  * Validates nearest-neighbor options before delegating to the Firestore SDK.
  */
-export function validateFindNearestOptions(options: FindNearestOptions<unknown>): void {
+export function validateFindNearestOptions(
+  options: FindNearestOptions<Record<string, unknown>>,
+): void {
   if (!options || typeof options !== 'object') {
     throw new Error('findNearest() requires an options object.');
   }

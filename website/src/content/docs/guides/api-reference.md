@@ -22,6 +22,12 @@ combinators lets those fields accept their native values and sentinels on writes
 Firestore id (on `create` / `bulkCreate` / `createInTransaction`) or from the `id` argument you pass
 (on `update` / `patch` / `upsert`). `CreateInput` permits an optional `id`, but it is discarded.
 
+`UpdateInput<W>` reuses the Firestore Admin SDK's `UpdateData<Omit<W, 'id'>>`, so update-family
+methods accept **typed dot-notation field paths** (`'address.city'`) — no `as any` — while `create`
+/ `upsert` (`CreateInput<W>`) reject dotted keys. Query field paths are typed via the exported
+`FieldPaths<T>` helper (with `PathValue<T, P>` for resolving a path's value type). See the
+[Dot Notation guide](./dot-notation/).
+
 ## FirestoreRepository
 
 `class FirestoreRepository<T extends { id?: ID }, W = T>`
@@ -225,18 +231,19 @@ Delete a document within a transaction.
 `class FirestoreQueryBuilder<T, W>` — obtained from `repo.query()`. Chainable clause methods return
 `this`.
 
-**`where(field: string, op: Operator, value: any): this`**
+**`where(field: FieldPaths<T> | FieldPath, op: WhereFilterOp, value: unknown): this`**
 
-Add a where clause. Operators: `==`, `!=`, `>`, `>=`, `<`, `<=`, `in`, `not-in`, `array-contains`,
-`array-contains-any`.
+Add a where clause. `field` is a typed field path — a top-level key or a nested dot-notation path
+(`'address.city'`) derived from `T` — or a `FieldPath` for dynamic names. Operators: `==`, `!=`,
+`>`, `>=`, `<`, `<=`, `in`, `not-in`, `array-contains`, `array-contains-any`.
 
-**`select<K extends keyof T>(...fields: K[]): this`**
+**`select(...fields: (FieldPaths<T> | FieldPath)[]): this`**
 
-Project only the given fields.
+Project only the given fields. Accepts typed nested paths and `FieldPath`.
 
-**`orderBy(field: string, direction?: 'asc' | 'desc'): this`**
+**`orderBy(field: FieldPaths<T> | FieldPath, direction?: 'asc' | 'desc'): this`**
 
-Order results by a field. `direction` defaults to `'asc'`.
+Order results by a field (top-level or nested dot-notation path). `direction` defaults to `'asc'`.
 
 **`limit(n: number): this`**
 

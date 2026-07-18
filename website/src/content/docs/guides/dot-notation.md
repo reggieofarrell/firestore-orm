@@ -10,6 +10,11 @@ FirestoreORM supports Firestore's dot-notation syntax for updating nested fields
 entire objects. This lets you change specific nested properties while preserving the other fields
 already stored in that object.
 
+Dot-notation is **type-safe** and **schema-validated** in v3: nested field paths are typed against
+your model (no `as any`), invalid leaf values are rejected, and a dotted key that isn't part of your
+schema throws instead of being silently dropped. See
+[Type Safety & Validation](#type-safety--validation) below.
+
 ## Basic Nested Update
 
 ```typescript
@@ -25,7 +30,7 @@ await userRepo.update('user-123', {
 // With dot notation - updates only city, preserves other fields
 await userRepo.update('user-123', {
   'address.city': 'Los Angeles',
-} as any);
+});
 // Result: { address: { city: 'Los Angeles', street: '123 Main', zipCode: '90001' } }
 // street and zipCode are preserved
 ```
@@ -37,13 +42,13 @@ await userRepo.update('user-123', {
 await userRepo.update('user-123', {
   'profile.settings.notifications.email': true,
   'profile.settings.theme': 'dark',
-} as any);
+});
 
 // Creates nested structure if it doesn't exist
 await userRepo.update('user-123', {
   'metadata.preferences.language': 'en',
   'metadata.preferences.timezone': 'UTC',
-} as any);
+});
 ```
 
 ## Mixed Updates
@@ -55,7 +60,7 @@ await userRepo.update('user-123', {
   'address.city': 'New York', // Nested field
   'address.zipCode': '10001', // Another nested field
   'profile.verified': true, // Different nested object
-} as any);
+});
 ```
 
 ## Update with Merge Mode
@@ -69,7 +74,7 @@ await userRepo.update(
   'user-123',
   {
     'profile.settings.theme': 'dark',
-  } as any,
+  },
   { merge: true },
 );
 ```
@@ -98,7 +103,7 @@ await userRepo.patch('user-123', {
       theme: 'dark',
     },
   },
-} as any);
+});
 ```
 
 ## Merge/Patch/BulkPatch Limitation
@@ -117,13 +122,13 @@ await userRepo.bulkUpdate([
     data: {
       'profile.verified': true,
       'settings.notifications': false,
-    } as any,
+    },
   },
   {
     id: 'user-2',
     data: {
       'profile.verified': true,
-    } as any,
+    },
   },
 ]);
 ```
@@ -143,13 +148,13 @@ await userRepo.bulkPatch([
           theme: 'dark',
         },
       },
-    } as any,
+    },
   },
   {
     id: 'user-2',
     data: {
       'profile.settings.notifications': true,
-    } as any,
+    },
   },
 ]);
 ```
@@ -158,22 +163,16 @@ await userRepo.bulkPatch([
 
 ```typescript
 // Update nested fields for all matching documents
-await userRepo
-  .query()
-  .where('role', '==', 'admin')
-  .update({
-    'permissions.canDelete': true,
-    'permissions.canEdit': true,
-  } as any);
+await userRepo.query().where('role', '==', 'admin').update({
+  'permissions.canDelete': true,
+  'permissions.canEdit': true,
+});
 
 // Update deeply nested analytics
-await postRepo
-  .query()
-  .where('published', '==', true)
-  .update({
-    'analytics.impressions': 0,
-    'analytics.lastUpdated': new Date().toISOString(),
-  } as any);
+await postRepo.query().where('published', '==', true).update({
+  'analytics.impressions': 0,
+  'analytics.lastUpdated': new Date().toISOString(),
+});
 ```
 
 ## Transactions with Dot Notation
@@ -195,7 +194,7 @@ await userRepo.runInTransaction(async (tx, repo) => {
   await repo.updateInTransaction(tx, 'user-123', {
     'settings.theme': 'dark',
     'profile.lastLogin': new Date().toISOString(),
-  } as any);
+  });
 });
 ```
 
@@ -212,14 +211,14 @@ import { FieldValue } from 'firebase-admin/firestore';
 await userRepo.create({
   name: 'Alice',
   createdAt: FieldValue.serverTimestamp(),
-} as any);
+});
 
 // Atomic updates
 await userRepo.update('user-123', {
   loginCount: FieldValue.increment(1),
   tags: FieldValue.arrayUnion('beta-user'),
   deprecatedField: FieldValue.delete(),
-} as any);
+});
 
 // Works in query updates and transactions too
 await userRepo
@@ -227,30 +226,56 @@ await userRepo
   .where('role', '==', 'admin')
   .update({
     tags: FieldValue.arrayRemove('legacy'),
-  } as any);
+  });
 ```
+
+## Type Safety & Validation
+
+Dot-notation is first-class in v3 — no `as any` required.
+
+**Typed field paths.** The update input type reuses the Firestore Admin SDK's `UpdateData<T>`, so
+nested paths are generated from your model. Valid paths and leaf values type-check; typos, wrong
+value types, and a non-writable `id` are compile errors:
+
+```typescript
+await userRepo.update('user-123', { 'address.city': 'NYC' }); // ✓ typed
+await userRepo.update('user-123', { 'address.city': 123 }); // ✗ compile error (city is a string)
+await userRepo.update('user-123', { 'addres.city': 'NYC' }); // ✗ compile error (typo)
+```
+
+**Runtime validation (schema repos).** On a repository created with `withSchema(...)`, each
+dot-notation value is validated against its resolved leaf schema, and the dotted key is
+**persisted** (never stripped). A value that violates the schema throws `ValidationError`, and a
+dotted key that is not part of the schema throws — instead of silently doing nothing:
+
+```typescript
+await userRepo.update('user-123', { 'address.city': 123 }); // throws ValidationError
+await userRepo.update('user-123', { 'address.nope': 'x' }); // throws (unknown field path)
+```
+
+Paths into a dynamic map field (`z.record(...)`) can't be resolved to a leaf schema and are written
+through as-is. Malformed paths (`a..b`, `.a`, `a.`) are rejected up front via
+`validateDotNotationPath`.
+
+**Querying into a dynamic map.** The typed query paths (`FieldPaths<T>` for `where` / `orderBy` /
+`select`) are generated from the schema's declared fields, so they do **not** include arbitrary
+subpaths of a `z.record(...)` map (or paths deeper than the type's depth bound). To filter or order
+by a dynamic map key, pass a `FieldPath`:
+
+```typescript
+import { FieldPath } from 'firebase-admin/firestore';
+
+await repo.query().where(new FieldPath('metadata', 'plan'), '==', 'pro').get();
+```
+
+**Create/set reject dotted keys.** Firestore only interprets dots as field paths on `update()`; on
+`set()`/`add()` a dotted key would create a field whose _name_ contains a dot. So dot-notation keys
+are a compile error on `create`/`upsert`, and are rejected at runtime if forced with a cast. Use a
+nested object on create, or `update()` for field-path merges.
 
 ## Important Notes
 
-**1. Type Casting Required**
-
-TypeScript requires `as any` for dot-notation keys since they are dynamic strings that do not exist
-as literal keys on the write type:
-
-```typescript
-// Required type assertion
-await userRepo.update('user-123', {
-  'address.city': 'NYC',
-} as any);
-```
-
-**2. Path Validation**
-
-Dot-notation paths are validated by Firestore during write operations. If you want to validate a
-path before issuing the write, use the exported `validateDotNotationPath(key)` helper (see
-[Dot-Notation Utilities](#dot-notation-utilities) below).
-
-**3. Firestore Limitations**
+**1. Firestore Limitations**
 
 - **Undefined values** are automatically filtered out (Firestore doesn't accept `undefined`)
 - Use `null` if you need to explicitly clear a field value
@@ -259,15 +284,15 @@ path before issuing the write, use the exported `validateDotNotationPath(key)` h
 // Undefined is filtered out, original value preserved
 await userRepo.update('user-123', {
   'address.city': undefined,
-} as any);
+});
 
 // Use null to clear a field
 await userRepo.update('user-123', {
   'address.city': null,
-} as any);
+});
 ```
 
-**4. Transaction Requirements**
+**2. Transaction Requirements**
 
 `updateInTransaction()` supports dot notation directly. Use `getForUpdateInTransaction()` only when
 your transaction logic needs the existing document state.
@@ -279,11 +304,11 @@ await repo.runInTransaction(async (tx, repo) => {
   if (!doc) throw new Error('Document not found');
   await repo.updateInTransaction(tx, 'doc-123', {
     'nested.field': 'value',
-  } as any);
+  });
 });
 ```
 
-**5. Schema Validation with Sentinels**
+**3. Schema Validation with Sentinels**
 
 When using repositories created with `withSchema(...)`, the default `sentinelPolicy: 'permissive'`
 ignores fields assigned to `FieldValue` sentinels during Zod validation while still validating all
@@ -343,7 +368,7 @@ Update specific settings without replacing all preferences:
 await userRepo.update('user-123', {
   'preferences.emailNotifications': true,
   'preferences.theme': 'dark',
-} as any);
+});
 ```
 
 **Nested Configurations**
@@ -355,7 +380,7 @@ await configRepo.update('app-config', {
   'features.darkMode.enabled': true,
   'features.darkMode.autoSwitch': true,
   'features.analytics.trackingId': 'GA-123456',
-} as any);
+});
 ```
 
 **Analytics Counters**
@@ -367,7 +392,7 @@ await postRepo.update('post-123', {
   'analytics.views': 150,
   'analytics.likes': 42,
   'analytics.shares': 8,
-} as any);
+});
 ```
 
 **Status Updates**
@@ -379,7 +404,7 @@ await orderRepo.update('order-123', {
   'workflow.payment.status': 'completed',
   'workflow.payment.completedAt': new Date().toISOString(),
   'workflow.fulfillment.status': 'pending',
-} as any);
+});
 ```
 
 **Partial Address Updates**
@@ -391,5 +416,5 @@ await userRepo.update('user-123', {
   'shippingAddress.street': '456 New Street',
   'shippingAddress.apt': '10B',
   // city, state, zipCode remain unchanged
-} as any);
+});
 ```

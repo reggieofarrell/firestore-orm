@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { FieldValue, PartialWithFieldValue, WithFieldValue } from 'firebase-admin/firestore';
+import { FieldValue, UpdateData, WithFieldValue } from 'firebase-admin/firestore';
+import { isDotNotation, validateDotNotationPath } from '../utils/dotNotation.js';
 
 export type RepositorySchemaSet = Readonly<{
   read: z.ZodObject<any>;
@@ -9,7 +10,7 @@ export type RepositorySchemaSet = Readonly<{
 
 export type Validator<T> = {
   parseCreate(input: unknown): WithFieldValue<T>;
-  parseUpdate(input: unknown): PartialWithFieldValue<T>;
+  parseUpdate(input: unknown): UpdateData<Omit<T, 'id'>>;
   schemas: RepositorySchemaSet;
 };
 
@@ -20,7 +21,18 @@ export type Validator<T> = {
  * strips any `id` from the payload — so callers never need to supply one.
  */
 export type CreateInput<T> = WithFieldValue<Omit<T, 'id'>> & { id?: string };
-export type UpdateInput<T> = PartialWithFieldValue<T>;
+
+/**
+ * Input accepted by update-family operations (`update`, `patch`, `bulkUpdate`, `bulkPatch`,
+ * `updateInTransaction`, `patchInTransaction`, `query().update()`).
+ *
+ * Reuses the Admin SDK's `UpdateData<T>`, which types Firestore dot-notation field paths (e.g.
+ * `'address.city'`, `'profile.settings.theme'`) with the correct per-leaf value type and allows a
+ * `FieldValue` sentinel at every level — so nested updates no longer need an `as any` cast. `id` is
+ * omitted so it is never a writable top-level key (the repository sources the id from the document
+ * ref / method argument and strips any `id` at runtime).
+ */
+export type UpdateInput<T> = UpdateData<Omit<T, 'id'>>;
 
 /**
  * Controls how FieldValue sentinels are validated against a schema on write.
@@ -241,6 +253,141 @@ export function withDelete<T extends z.ZodType>(schema: T) {
   return z.union([schema, zSentinel('delete')]);
 }
 
+/**
+ * Peels wrapper schemas (`optional`, `nullable`, `default`, `readonly`, `catch`, `branded`,
+ * effects/pipe) until it reaches the innermost non-wrapper schema (which may be a `ZodObject`,
+ * `ZodRecord`, a scalar, etc.).
+ *
+ * Written defensively to work across the supported Zod range (`^3.25 || ^4`): it prefers the public
+ * `.unwrap()` / `.removeDefault()` methods and falls back to reading the inner schema off the
+ * internal def, tolerating both v3 (`_def.innerType` / `_def.schema`) and v4 (`_def.in`) shapes.
+ */
+function unwrapWrappers(schema: unknown): unknown {
+  let current: any = schema;
+  for (let depth = 0; depth < 12 && current && typeof current === 'object'; depth += 1) {
+    if (current instanceof z.ZodObject) {
+      return current;
+    }
+    if (typeof current.unwrap === 'function') {
+      current = current.unwrap();
+      continue;
+    }
+    if (typeof current.removeDefault === 'function') {
+      current = current.removeDefault();
+      continue;
+    }
+    const def = current._def ?? current._zod?.def;
+    const inner = def?.innerType ?? def?.schema ?? def?.in ?? def?.out;
+    if (inner && inner !== current) {
+      current = inner;
+      continue;
+    }
+    break;
+  }
+  return current;
+}
+
+/** Unwraps to the underlying `ZodObject`, or `undefined` if the schema is not (and does not wrap) one. */
+function unwrapToObject(schema: unknown): z.ZodObject<any> | undefined {
+  const unwrapped = unwrapWrappers(schema);
+  return unwrapped instanceof z.ZodObject ? unwrapped : undefined;
+}
+
+/**
+ * Normalized Zod kind, tolerant of v3 (`_def.typeName === 'ZodRecord'`) and v4
+ * (`_def.type === 'record'`) — e.g. `'record'`, `'object'`, `'string'`, `'any'`, `'unknown'`.
+ */
+function normalizedKind(schema: unknown): string {
+  const def = (schema as { _def?: any; _zod?: { def?: any } })?._def ?? (schema as any)?._zod?.def;
+  const raw = String(def?.typeName ?? def?.type ?? '').toLowerCase();
+  return raw.startsWith('zod') ? raw.slice(3) : raw;
+}
+
+/**
+ * True when a schema accepts arbitrary string keys, so a deeper dotted path into it cannot be
+ * validated against a fixed shape and is passed through: `z.record`, `z.map`, `z.any`, `z.unknown`.
+ */
+function isDynamicContainerSchema(schema: unknown): boolean {
+  const kind = normalizedKind(unwrapWrappers(schema));
+  return kind === 'record' || kind === 'map' || kind === 'any' || kind === 'unknown';
+}
+
+/**
+ * True when a `ZodObject` accepts unknown keys — a passthrough object (`_def.unknownKeys` in v3) or
+ * one with a non-`never` catchall (`z.looseObject()` / `.catchall(...)` in v3 and v4).
+ */
+function objectAllowsUnknownKeys(obj: z.ZodObject<any>): boolean {
+  const def = (obj as { _def?: any; _zod?: { def?: any } })._def ?? (obj as any)._zod?.def;
+  if (!def) {
+    return false;
+  }
+  if (def.unknownKeys === 'passthrough') {
+    return true;
+  }
+  const catchall = def.catchall;
+  if (catchall) {
+    const kind = normalizedKind(catchall);
+    if (kind && kind !== 'never') {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * The outcome of resolving a dot-notation path against a schema:
+ * - `leaf`: the path resolves to a concrete field schema — validate the value against it.
+ * - `passthrough`: the path descends into a dynamic container (`z.record` / `z.map` / `z.any` /
+ *   `z.unknown`, or a loose/`catchall` object) that accepts arbitrary keys, so it cannot be
+ *   validated against a fixed shape and is written as-is.
+ * - `unknown`: a segment is definitively absent from a known object shape, or descends into a scalar
+ *   or array that has no addressable subfields — the path is invalid, so the write must fail loud.
+ */
+export type PathResolution =
+  { kind: 'leaf'; schema: z.ZodType<any> } | { kind: 'passthrough' } | { kind: 'unknown' };
+
+/**
+ * Resolves the Zod schema governing a dot-notation field path (e.g. `['address', 'city']`) by
+ * walking nested object shapes. See {@link PathResolution} for the outcomes.
+ */
+export function resolveSchemaAtPath(root: z.ZodType<any>, segments: string[]): PathResolution {
+  let currentObject = unwrapToObject(root);
+  if (!currentObject) {
+    // The root is normally the update ZodObject; a non-object root is unexpected, so pass through
+    // rather than reject.
+    return { kind: 'passthrough' };
+  }
+
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index];
+    const shape = currentObject.shape as Record<string, z.ZodType<any>>;
+
+    if (!Object.prototype.hasOwnProperty.call(shape, segment)) {
+      // Not a declared key. A loose / catchall object accepts arbitrary keys → passthrough;
+      // a strict / strip object does not → the path is a typo, fail loud.
+      return objectAllowsUnknownKeys(currentObject) ? { kind: 'passthrough' } : { kind: 'unknown' };
+    }
+
+    const fieldSchema = shape[segment];
+    if (index === segments.length - 1) {
+      return { kind: 'leaf', schema: fieldSchema };
+    }
+
+    const nextObject = unwrapToObject(fieldSchema);
+    if (nextObject) {
+      currentObject = nextObject;
+      continue;
+    }
+
+    // A non-final segment descends into a non-object. A dynamic container (record / map / any /
+    // unknown) accepts deeper paths → passthrough; a scalar or array leaf has no addressable
+    // subfields → the path is invalid, fail loud.
+    return isDynamicContainerSchema(fieldSchema) ? { kind: 'passthrough' } : { kind: 'unknown' };
+  }
+
+  return { kind: 'passthrough' };
+}
+
 export function makeValidator<T extends z.ZodObject<any>>(
   readSchema: T,
   updateSchema?: z.ZodObject<any>,
@@ -257,7 +404,7 @@ export function makeValidator<T extends z.ZodObject<any>>(
     update: updateWriteSchema,
   });
 
-  const runParse = <R>(schema: z.ZodObject<any>, input: unknown): R => {
+  const runParse = <R>(schema: z.ZodType<any>, input: unknown): R => {
     const result = schema.safeParse(input);
     if (result.success) {
       return result.data as R;
@@ -281,9 +428,68 @@ export function makeValidator<T extends z.ZodObject<any>>(
     throw result.error;
   };
 
+  /**
+   * Validates an update payload with dot-notation awareness. `undefined` values are filtered out
+   * first (Firestore rejects `undefined`; the documented contract is "filtered, existing value
+   * preserved"), so a required leaf is not spuriously rejected. Non-dotted keys are then validated
+   * against the top-level update schema as before. Each explicit dot-notation key (e.g.
+   * `'address.city'`) is structurally checked, resolved to its leaf schema, and validated in place —
+   * its value is validated but the dotted key is preserved (never stripped), so field-path merges
+   * actually persist. A dotted key that is definitively absent from the schema throws (fail loud)
+   * instead of silently disappearing.
+   */
+  const parseUpdate = (input: unknown): UpdateData<Omit<z.infer<T>, 'id'>> => {
+    type Result = UpdateData<Omit<z.infer<T>, 'id'>>;
+
+    if (input === null || typeof input !== 'object') {
+      return runParse<Result>(updateWriteSchema, input);
+    }
+
+    // Drop undefined values before validating so a required (dotted or top-level) leaf set to
+    // `undefined` is filtered rather than throwing — matching the documented behavior and the
+    // optional/required symmetry.
+    const entries = Object.entries(input as Record<string, unknown>).filter(
+      ([, value]) => value !== undefined,
+    );
+    const dottedEntries = entries.filter(([key]) => isDotNotation(key));
+
+    // Fast path: no dot-notation keys — behave exactly as before.
+    if (dottedEntries.length === 0) {
+      return runParse<Result>(updateWriteSchema, Object.fromEntries(entries));
+    }
+
+    const nonDotted = Object.fromEntries(entries.filter(([key]) => !isDotNotation(key)));
+    const validatedNonDotted =
+      Object.keys(nonDotted).length > 0
+        ? (runParse(updateWriteSchema, nonDotted) as Record<string, unknown>)
+        : {};
+
+    const validatedDotted: Record<string, unknown> = {};
+    for (const [key, value] of dottedEntries) {
+      validateDotNotationPath(key);
+      const segments = key.split('.');
+      const resolution = resolveSchemaAtPath(updateWriteSchema, segments);
+
+      if (resolution.kind === 'unknown') {
+        throw new z.ZodError([
+          {
+            code: 'custom',
+            path: segments,
+            message: `Unknown field path "${key}" for this schema`,
+          } as z.core.$ZodIssue,
+        ]);
+      }
+
+      validatedDotted[key] =
+        resolution.kind === 'leaf' ? runParse(resolution.schema, value) : value;
+    }
+
+    return { ...validatedNonDotted, ...validatedDotted } as UpdateData<Omit<z.infer<T>, 'id'>>;
+  };
+
   return {
     schemas,
     parseCreate: input => runParse<WithFieldValue<z.infer<T>>>(createWriteSchema, input),
-    parseUpdate: input => runParse<PartialWithFieldValue<z.infer<T>>>(updateWriteSchema, input),
+    parseUpdate,
   };
 }

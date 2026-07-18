@@ -2,29 +2,18 @@ import { parseFirestoreError } from './ErrorParser.js';
 import { HookEvent, ID } from './FirestoreRepository.js';
 import { ValidationError } from './Errors.js';
 import { UpdateInput } from './Validation.js';
+import { FieldPaths } from '../utils/pathTypes.js';
 import {
   AggregateField,
   CollectionReference,
+  FieldPath,
   Firestore,
   Query,
   QueryDocumentSnapshot,
   QuerySnapshot,
-  Timestamp,
+  WhereFilterOp,
 } from 'firebase-admin/firestore';
 import { z } from 'zod';
-
-type EqOps = '==' | '!=';
-type CmpOps = '<' | '<=' | '>' | '>=';
-type InOps = 'in' | 'not-in';
-type ArrOps = 'array-contains' | 'array-contains-any';
-
-type WhereOpsForValue<V> = V extends readonly (infer _E)[] | (infer _E)[]
-  ? EqOps | ArrOps
-  : V extends string | number | Date | Timestamp
-    ? EqOps | CmpOps | InOps
-    : V extends boolean
-      ? EqOps | InOps
-      : EqOps;
 
 type FirestoreWriteBatch = (
   actions: ((batch: FirebaseFirestore.WriteBatch) => void)[],
@@ -134,12 +123,8 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
    *
    * @returns The query builder instance
    */
-  where<K extends keyof T | string, Op extends WhereOpsForValue<any>>(
-    field: K,
-    op: Op,
-    value: any,
-  ): this {
-    this.query = this.query.where(field as string, op as any, value as any);
+  where(field: FieldPaths<T> | FieldPath, op: WhereFilterOp, value: unknown): this {
+    this.query = this.query.where(field as string | FieldPath, op, value);
     return this;
   }
 
@@ -164,8 +149,8 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
    *
    * @returns The query builder instance
    */
-  select<K extends keyof T>(...fields: K[]): this {
-    this.query = this.query.select(...(fields as string[]));
+  select(...fields: (FieldPaths<T> | FieldPath)[]): this {
+    this.query = this.query.select(...(fields as (string | FieldPath)[]));
     return this;
   }
 
@@ -214,6 +199,7 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
       await this.runHooks('beforeBulkUpdate', updates);
       const updatesById = new Map(updates.map(update => [update.id, update.data]));
       const actions: ((batch: FirebaseFirestore.WriteBatch) => void)[] = [];
+      const writtenIds: ID[] = [];
 
       for (const doc of snapshot.docs) {
         const updateData = updatesById.get(doc.id);
@@ -223,14 +209,15 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
         const sanitizedData = this.sanitizeUpdateData(validData);
         if (Object.keys(sanitizedData as Record<string, any>).length > 0) {
           actions.push(batch => batch.update(doc.ref, sanitizedData as any));
+          writtenIds.push(doc.id);
         }
       }
 
       await this.commitInChunks(actions);
-      await this.runHooks('afterBulkUpdate', {
-        ids: updates.map(update => update.id),
-      });
-      return snapshot.size;
+      // Report only the documents actually written — a doc whose payload sanitized to empty (e.g.
+      // all-undefined values) produces no batch action. The hook ids and the return count agree.
+      await this.runHooks('afterBulkUpdate', { ids: writtenIds });
+      return writtenIds.length;
     } catch (error: any) {
       if (error instanceof z.ZodError) {
         throw new ValidationError(error.issues);
@@ -262,8 +249,8 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
    *
    * @returns The query builder instance
    */
-  orderBy(field: keyof T, direction: 'asc' | 'desc' = 'asc'): this {
-    this.query = this.query.orderBy(field as string, direction);
+  orderBy(field: FieldPaths<T> | FieldPath, direction: 'asc' | 'desc' = 'asc'): this {
+    this.query = this.query.orderBy(field as string | FieldPath, direction);
     // Cursor pagination depends on deterministic ordering across pages.
     // We track explicit ordering so paginate() can enforce this guarantee.
     this.hasOrderBy = true;

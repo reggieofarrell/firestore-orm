@@ -120,3 +120,31 @@ export async function subcollectionOverlay() {
   // @ts-expect-error create validates scalar types: a string is not a number field
   await orders.create({ total: 'nope' });
 }
+
+// ── F) Dot-notation update keys are first-class and type-checked (no `as any`) ──────────────────
+// `UpdateInput<W>` now reuses the SDK's `UpdateData<Omit<W,'id'>>`, so nested field paths are typed.
+const profileRead = z.object({
+  id: z.string(),
+  name: z.string(),
+  address: z.object({ city: z.string(), zip: z.string().optional() }),
+  profile: z.object({ settings: z.object({ theme: z.string() }) }),
+});
+const profiles = FirestoreRepository.withSchema(db, 'profiles', profileRead);
+
+export async function dotNotationPositives() {
+  await profiles.update('x', { 'address.city': 'LA' }); // no cast
+  await profiles.update('x', { 'address.zip': '90001' });
+  await profiles.update('x', { 'profile.settings.theme': 'dark' }); // deep path
+  await profiles.update('x', { name: 'n', 'address.city': 'SF' }); // mixed regular + dotted
+  await profiles.update('x', { address: { city: 'NYC' } }); // whole-object form still valid
+  await profiles.query().where('name', '==', 'a').update({ 'address.city': 'LA' });
+}
+
+export async function dotNotationNegatives() {
+  // @ts-expect-error wrong leaf type: address.city is a string field
+  await profiles.update('x', { 'address.city': 999 });
+  // @ts-expect-error typo in a dotted path is not a known key
+  await profiles.update('x', { 'addres.city': 'LA' });
+  // @ts-expect-error `id` is not a writable update key
+  await profiles.update('x', { id: 'nope' });
+}

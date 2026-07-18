@@ -1,7 +1,8 @@
 import { parseFirestoreError } from '../core/ErrorParser.js';
 import { FirestoreQueryBuilder, getQueryRef } from '../core/QueryBuilder.js';
 import { ID } from '../core/FirestoreRepository.js';
-import { QueryDocumentSnapshot } from 'firebase-admin/firestore';
+import { FieldPaths } from '../utils/pathTypes.js';
+import { FieldPath, QueryDocumentSnapshot, WhereFilterOp } from 'firebase-admin/firestore';
 import {
   assertVectorSearchSupported,
   FindNearestOptions,
@@ -53,9 +54,9 @@ export class VectorQueryBuilder<T extends { id?: string }> {
   /**
    * Add a where clause before executing a vector search pre-filter.
    */
-  where<K extends keyof T | string, Op extends string>(field: K, op: Op, value: unknown): this {
+  where(field: FieldPaths<T> | FieldPath, op: WhereFilterOp, value: unknown): this {
     this.assertNotVectorMode('where');
-    this.coreBuilder.where(field as keyof T | string, op as never, value);
+    this.coreBuilder.where(field, op, value);
     return this;
   }
 
@@ -63,7 +64,7 @@ export class VectorQueryBuilder<T extends { id?: string }> {
    * Select specific fields before findNearest().
    * When using distanceResultField, include that field name in select().
    */
-  select<K extends keyof T>(...fields: K[]): this {
+  select(...fields: (FieldPaths<T> | FieldPath)[]): this {
     if (this.vectorQuery) {
       throw new Error('select() cannot be called after findNearest().');
     }
@@ -74,7 +75,7 @@ export class VectorQueryBuilder<T extends { id?: string }> {
   /**
    * Configure a Firestore nearest-neighbor vector search.
    */
-  findNearest<K extends keyof T | string>(options: FindNearestOptions<T, K>): this {
+  findNearest<K extends Extract<keyof T, string>>(options: FindNearestOptions<T, K>): this {
     if (this.vectorQuery) {
       throw new Error('findNearest() can only be called once per query.');
     }

@@ -1,6 +1,6 @@
 name: Publish Package
 
-# Publishes @reggieofarrell/firestore-orm to npm when a release tag is pushed.
+# Publishes @reggieofarrell/firestore-orm to npm when a GitHub Release is published.
 # Auth uses npm Trusted Publishing (OIDC) — no long-lived NPM_TOKEN secret.
 # See: https://docs.npmjs.com/trusted-publishers/
 #
@@ -12,9 +12,8 @@ name: Publish Package
 # After OIDC works: Publishing access → require 2FA and disallow tokens.
 
 on:
-  push:
-    tags:
-      - 'v*'
+  release:
+    types: [published]
 
 permissions:
   # Required so the npm CLI can exchange a short-lived GitHub OIDC token

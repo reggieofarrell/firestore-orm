@@ -51,5 +51,7 @@ stays useful rather than noisy.
 ## What not to version
 
 - Do not copy `docs/adr/` or `docs/development/` into Starlight archives.
-- Do not delete in-repo `docs/usage/` as part of versioning — that folder is removed (if at all) in
-  a separate cutover PR after agents retarget to `website/`.
+- Do not delete in-repo `docs/usage/` as part of versioning — remove that transitional mirror in a
+  separate cleanup PR after nothing depends on the path (docs-api-sync already treats
+  `website/src/content/docs/` as the published source of truth; see
+  [ADR-0006](../docs/adr/0006-starlight-docs-site-and-major-version-archives.md)).

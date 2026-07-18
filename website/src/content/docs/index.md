@@ -1,12 +1,12 @@
 ---
 # Splash landing page for the published docs site (not the in-repo docs/usage index).
-title: firestore-orm
+title: '@reggieofarrell/firestore-orm'
 description:
   Type-safe Firestore ORM for the Firebase Admin SDK — validation, hooks, and a fluent query
   builder.
 template: splash
 hero:
-  title: firestore-orm
+  title: '@reggieofarrell/firestore-orm'
   tagline:
     Type-safe Firestore for the Firebase Admin SDK. Repositories, Zod validation, lifecycle hooks,
     and a fluent query builder — built for Node.js backends.
@@ -23,7 +23,7 @@ hero:
       variant: minimal
 ---
 
-## Why firestore-orm?
+## Why `@reggieofarrell/firestore-orm`?
 
 - **Type-safe repositories** — one consistent API per collection, inferred from your Zod schemas.
 - **Validation on writes** — schemas run before Firestore sees the payload; sentinels stay atomic.

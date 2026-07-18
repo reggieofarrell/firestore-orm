@@ -24,7 +24,7 @@ export default defineConfig({
   base: '/firestore-orm',
   integrations: [
     starlight({
-      title: 'firestore-orm',
+      title: '@reggieofarrell/firestore-orm',
       // At v3 cutover, add:
       // plugins: [
       //   starlightVersions({

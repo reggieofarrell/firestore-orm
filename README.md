@@ -197,18 +197,9 @@ await userRepo.delete(user.id);
 
 ## Documentation
 
-**Primary (published):**
-[https://reggieofarrell.github.io/firestore-orm/](https://reggieofarrell.github.io/firestore-orm/) —
-Starlight site with search (built from `website/`).
+[https://reggieofarrell.github.io/firestore-orm/](https://reggieofarrell.github.io/firestore-orm/)
 
-Start with [Getting Started](https://reggieofarrell.github.io/firestore-orm/getting-started/), then
-browse the [documentation overview](https://reggieofarrell.github.io/firestore-orm/overview/).
-
-An in-repo copy of the topic guides remains under
-[`docs/usage/`](https://github.com/reggieofarrell/firestore-orm/blob/main/docs/usage/README.md) for
-agents and contributors until a later cutover removes that dual tree. Contributing docs stay on
-GitHub Markdown: [testing](docs/development/testing.md), [releasing](docs/development/releasing.md),
-and [ADRs](docs/adr/README.md).
+Start with [Getting Started](https://reggieofarrell.github.io/firestore-orm/getting-started/)
 
 **Concepts**
 

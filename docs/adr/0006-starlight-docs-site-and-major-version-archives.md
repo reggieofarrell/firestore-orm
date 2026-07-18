@@ -6,8 +6,8 @@
 - **Date:** 2026-07-17
 - **Deciders:** Reggie O'Farrell
 - **Related:** [`website/`](../../website/); [`website/VERSIONING.md`](../../website/VERSIONING.md);
-  [`.cursor/rules/docs-api-sync.mdc`](../../.cursor/rules/docs-api-sync.mdc);
-  [`docs/usage/`](../usage/) (transitional in-repo mirror)
+  [`.cursor/rules/docs-api-sync.mdc`](../../.cursor/rules/docs-api-sync.mdc); `docs/usage/`
+  (transitional in-repo mirror, since removed)
 
 ## Context
 

@@ -129,6 +129,6 @@ options object.
   (`npm run test:types`), including the "options present, no `writeSchema` → write type = read type"
   regression lock.
 - [ADR-0004](0004-schema-inferred-write-types.md) — the superseded curried design.
-- [Docs → Per-Field Sentinel Approval](../usage/field-value-sentinels.md#per-field-sentinel-approval),
-  [API Reference](../usage/api-reference.md), [Subcollections](../usage/subcollections.md).
+- Consumer usage: the "Per-Field Sentinel Approval", "API Reference", and "Subcollections" guides in
+  the published docs.
 - [issue #10](https://github.com/reggieofarrell/firestore-orm/issues/10).

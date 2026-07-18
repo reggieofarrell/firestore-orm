@@ -39,12 +39,10 @@ then-current line (v3) and makes root the new major. The v2→v3 cutover below i
 2. Run `npm run docs:build` (or `npm run docs:dev`). On first run with the new slug,
    starlight-versions archives the current tree under `website/src/content/docs/3.0/` (folder name
    matches the `slug`) and writes `website/src/content/versions/3.0.json`.
-3. Rewrite the root `website/src/content/docs/` content for the new major. In this repo the topic
-   guides are generated from `docs/usage/` — run `node scripts/copy-usage-to-starlight.mjs` then
-   `npx prettier --write "website/src/content/docs/guides/*.md"`, and hand-edit the site-owned pages
-   (`index.md`, `getting-started.md`, `overview.md`, and `astro.config.mjs` sidebar) for any API
-   changes. **Order matters:** archive first (step 2), then rewrite root — otherwise the new content
-   is archived under the old slug.
+3. Rewrite the root `website/src/content/docs/` content for the new major, in place — this tree is
+   the source of truth (edit the guides, `index.md`, `getting-started.md`, `overview.md`, and the
+   `astro.config.mjs` sidebar directly). **Order matters:** archive first (step 2), then rewrite
+   root — otherwise the new content is archived under the old slug.
 4. Commit the archived tree, its `versions/*.json`, and the new latest content together.
 5. Build and smoke-test (`npm run docs:build`, then `npm run check:docs`) before merging.
 
@@ -52,8 +50,6 @@ Prefer archiving only at **major** releases so the switcher stays useful rather 
 
 ## What not to version
 
-- Do not copy `docs/adr/` or `docs/development/` into Starlight archives.
-- Do not delete in-repo `docs/usage/` as part of versioning — remove that transitional mirror in a
-  separate cleanup PR after nothing depends on the path (docs-api-sync already treats
-  `website/src/content/docs/` as the published source of truth; see
+- Do not copy `docs/adr/` or `docs/development/` into Starlight archives — they stay as a single
+  in-repo Markdown tree (see
   [ADR-0006](../docs/adr/0006-starlight-docs-site-and-major-version-archives.md)).

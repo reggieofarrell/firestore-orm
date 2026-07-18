@@ -1,0 +1,117 @@
+{
+  "sidebar": [
+    {
+      "label": "Getting Started",
+      "slug": "getting-started"
+    },
+    {
+      "label": "Documentation overview",
+      "slug": "overview"
+    },
+    {
+      "label": "Concepts",
+      "items": [
+        {
+          "label": "Core Concepts",
+          "slug": "guides/core-concepts"
+        },
+        {
+          "label": "Schema Validation",
+          "slug": "guides/schema-validation"
+        },
+        {
+          "label": "Per-Field Sentinel Approval",
+          "slug": "guides/field-value-sentinels"
+        },
+        {
+          "label": "Timestamps ↔ Millis",
+          "slug": "guides/timestamps"
+        },
+        {
+          "label": "Lifecycle Hooks",
+          "slug": "guides/lifecycle-hooks"
+        }
+      ]
+    },
+    {
+      "label": "Operations",
+      "items": [
+        {
+          "label": "CRUD Operations",
+          "slug": "guides/crud-operations"
+        },
+        {
+          "label": "Queries",
+          "slug": "guides/queries"
+        },
+        {
+          "label": "Transactions",
+          "slug": "guides/transactions"
+        },
+        {
+          "label": "Subcollections",
+          "slug": "guides/subcollections"
+        },
+        {
+          "label": "Dot Notation for Nested Updates",
+          "slug": "guides/dot-notation"
+        }
+      ]
+    },
+    {
+      "label": "Reference",
+      "items": [
+        {
+          "label": "API Reference",
+          "slug": "guides/api-reference"
+        },
+        {
+          "label": "Error Handling",
+          "slug": "guides/error-handling"
+        }
+      ]
+    },
+    {
+      "label": "Integration & extensions",
+      "items": [
+        {
+          "label": "Framework Integration",
+          "slug": "guides/framework-integration"
+        },
+        {
+          "label": "Firestore Triggers",
+          "slug": "guides/triggers"
+        },
+        {
+          "label": "Vector Search",
+          "slug": "guides/vector-search"
+        }
+      ]
+    },
+    {
+      "label": "Guidance",
+      "items": [
+        {
+          "label": "Best Practices",
+          "slug": "guides/best-practices"
+        },
+        {
+          "label": "Performance",
+          "slug": "guides/performance"
+        },
+        {
+          "label": "Real-World Examples",
+          "slug": "guides/examples"
+        },
+        {
+          "label": "Advanced Patterns",
+          "slug": "guides/advanced-patterns"
+        },
+        {
+          "label": "Troubleshooting",
+          "slug": "guides/troubleshooting"
+        }
+      ]
+    }
+  ]
+}

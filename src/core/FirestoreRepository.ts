@@ -65,12 +65,8 @@ type AnyHookFn<T, W> =
  * const userRepo = new FirestoreRepository<User>(db, 'users');
  *
  * @example
- * // With Zod schema validation
- * const userRepo = FirestoreRepository.withSchema<User>(
- *   db,
- *   'users',
- *   userSchema
- * );
+ * // With Zod schema validation (read type inferred from the schema value)
+ * const userRepo = FirestoreRepository.withSchema(db, 'users', userSchema);
  *
  * @example
  * // With lifecycle hooks
@@ -160,29 +156,42 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * Create a repository instance with Zod schema validation.
    * Automatically validates all create and update operations.
    *
-   * @template U - The document type
+   * Both the read and write types are inferred from schema values in a single call:
+   * - The **read type** is `z.infer<readSchema>` — the canonical document shape (must include a
+   *   required top-level `id`).
+   * - The **write type** is `z.infer<writeSchema>` when a `writeSchema` overlay is supplied,
+   *   otherwise it equals the read type. Build the overlay from the write combinators
+   *   (`zNumberWrite`/`zArrayWrite`/`zDateWrite`/`withDelete`/`zSentinel`) to accept native values
+   *   and `FieldValue` sentinels on `create`/`update` with no cast.
+   *
    * @param db - Firestore database instance
    * @param collection - Collection path
-   * @param schema - Zod schema for validation
-   * @param converter - Optional Firestore converter for custom serialization/deserialization
-   * @param opts - Optional validation options. `sentinelPolicy: 'strict'` disables the
-   *   permissive sentinel escape hatch, so only sentinels a field's schema explicitly permits
-   *   (via `zNumberWrite`/`zArrayWrite`/`zDateWrite`/`withDelete`/`zSentinel`) pass. Defaults to
-   *   `'permissive'` (backwards compatible).
+   * @param readSchema - Canonical read schema; must include a required top-level `id` field
+   * @param options - Optional settings:
+   *   - `writeSchema`: write-side overlay schema. When given, the write type is `z.infer<writeSchema>`
+   *     and create/update validation derives from it. Need not include `id`.
+   *   - `converter`: Firestore converter for custom serialization/deserialization.
+   *   - `sentinelPolicy`: `'strict'` disables the permissive sentinel escape hatch, so only sentinels
+   *     a field's schema explicitly permits pass. Defaults to `'permissive'`.
    * @returns Repository instance with validation enabled
    *
    * @example
    * const userSchema = z.object({
+   *   id: z.string(),
    *   name: z.string().min(1),
    *   email: z.string().email(),
-   *   age: z.number().int().positive().optional()
+   *   age: z.number().int().positive().optional(),
    * });
    *
-   * const userRepo = FirestoreRepository.withSchema<User>(
-   *   db,
-   *   'users',
-   *   userSchema
-   * );
+   * // read type = write type = z.infer<userSchema>
+   * const userRepo = FirestoreRepository.withSchema(db, 'users', userSchema);
+   *
+   * @example
+   * // Cast-free combinator writes via a write overlay
+   * const eventRead = z.object({ id: z.string(), name: z.string(), happenedAt: z.date() });
+   * const eventWrite = z.object({ id: z.string(), name: z.string(), happenedAt: zDateWrite() });
+   * const events = FirestoreRepository.withSchema(db, 'events', eventRead, { writeSchema: eventWrite });
+   * await events.update('id', { happenedAt: FieldValue.serverTimestamp() }); // no cast
    *
    * @example
    * // Validation errors are thrown automatically
@@ -194,155 +203,128 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    *   }
    * }
    */
-  // Curried form (opt-in): `withSchema<Read>()(db, collection, schema, ...)`. Because the read type
-  // is fixed by the first call, TypeScript can infer the write model from the `schema` argument
-  // (`W = z.infer<schema>`), so combinator fields accept their native values / sentinels on
-  // create/update with no cast while reads stay typed as `Read`.
-  static withSchema<U extends { id?: ID }>(): <S extends z.ZodObject<any>>(
+  static withSchema<RS extends z.ZodObject<any>, WS extends z.ZodObject<any> = RS>(
     db: Firestore,
     collection: string,
-    schema: S,
-    converter?: FirestoreDataConverter<U>,
-    opts?: { sentinelPolicy?: SentinelPolicy },
-  ) => FirestoreRepository<U, z.infer<S>>;
-  // Direct form (backwards compatible): write inputs are typed by the read type `U`. TypeScript
-  // does not infer a second type argument once `U` is given explicitly, so use the curried form
-  // above when you want write inputs inferred from the schema.
-  static withSchema<U extends { id?: ID }>(
+    readSchema: RS,
+    options?: {
+      writeSchema?: WS;
+      converter?: FirestoreDataConverter<z.infer<RS>>;
+      sentinelPolicy?: SentinelPolicy;
+    },
+  ): FirestoreRepository<z.infer<RS>, z.infer<WS>>;
+  static withSchema(
     db: Firestore,
     collection: string,
-    schema: z.ZodObject<any>,
-    converter?: FirestoreDataConverter<U>,
-    opts?: { sentinelPolicy?: SentinelPolicy },
-  ): FirestoreRepository<U>;
-  static withSchema<U extends { id?: ID }>(
-    db?: Firestore,
-    collection?: string,
-    schema?: z.ZodObject<any>,
-    converter?: FirestoreDataConverter<U>,
-    opts?: { sentinelPolicy?: SentinelPolicy },
-  ): unknown {
-    const build = <S extends z.ZodObject<any>>(
-      d: Firestore,
-      c: string,
-      s: S,
-      conv?: FirestoreDataConverter<U>,
-      o?: { sentinelPolicy?: SentinelPolicy },
-    ): FirestoreRepository<U, z.infer<S>> => {
-      FirestoreRepository.assertSchemaHasRequiredId(s, 'FirestoreRepository.withSchema');
-      const validator = makeValidator(s, undefined, o);
-      return new FirestoreRepository<U, z.infer<S>>(
-        d,
-        c,
-        validator,
-        undefined,
-        conv,
-        validator.schemas,
-      );
-    };
-    return db === undefined
-      ? build
-      : build(db, collection as string, schema as z.ZodObject<any>, converter, opts);
+    readSchema: z.ZodObject<any>,
+    options?: {
+      writeSchema?: z.ZodObject<any>;
+      converter?: FirestoreDataConverter<any>;
+      sentinelPolicy?: SentinelPolicy;
+    },
+  ): FirestoreRepository<any> {
+    FirestoreRepository.assertSchemaHasRequiredId(readSchema, 'FirestoreRepository.withSchema');
+    const writeBase = options?.writeSchema ?? readSchema;
+    const validator = makeValidator(writeBase, undefined, {
+      sentinelPolicy: options?.sentinelPolicy,
+    });
+    // Validate writes against `writeBase`, but expose the plain `readSchema` as `schemas.read`.
+    const schemas = Object.freeze({
+      read: readSchema,
+      create: validator.schemas.create,
+      update: validator.schemas.update,
+    });
+    return new FirestoreRepository<any, any>(
+      db,
+      collection,
+      validator,
+      undefined,
+      options?.converter,
+      schemas,
+    );
   }
 
   /**
    * Access a subcollection under a specific parent document.
-   * Converters are explicit per repository instance and are never inherited
-   * from parent repositories. Pass a converter argument when child collection
-   * read/write operations should use converter behavior.
+   *
+   * Mirrors {@link FirestoreRepository.withSchema}: read/write types are inferred from schema values,
+   * a required `readSchema` (with a top-level `id`) drives reads, and an optional `writeSchema`
+   * overlay drives cast-free combinator writes. Converters are explicit per repository instance and
+   * are never inherited from parent repositories — pass one in `options.converter` when needed.
+   *
+   * For an unvalidated subcollection, construct a repository directly against the full path, e.g.
+   * `new FirestoreRepository<Order>(db, `${parentPath}/${parentId}/orders`)`.
+   *
+   * @param parentId - Parent document id
+   * @param subcollectionName - Subcollection name
+   * @param readSchema - Canonical read schema; must include a required top-level `id` field
+   * @param options - Optional `writeSchema` overlay, `converter`, and `sentinelPolicy` (see
+   *   {@link FirestoreRepository.withSchema})
    *
    * @example
    * // Access orders for a specific user
-   * const userOrders = userRepo.subcollection<Order>('user-123', 'orders');
+   * const orderSchema = z.object({ id: z.string(), product: z.string(), price: z.number() });
+   * const userOrders = userRepo.subcollection('user-123', 'orders', orderSchema);
    * await userOrders.create({ product: 'Widget', price: 99 });
    *
    * @example
-   * // With schema validation
-   * const userOrders = userRepo.subcollection<Order>(
-   *   'user-123',
-   *   'orders',
-   *   orderSchema,
-   *   orderConverter
-   * );
+   * // With a write overlay (cast-free combinator writes) and a converter
+   * const orderWrite = z.object({ id: z.string(), product: z.string(), price: zNumberWrite() });
+   * const userOrders = userRepo.subcollection('user-123', 'orders', orderSchema, {
+   *   writeSchema: orderWrite,
+   *   converter: orderConverter,
+   * });
+   * await userOrders.update('o1', { price: FieldValue.increment(5) }); // no cast
    *
    * @example
    * // Nested subcollections
    * const comments = postRepo
-   *   .subcollection<Comment>('post-123', 'comments', commentSchema, commentConverter)
-   *   .subcollection<Reply>('comment-456', 'replies', replySchema, replyConverter);
-   *
-   * @example
-   * // Curried form: infer write-input types from the schema (like withSchema)
-   * const userOrders = userRepo.subcollection<Order>()('user-123', 'orders', orderWrite);
-   * await userOrders.update('o1', { total: FieldValue.increment(5) }); // no cast
-   *
-   * @example
-   * // Explicitly reuse the same converter for parent and child repositories
-   * const sharedConverter = {
-   *   toFirestore: (doc: { name: string }) => doc,
-   *   fromFirestore: (snap: FirebaseFirestore.QueryDocumentSnapshot) => snap.data() as { name: string },
-   * };
-   *
-   * const users = new FirestoreRepository<{ name: string }>(db, 'users', undefined, undefined, sharedConverter);
-   * const userOrders = users.subcollection<{ name: string }>(
-   *   'user-123',
-   *   'orders',
-   *   undefined,
-   *   sharedConverter
-   * );
+   *   .subcollection('post-123', 'comments', commentSchema)
+   *   .subcollection('comment-456', 'replies', replySchema);
    */
-  // Curried form (opt-in): `repo.subcollection<Read>()(parentId, name, schema, ...)`. As with
-  // `withSchema`, fixing the read type in the first call lets TypeScript infer the write model from
-  // the `schema` argument (`W = z.infer<schema>`), so combinator fields are writable with no cast.
-  subcollection<U extends { id?: ID }>(): <S extends z.ZodObject<any>>(
+  subcollection<RS extends z.ZodObject<any>, WS extends z.ZodObject<any> = RS>(
     parentId: ID,
     subcollectionName: string,
-    schema: S,
-    converter?: FirestoreDataConverter<U>,
-    opts?: { sentinelPolicy?: SentinelPolicy },
-  ) => FirestoreRepository<U, z.infer<S>>;
-  // Direct form (backwards compatible): write inputs are typed by the read type `U`.
-  subcollection<U extends { id?: ID }>(
+    readSchema: RS,
+    options?: {
+      writeSchema?: WS;
+      converter?: FirestoreDataConverter<z.infer<RS>>;
+      sentinelPolicy?: SentinelPolicy;
+    },
+  ): FirestoreRepository<z.infer<RS>, z.infer<WS>>;
+  subcollection(
     parentId: ID,
     subcollectionName: string,
-    schema?: z.ZodObject<any>,
-    converter?: FirestoreDataConverter<U>,
-    opts?: { sentinelPolicy?: SentinelPolicy },
-  ): FirestoreRepository<U>;
-  subcollection<U extends { id?: ID }>(
-    parentId?: ID,
-    subcollectionName?: string,
-    schema?: z.ZodObject<any>,
-    converter?: FirestoreDataConverter<U>,
-    opts?: { sentinelPolicy?: SentinelPolicy },
-  ): unknown {
-    const build = <S extends z.ZodObject<any>>(
-      pid: ID,
-      name: string,
-      s?: S,
-      conv?: FirestoreDataConverter<U>,
-      o?: { sentinelPolicy?: SentinelPolicy },
-    ): FirestoreRepository<U, z.infer<S>> => {
-      const newPath = `${this.collectionPath}/${pid}/${name}`;
-      if (s) {
-        FirestoreRepository.assertSchemaHasRequiredId(
-          s,
-          'FirestoreRepository.subcollection(..., schema, ...)',
-        );
-      }
-      const validator = s ? makeValidator(s, undefined, o) : undefined;
-      return new FirestoreRepository<U, z.infer<S>>(
-        this.db,
-        newPath,
-        validator,
-        newPath, // for tracking parent path for reference
-        conv,
-        validator?.schemas,
-      );
-    };
-    return parentId === undefined
-      ? build
-      : build(parentId, subcollectionName as string, schema, converter, opts);
+    readSchema: z.ZodObject<any>,
+    options?: {
+      writeSchema?: z.ZodObject<any>;
+      converter?: FirestoreDataConverter<any>;
+      sentinelPolicy?: SentinelPolicy;
+    },
+  ): FirestoreRepository<any> {
+    const newPath = `${this.collectionPath}/${parentId}/${subcollectionName}`;
+    FirestoreRepository.assertSchemaHasRequiredId(
+      readSchema,
+      'FirestoreRepository.subcollection(..., readSchema, ...)',
+    );
+    const writeBase = options?.writeSchema ?? readSchema;
+    const validator = makeValidator(writeBase, undefined, {
+      sentinelPolicy: options?.sentinelPolicy,
+    });
+    // Validate writes against `writeBase`, but expose the plain `readSchema` as `schemas.read`.
+    const schemas = Object.freeze({
+      read: readSchema,
+      create: validator.schemas.create,
+      update: validator.schemas.update,
+    });
+    return new FirestoreRepository<any, any>(
+      this.db,
+      newPath,
+      validator,
+      newPath, // for tracking parent path for reference
+      options?.converter,
+      schemas,
+    );
   }
 
   /**

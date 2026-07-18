@@ -34,13 +34,10 @@ const COLLECTION = `test_events_timestamp_${Date.now()}`;
 
 describe('Timestamp <-> millis read-converter pattern', () => {
   const db = getIntegrationDb();
-  const repo = FirestoreRepository.withSchema<EventDoc>(
-    db,
-    COLLECTION,
-    eventWriteSchema,
-    eventConverter,
-    { sentinelPolicy: 'strict' },
-  );
+  const repo = FirestoreRepository.withSchema(db, COLLECTION, eventWriteSchema, {
+    converter: eventConverter,
+    sentinelPolicy: 'strict',
+  });
 
   afterAll(async () => {
     const docs = await repo.query().get();

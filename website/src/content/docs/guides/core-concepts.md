@@ -19,16 +19,17 @@ its own repository instance.
 
 ```typescript
 // Initialize once, use everywhere
-const userRepo = FirestoreRepository.withSchema<User>(db, 'users', userSchema);
-const orderRepo = FirestoreRepository.withSchema<Order>(db, 'orders', orderSchema);
+const userRepo = FirestoreRepository.withSchema(db, 'users', userSchema);
+const orderRepo = FirestoreRepository.withSchema(db, 'orders', orderSchema);
 const productRepo = new FirestoreRepository<Product>(db, 'products'); // Without validation
 ```
 
-The `withSchema` factory attaches a Zod schema for runtime validation. Each schema it receives
-(`userSchema`, `orderSchema` above) **must** declare a required top-level `id: z.string()` — the
-factory throws at construction if it is missing. `withSchema` has two forms: a direct form,
-`withSchema<User>(db, 'users', userSchema)`, which types writes by the read type, and a curried
-form, `withSchema<User>()(db, 'users', userSchema)`, which infers the write type from the schema and
+The `withSchema` factory attaches a Zod schema for runtime validation. Both the read and write types
+are inferred from schema **values**: the read type is `z.infer<readSchema>`, and the write type is
+`z.infer<writeSchema>` when you pass a `writeSchema` overlay (otherwise it equals the read type). Do
+not pass an explicit read-type generic. Each `readSchema` (`userSchema`, `orderSchema` above)
+**must** declare a required top-level `id: z.string()` — the factory throws at construction if it is
+missing (the `writeSchema` overlay need not). A `writeSchema` built from the write combinators
 enables cast-free combinator writes. Construct a repository directly with
 `new FirestoreRepository<Product>(db, 'products')` when you don't need validation. See
 [schema validation](./schema-validation/) for the full contract.
@@ -36,8 +37,8 @@ enables cast-free combinator writes. Construct a repository directly with
 The full constructor signature is
 `new FirestoreRepository<T, W>(db, collectionPath, validator?, parentPath?, converter?, schemas?)`.
 There is no options, config, debug, or logger bag — everything is passed through these positional
-arguments (plus the small `opts` object the `withSchema` and `subcollection` factories accept, whose
-only field is `sentinelPolicy`).
+arguments (plus the trailing options object the `withSchema` and `subcollection` factories accept:
+`writeSchema`, `converter`, and `sentinelPolicy`).
 
 ## Firestore Converters
 
@@ -68,7 +69,9 @@ const userConverter: FirestoreDataConverter<User> = {
 };
 
 // Write a Date/serverTimestamp() (stored as a Timestamp on every write path); read back a Date.
-const userRepo = FirestoreRepository.withSchema<User>(db, 'users', userSchema, userConverter);
+const userRepo = FirestoreRepository.withSchema(db, 'users', userSchema, {
+  converter: userConverter,
+});
 ```
 
 Because `fromFirestore` receives only the stored document body, it must return data **without** an
@@ -84,7 +87,8 @@ conversion + pass-through write).
 Converter behavior is instance-local by design:
 
 - Parent repositories and subcollections do not share converters automatically.
-- Pass a converter explicitly to each `subcollection(...)` call that needs converter behavior.
+- Pass a converter explicitly via `subcollection(..., { converter })` for each subcollection that
+  needs converter behavior.
 
 ## Delete Behavior
 

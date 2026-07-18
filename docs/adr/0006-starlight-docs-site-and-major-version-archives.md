@@ -1,7 +1,8 @@
 # ADR-0006: Starlight docs site and major-version archives
 
-- **Status:** Accepted (pending merge of `docs/starlight-site` /
-  [#19](https://github.com/reggieofarrell/firestore-orm/pull/19))
+- **Status:** Accepted ([#19](https://github.com/reggieofarrell/firestore-orm/pull/19) merged; the
+  v3 docs cutover in sub-decision 4 was executed alongside
+  [ADR-0007](0007-retire-curried-schema-factories.md))
 - **Date:** 2026-07-17
 - **Deciders:** Reggie O'Farrell
 - **Related:** [`website/`](../../website/); [`website/VERSIONING.md`](../../website/VERSIONING.md);

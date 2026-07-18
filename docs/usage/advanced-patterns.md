@@ -77,7 +77,7 @@ writes invalidate it.
 import { Redis } from 'ioredis';
 
 class CachedUserRepository {
-  private repo = FirestoreRepository.withSchema<User>(db, 'users', userSchema);
+  private repo = FirestoreRepository.withSchema(db, 'users', userSchema);
   private cache = new Redis(process.env.REDIS_URL);
   private cacheTTL = 300; // 5 minutes
 
@@ -233,7 +233,7 @@ export const primaryDb = getFirestore(primaryApp);
 export const analyticsDb = getFirestore(analyticsApp);
 
 // repositories/user.repository.ts
-export const userRepo = FirestoreRepository.withSchema<User>(primaryDb, 'users', userSchema);
+export const userRepo = FirestoreRepository.withSchema(primaryDb, 'users', userSchema);
 
 // repositories/analytics.repository.ts
 export const userAnalyticsRepo = new FirestoreRepository<UserAnalytics>(

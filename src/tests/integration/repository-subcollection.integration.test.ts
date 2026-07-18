@@ -2,14 +2,16 @@
  * Strategy: emulator integration tests for subcollection CRUD.
  * Verifies subcollection path resolution and basic read/write under a parent document.
  */
+import { z } from 'zod';
 import { FirestoreRepository } from '../../core/FirestoreRepository.js';
 import { createUserRepoHarness } from './helpers/firestoreIntegrationHarness.js';
 
-type Order = {
-  id: string;
-  total: number;
-  status: string;
-};
+const orderSchema = z.object({
+  id: z.string(),
+  total: z.number(),
+  status: z.string(),
+});
+type Order = z.infer<typeof orderSchema>;
 
 describe('FirestoreRepository subcollections', () => {
   const harness = createUserRepoHarness('test_users_subcollections');
@@ -22,7 +24,7 @@ describe('FirestoreRepository subcollections', () => {
     const parent = await userRepo.create({ name: 'Subcollection Parent' });
     parentId = parent.id;
     trackUser(parentId);
-    orderRepo = userRepo.subcollection<Order>(parentId, 'orders');
+    orderRepo = userRepo.subcollection(parentId, 'orders', orderSchema);
   });
 
   afterEach(async () => {

@@ -15,11 +15,11 @@ instances inside every function.
 ```typescript
 // ❌ Bad - Creates a new instance every time
 export function getUserRepository() {
-  return FirestoreRepository.withSchema<User>(db, 'users', userSchema);
+  return FirestoreRepository.withSchema(db, 'users', userSchema);
 }
 
 // ✅ Good - Single instance, reused everywhere
-export const userRepo = FirestoreRepository.withSchema<User>(db, 'users', userSchema);
+export const userRepo = FirestoreRepository.withSchema(db, 'users', userSchema);
 ```
 
 **Why:** Repository construction is lightweight, but recreating instances repeatedly is unnecessary
@@ -37,23 +37,11 @@ import { db } from '../config/firebase';
 import { FirestoreRepository } from '@reggieofarrell/firestore-orm';
 import * as schemas from '../schemas';
 
-export const userRepo = FirestoreRepository.withSchema<schemas.User>(
-  db,
-  'users',
-  schemas.userSchema,
-);
+export const userRepo = FirestoreRepository.withSchema(db, 'users', schemas.userSchema);
 
-export const orderRepo = FirestoreRepository.withSchema<schemas.Order>(
-  db,
-  'orders',
-  schemas.orderSchema,
-);
+export const orderRepo = FirestoreRepository.withSchema(db, 'orders', schemas.orderSchema);
 
-export const productRepo = FirestoreRepository.withSchema<schemas.Product>(
-  db,
-  'products',
-  schemas.productSchema,
-);
+export const productRepo = FirestoreRepository.withSchema(db, 'products', schemas.productSchema);
 
 // Setup common hooks
 userRepo.on('afterCreate', async user => {

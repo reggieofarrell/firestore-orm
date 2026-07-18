@@ -83,7 +83,7 @@ import { FirestoreRepository } from '@reggieofarrell/firestore-orm';
 import { db } from './firebase';
 import { userSchema, type User } from './schemas';
 
-export const userRepo = FirestoreRepository.withSchema<User>(db, 'users', userSchema);
+export const userRepo = FirestoreRepository.withSchema(db, 'users', userSchema);
 ```
 
 Prefer `withSchema` when you want runtime validation. For an unvalidated collection, construct

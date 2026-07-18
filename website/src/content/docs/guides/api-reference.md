@@ -12,9 +12,10 @@ types.
 > middleware are documented in [Error handling](./error-handling/).
 
 The repository is generic over two types: the **read type** `T` (what reads resolve to, always with
-`id` present) and the **write-input type** `W` (defaults to `T`). The curried factory forms infer
-`W` from your Zod schema so combinator fields accept their native values and sentinels on writes
-with no cast — see
+`id` present) and the **write-input type** `W` (defaults to `T`). `withSchema` / `subcollection`
+infer both from schema values: `T = z.infer<readSchema>`, and `W = z.infer<writeSchema>` when a
+`writeSchema` overlay is supplied (otherwise `W = T`). A `writeSchema` built from the write
+combinators lets those fields accept their native values and sentinels on writes with no cast — see
 [Per-Field Sentinel Approval](./field-value-sentinels/#per-field-sentinel-approval).
 
 `id` is **always** stripped from write payloads. The document id is sourced from the auto-generated
@@ -27,22 +28,19 @@ Firestore id (on `create` / `bulkCreate` / `createInTransaction`) or from the `i
 
 ### Static Methods
 
-**`withSchema<U extends { id?: ID }>(db: Firestore, collection: string, schema: ZodObject, converter?: FirestoreDataConverter<U>, opts?: { sentinelPolicy?: SentinelPolicy }): FirestoreRepository<U>`**
+**`withSchema<RS extends ZodObject, WS extends ZodObject = RS>(db: Firestore, collection: string, readSchema: RS, options?: { writeSchema?: WS; converter?: FirestoreDataConverter<z.infer<RS>>; sentinelPolicy?: SentinelPolicy }): FirestoreRepository<z.infer<RS>, z.infer<WS>>`**
 
-Create a schema-validated repository (direct form). Write inputs are typed by the read type `U`.
-
-**`withSchema<U extends { id?: ID }>()(db: Firestore, collection: string, schema: S, converter?: FirestoreDataConverter<U>, opts?: { sentinelPolicy?: SentinelPolicy }): FirestoreRepository<U, z.infer<S>>`**
-(curried)
-
-Same, but the curried first call fixes the read type `U`, so the write-input type is inferred from
-`schema` (`W = z.infer<S>`). Combinator fields then accept their native values / sentinels on
-`create` / `update` with no cast. See
+Create a schema-validated repository. The **read type** is `z.infer<readSchema>` and the
+**write-input type** is `z.infer<writeSchema>` when a `writeSchema` overlay is supplied, otherwise
+it equals the read type. Build the overlay from the write combinators so those fields accept their
+native values / sentinels on `create` / `update` with no cast — see
 [Per-Field Sentinel Approval](./field-value-sentinels/#per-field-sentinel-approval) for the exact
 guarantees.
 
-Both forms **require** a required top-level `id: z.string()` in the schema, or they throw at
-construction. `opts.sentinelPolicy` is `'permissive'` (default) or `'strict'`; strict mode enforces
-which sentinel kind each field accepts.
+Types are inferred from schema **values** — do not pass an explicit read-type generic. The
+`readSchema` **requires** a required top-level `id: z.string()` or it throws at construction; the
+`writeSchema` overlay need not include `id`. `options.sentinelPolicy` is `'permissive'` (default) or
+`'strict'`; strict mode enforces which sentinel kind each field accepts.
 
 **`new FirestoreRepository<T extends { id?: ID }, W = T>(db: Firestore, collectionPath: string, validator?: Validator<W>, parentPath?: string, converter?: FirestoreDataConverter<T>, schemas?: RepositorySchemaSet)`**
 
@@ -157,18 +155,15 @@ runtime. Hooks do **not** run inside `query().update()` / `query().delete()`; in
 they run only via the transaction-scoped repo passed to `runInTransaction`. See
 [Lifecycle hooks](./lifecycle-hooks/#lifecycle-hooks) for full detail.
 
-**`subcollection<U extends { id?: ID }>(parentId: ID, subcollectionName: string, schema?: ZodObject, converter?: FirestoreDataConverter<U>, opts?: { sentinelPolicy?: SentinelPolicy }): FirestoreRepository<U>`**
+**`subcollection<RS extends ZodObject, WS extends ZodObject = RS>(parentId: ID, subcollectionName: string, readSchema: RS, options?: { writeSchema?: WS; converter?: FirestoreDataConverter<z.infer<RS>>; sentinelPolicy?: SentinelPolicy }): FirestoreRepository<z.infer<RS>, z.infer<WS>>`**
 
-Access a subcollection under a specific parent document (direct form). Converters are explicit per
-repository instance and are **not** inherited from the parent repository. If a `schema` is provided
-it must include a required `id`.
-
-**`subcollection<U extends { id?: ID }>()(parentId: ID, subcollectionName: string, schema: S, converter?: FirestoreDataConverter<U>, opts?: { sentinelPolicy?: SentinelPolicy }): FirestoreRepository<U, z.infer<S>>`**
-(curried)
-
-Curried form that mirrors the curried `withSchema` factory: fixing the read type `U` in the first
-call lets TypeScript infer the write-input type from `schema`, so combinator fields are writable
-with no cast while reads stay typed as `U`. See [Subcollections](./subcollections/).
+Access a subcollection under a specific parent document. Mirrors `withSchema`: read/write types are
+inferred from schema values, and a `writeSchema` overlay enables cast-free combinator writes.
+Converters are explicit per repository instance and are **not** inherited from the parent
+repository. The `readSchema` **requires** a required top-level `id`. For an unvalidated
+subcollection, construct a repository directly against the full path with
+`new FirestoreRepository<Order>(db, `${parentPath}/${parentId}/orders`)`. See
+[Subcollections](./subcollections/).
 
 **`getParentId(): ID | null`**
 

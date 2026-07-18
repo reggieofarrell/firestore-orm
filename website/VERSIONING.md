@@ -5,48 +5,50 @@ consumers can switch between major documentation lines (e.g. v2 vs v3) in the UI
 
 ## Current setup
 
-- **Latest (current)** docs live at `website/src/content/docs/` (site root under
-  `base: /firestore-orm`).
-- The `starlight-versions` package is a dependency of `@reggieofarrell/firestore-orm-docs`.
+- **Latest (current)** docs live at `website/src/content/docs/` and are labelled **v3**.
+- **v2** is archived under `website/src/content/docs/2.0/` with its sidebar snapshot in
+  `website/src/content/versions/2.0.json`. Do not hand-edit the archive — it is a frozen snapshot of
+  the v2 docs.
+- The `starlight-versions` plugin is **enabled** in `astro.config.mjs`
+  (`versions: [{ slug: '2.0', label: 'v2' }]`, `current: { label: 'v3' }`), so the UI shows a v2/v3
+  switcher.
 - The `versions` content collection is declared in `src/content.config.ts` (uses
   `docsVersionsLoader`).
-- The Starlight plugin is **not enabled yet** in `astro.config.mjs`. The plugin schema requires at
-  least one archived major (`versions.length > 0`); enabling it with a slug archives the current
-  tree on first `dev`/`build`. We defer that until v3 usage docs exist so we do not dual-maintain an
-  identical `2.0/` archive.
 
 ADRs (`docs/adr/`) and development guides (`docs/development/`) are **not** versioned via this
 plugin; they stay as single-tree Markdown in the repo.
 
-## Archive workflow (at a major cutover)
+## Archive workflow (at the next major cutover)
 
-When v3 usage docs are ready to become “latest”:
+Follow this when the **next** major (e.g. v4) is ready to become “latest”. It archives the
+then-current line (v3) and makes root the new major. The v2→v3 cutover below is the worked example.
 
-1. In `astro.config.mjs`, import `starlightVersions` and add a plugin entry, e.g.:
+1. In `astro.config.mjs`, prepend the outgoing major to the `versions` array (newest archive first)
+   and bump `current.label`, e.g. for the v3→v4 cutover:
 
    ```js
-   import starlightVersions from 'starlight-versions';
-
-   starlight({
-     plugins: [
-       starlightVersions({
-         versions: [{ slug: '2.0', label: 'v2' }],
-         current: { label: 'v3' },
-       }),
+   starlightVersions({
+     versions: [
+       { slug: '3.0', label: 'v3' },
+       { slug: '2.0', label: 'v2' },
      ],
-     // …
+     current: { label: 'v4' },
    });
    ```
 
-2. Start the docs site (`npm run docs:dev` from the repo root, or `npm run dev` in `website/`). On
-   first run, starlight-versions archives the current tree under `website/src/content/docs/2.0/`
-   (folder name matches the `slug`).
-3. Rewrite / replace the root `website/src/content/docs/` content for the new major.
-4. Commit both the archived tree and the new latest content.
-5. Build and smoke-test (`npm run docs:build`) before merging.
+2. Run `npm run docs:build` (or `npm run docs:dev`). On first run with the new slug,
+   starlight-versions archives the current tree under `website/src/content/docs/3.0/` (folder name
+   matches the `slug`) and writes `website/src/content/versions/3.0.json`.
+3. Rewrite the root `website/src/content/docs/` content for the new major. In this repo the topic
+   guides are generated from `docs/usage/` — run `node scripts/copy-usage-to-starlight.mjs` then
+   `npx prettier --write "website/src/content/docs/guides/*.md"`, and hand-edit the site-owned pages
+   (`index.md`, `getting-started.md`, `overview.md`, and `astro.config.mjs` sidebar) for any API
+   changes. **Order matters:** archive first (step 2), then rewrite root — otherwise the new content
+   is archived under the old slug.
+4. Commit the archived tree, its `versions/*.json`, and the new latest content together.
+5. Build and smoke-test (`npm run docs:build`, then `npm run check:docs`) before merging.
 
-Repeat for later majors (`3.0`, etc.). Prefer archiving only at **major** releases so the switcher
-stays useful rather than noisy.
+Prefer archiving only at **major** releases so the switcher stays useful rather than noisy.
 
 ## What not to version
 

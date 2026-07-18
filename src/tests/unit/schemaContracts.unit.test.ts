@@ -28,11 +28,7 @@ function createSchemaRepoHarness() {
     name: z.string().min(1),
     score: z.number().min(0).optional(),
   });
-  const repo = FirestoreRepository.withSchema<{ id?: string; name: string; score?: number }>(
-    db,
-    'users',
-    userSchema,
-  );
+  const repo = FirestoreRepository.withSchema(db, 'users', userSchema);
 
   return { repo, userSchema, add, update, set, doc, collection };
 }
@@ -47,13 +43,9 @@ describe('repository schema contracts', () => {
       total: z.number(),
     });
 
-    expect(() =>
-      baseRepo.subcollection<{ id?: string; total: number }>(
-        'parent-id',
-        'orders',
-        invalidSubcollectionSchema,
-      ),
-    ).toThrow(/top-level "id" field/i);
+    expect(() => baseRepo.subcollection('parent-id', 'orders', invalidSubcollectionSchema)).toThrow(
+      /top-level "id" field/i,
+    );
   });
 
   it('exposes read/create/update schemas and keeps them aligned with validator behavior', () => {

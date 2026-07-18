@@ -26,7 +26,7 @@ import { FirestoreRepository } from '@reggieofarrell/firestore-orm';
 import { db } from '../config/firebase';
 import { userSchema, User } from '../schemas/user.schema';
 
-export const userRepo = FirestoreRepository.withSchema<User>(db, 'users', userSchema);
+export const userRepo = FirestoreRepository.withSchema(db, 'users', userSchema);
 ```
 
 Define your routes as thin handlers that call the repository and forward any thrown error to the
@@ -209,7 +209,7 @@ import { getFirestore, Firestore } from 'firebase-admin/firestore';
 export class DatabaseModule {}
 ```
 
-Wrap the ORM repository in an injectable provider. Construct it with `withSchema<User>(...)` (which
+Wrap the ORM repository in an injectable provider. Construct it with `withSchema(...)` (which
 enforces the required `id`) and register any lifecycle hooks in the constructor:
 
 ```typescript
@@ -224,7 +224,7 @@ export class UserRepository {
   private repo: FirestoreRepository<User>;
 
   constructor(@Inject('FIRESTORE') private firestore: Firestore) {
-    this.repo = FirestoreRepository.withSchema<User>(firestore, 'users', userSchema);
+    this.repo = FirestoreRepository.withSchema(firestore, 'users', userSchema);
 
     // Setup hooks
     this.setupHooks();

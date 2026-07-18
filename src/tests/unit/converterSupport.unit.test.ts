@@ -13,6 +13,10 @@ function createConverter<T extends Record<string, unknown>>(): FirestoreDataConv
   };
 }
 
+// Minimal subcollection read schema — subcollections require a schema; converter behavior below is
+// independent of it.
+const orderSubSchema = z.object({ id: z.string(), total: z.number() });
+
 describe('converter support', () => {
   it('keeps default behavior when no converter is provided', () => {
     const plainCollectionRef = {
@@ -80,10 +84,7 @@ describe('converter support', () => {
     // Access parent once to prove parent converter remains configured.
     (parentRepo as any).col();
 
-    const subcollectionRepo = parentRepo.subcollection<{ id?: string; total: number }>(
-      'user-123',
-      'orders',
-    );
+    const subcollectionRepo = parentRepo.subcollection('user-123', 'orders', orderSubSchema);
     const childCollection = (subcollectionRepo as any).col();
 
     expect(db.collection).toHaveBeenCalledWith('users/user-123/orders');
@@ -118,12 +119,9 @@ describe('converter support', () => {
       undefined,
       parentConverter,
     );
-    const subcollectionRepo = parentRepo.subcollection<{ id?: string; total: number }>(
-      'user-123',
-      'orders',
-      undefined,
-      childConverter,
-    );
+    const subcollectionRepo = parentRepo.subcollection('user-123', 'orders', orderSubSchema, {
+      converter: childConverter,
+    });
     const childCollection = (subcollectionRepo as any).col();
 
     expect(childCollectionRef.withConverter).toHaveBeenCalledWith(childConverter);
@@ -177,12 +175,7 @@ describe('converter support', () => {
       collection: jest.fn().mockReturnValue(collectionRef),
     } as any;
 
-    const repo = FirestoreRepository.withSchema<{ id?: string; name: string }>(
-      db,
-      'users',
-      userSchema,
-      converter,
-    );
+    const repo = FirestoreRepository.withSchema(db, 'users', userSchema, { converter });
     const resolvedCollection = (repo as any).col();
 
     expect(collectionRef.withConverter).toHaveBeenCalledWith(converter);
@@ -199,11 +192,11 @@ describe('converter support', () => {
     });
     const db = {} as any;
 
-    expect(() =>
-      FirestoreRepository.withSchema<{ id?: string; name: string }>(db, 'users', missingIdSchema),
-    ).toThrow(/top-level "id" field/i);
-    expect(() =>
-      FirestoreRepository.withSchema<{ id?: string; name: string }>(db, 'users', optionalIdSchema),
-    ).toThrow(/requires "id" to be required/i);
+    expect(() => FirestoreRepository.withSchema(db, 'users', missingIdSchema)).toThrow(
+      /top-level "id" field/i,
+    );
+    expect(() => FirestoreRepository.withSchema(db, 'users', optionalIdSchema)).toThrow(
+      /requires "id" to be required/i,
+    );
   });
 });

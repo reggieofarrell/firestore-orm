@@ -36,7 +36,7 @@ const COLLECTION = `test_sentinel_combinators_${Date.now()}`;
 
 describe('per-field sentinel combinators (emulator, strict)', () => {
   const db = getIntegrationDb();
-  const repo = FirestoreRepository.withSchema<ComboDoc>(db, COLLECTION, comboSchema, undefined, {
+  const repo = FirestoreRepository.withSchema(db, COLLECTION, comboSchema, {
     sentinelPolicy: 'strict',
   });
 

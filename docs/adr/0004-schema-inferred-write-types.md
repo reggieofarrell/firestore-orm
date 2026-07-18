@@ -1,7 +1,6 @@
 # ADR-0004: Opt-in schema-inferred write-input types (and optional `id` on create)
 
-- **Status:** Accepted (implemented on branch `feat/schema-inferred-write-types`; pending
-  merge/release)
+- **Status:** Superseded by [ADR-0007](0007-retire-curried-schema-factories.md)
 - **Date:** 2026-07-17
 - **Deciders:** Reggie O'Farrell
 - **Related:** Refines [ADR-0002](0002-per-field-sentinel-write-validation.md) (per-field

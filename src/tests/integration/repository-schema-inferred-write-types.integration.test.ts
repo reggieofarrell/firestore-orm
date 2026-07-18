@@ -1,9 +1,9 @@
 /**
- * Strategy: runtime coverage for the curried `withSchema<Read>()(...)` form, whose write-input
- * types are inferred from the write schema. Combinator fields accept their native values /
- * sentinels with no cast, `create` needs no `id`, and these round-trip through the emulator on the
- * create, update, and query().update() paths. Under `sentinelPolicy: 'strict'`, a value the schema
- * forbids is rejected at runtime.
+ * Strategy: runtime coverage for a `writeSchema` overlay — `withSchema(db, coll, readSchema,
+ * { writeSchema })` — whose write-input types are inferred from the overlay. Combinator fields
+ * accept their native values / sentinels with no cast, `create` needs no `id`, and these round-trip
+ * through the emulator on the create, update, and query().update() paths. Under
+ * `sentinelPolicy: 'strict'`, a value the schema forbids is rejected at runtime.
  *
  * The *compile-time* guarantees (cast-free writes type-check; wrong values are type errors) are
  * asserted separately in `src/tests/types/write-types.type-test.ts`, checked by `npm run test:types`
@@ -24,7 +24,6 @@ const eventBase = z.object({
   tags: z.array(z.string()),
   happenedAt: z.number(), // ms since epoch on read
 });
-type EventDoc = z.infer<typeof eventBase>;
 
 // Write overlay: combinators widen only write-time validation.
 const eventWrite = eventBase.extend({
@@ -35,10 +34,11 @@ const eventWrite = eventBase.extend({
 
 const COLLECTION = `test_inferred_write_types_${Date.now()}`;
 
-describe('curried withSchema infers write-input types from the write schema', () => {
+describe('withSchema writeSchema overlay infers write-input types', () => {
   const db = getIntegrationDb();
-  // Read type stays the plain `EventDoc`; write type is inferred from `eventWrite`.
-  const repo = FirestoreRepository.withSchema<EventDoc>()(db, COLLECTION, eventWrite, undefined, {
+  // Read type stays the plain `eventBase`; write type is inferred from the `eventWrite` overlay.
+  const repo = FirestoreRepository.withSchema(db, COLLECTION, eventBase, {
+    writeSchema: eventWrite,
     sentinelPolicy: 'strict',
   });
 
@@ -116,18 +116,16 @@ describe('curried withSchema infers write-input types from the write schema', ()
   });
 });
 
-describe('curried subcollection infers write-input types', () => {
+describe('subcollection writeSchema overlay infers write-input types', () => {
   const db = getIntegrationDb();
-  const parent = FirestoreRepository.withSchema<EventDoc>()(
-    db,
-    `${COLLECTION}_parent`,
-    eventWrite,
-    undefined,
-    { sentinelPolicy: 'strict' },
-  );
-  // Curried subcollection: write types inferred from `eventWrite`, so the combinator writes below
-  // need no cast; the child lives at `<collection>_parent/parent-1/children`.
-  const sub = parent.subcollection<EventDoc>()('parent-1', 'children', eventWrite, undefined, {
+  const parent = FirestoreRepository.withSchema(db, `${COLLECTION}_parent`, eventBase, {
+    writeSchema: eventWrite,
+    sentinelPolicy: 'strict',
+  });
+  // Subcollection with a write overlay: write types inferred from `eventWrite`, so the combinator
+  // writes below need no cast; the child lives at `<collection>_parent/parent-1/children`.
+  const sub = parent.subcollection('parent-1', 'children', eventBase, {
+    writeSchema: eventWrite,
     sentinelPolicy: 'strict',
   });
 

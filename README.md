@@ -158,9 +158,10 @@ export type User = z.infer<typeof userSchema>;
 ```typescript
 import { FirestoreRepository } from '@reggieofarrell/firestore-orm';
 import { db } from './firebase';
-import { userSchema, User } from './schemas';
+import { userSchema } from './schemas';
 
-export const userRepo = FirestoreRepository.withSchema<User>(db, 'users', userSchema);
+// The read type is inferred from `userSchema` (equivalent to the exported `User` type).
+export const userRepo = FirestoreRepository.withSchema(db, 'users', userSchema);
 ```
 
 ### 4. Start Building

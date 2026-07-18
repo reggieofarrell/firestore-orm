@@ -98,7 +98,10 @@ documents.
 **Solution:** Read it from the repository with `getParentId()`:
 
 ```typescript
-const ordersRepo = userRepo.subcollection('user-123', 'orders');
+import { z } from 'zod';
+
+const orderSchema = z.object({ id: z.string(), total: z.number() });
+const ordersRepo = userRepo.subcollection('user-123', 'orders', orderSchema);
 const parentId = ordersRepo.getParentId(); // 'user-123'
 ```
 

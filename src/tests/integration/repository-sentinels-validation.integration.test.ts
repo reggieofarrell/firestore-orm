@@ -473,12 +473,13 @@ describe('FirestoreRepository strict sentinelPolicy (per-field combinators)', ()
       createdAt: new Date().toISOString(),
     } as HookValidatedUser);
 
-    const subRepo = parent.subcollection<HookValidatedUser>(
+    const subRepo = parent.subcollection(
       parentDoc.id,
       'strict_subs',
       strictHookValidatedUserSchema,
-      undefined,
-      { sentinelPolicy: 'strict' },
+      {
+        sentinelPolicy: 'strict',
+      },
     );
 
     try {

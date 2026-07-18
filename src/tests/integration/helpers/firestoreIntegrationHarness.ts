@@ -166,7 +166,7 @@ export function createUserRepoHarness(prefix: string = 'test_users_integration')
  * Builds an isolated schema-validated repository for hook/sentinel integration tests.
  */
 export function createValidatedRepo(db: Firestore) {
-  return FirestoreRepository.withSchema<HookValidatedUser>(
+  return FirestoreRepository.withSchema(
     db,
     makeCollectionName('test_users_hook_order'),
     hookValidatedUserSchema,
@@ -175,15 +175,15 @@ export function createValidatedRepo(db: Firestore) {
 
 /**
  * Builds an isolated repository with `sentinelPolicy: 'strict'` and the combinator-based
- * schema, so only sentinels each field explicitly permits are accepted.
+ * write overlay, so only sentinels each field explicitly permits are accepted while reads stay
+ * typed by the plain read schema.
  */
 export function createStrictRepo(db: Firestore) {
-  return FirestoreRepository.withSchema<HookValidatedUser>(
+  return FirestoreRepository.withSchema(
     db,
     makeCollectionName('test_users_strict'),
-    strictHookValidatedUserSchema,
-    undefined,
-    { sentinelPolicy: 'strict' },
+    hookValidatedUserSchema,
+    { writeSchema: strictHookValidatedUserSchema, sentinelPolicy: 'strict' },
   );
 }
 

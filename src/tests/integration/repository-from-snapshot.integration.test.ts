@@ -35,13 +35,10 @@ const PLAIN_COLLECTION = `test_from_snapshot_plain_${Date.now()}`;
 describe('FirestoreRepository.fromSnapshot (integration)', () => {
   const db = getIntegrationDb();
 
-  const converterRepo = FirestoreRepository.withSchema<EventDoc>(
-    db,
-    CONVERTER_COLLECTION,
-    eventWriteSchema,
-    createMillisTimestampConverter<EventDoc>(),
-    { sentinelPolicy: 'strict' },
-  );
+  const converterRepo = FirestoreRepository.withSchema(db, CONVERTER_COLLECTION, eventWriteSchema, {
+    converter: createMillisTimestampConverter<EventDoc>(),
+    sentinelPolicy: 'strict',
+  });
 
   interface PlainDoc {
     id: string;

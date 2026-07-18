@@ -26,15 +26,29 @@ Triggers:
 
 Then update:
 
-1. **`docs/usage/`** — the feature guide and API reference now live here, one page per topic (see
-   `docs/usage/api-reference.md` and the relevant topic page). Update method contracts, options, and
-   any code examples that now behave differently; keep exported names and signatures accurate. The
-   root `README.md` keeps only the quick start + a documentation index, so touch it only when the
-   quick-start example or that index needs to change.
-2. **Examples** — fix snippets that would no longer type-check or run.
-3. **ADR** — if it's a contract-level or architectural decision, record one in `docs/adr/` (use the
-   `/adr` skill).
-4. Do **not** hand-edit `CHANGELOG.md` — it is generated from Conventional Commits; write a clear
+1. **Starlight site (`website/src/content/docs/`)** — published consumer docs (GitHub Pages). Prefer
+   plain `.md` with Starlight YAML frontmatter (`title`, `description`); do not introduce `.mdx`
+   unless a page truly needs custom components.
+   - **Topic guides:** `website/src/content/docs/guides/*.md` — one page per topic (e.g.
+     `api-reference.md`, `schema-validation.md`). Update method contracts, options, and examples;
+     keep exported names and signatures accurate. Sidebar groups live in `website/astro.config.mjs`
+     (Concepts / Operations / Reference / Integration / Guidance) — add a sidebar entry when you add
+     a new guide page.
+   - **Getting Started:** `website/src/content/docs/getting-started.md` — when install, peers, or
+     the minimal create/query/update/delete walkthrough changes.
+   - **Overview / home:** `overview.md` or `index.md` only when the TOC, hero CTAs, or “where to go
+     next” links need to change.
+2. **Root `README.md`** — quick start + links to the live site. Touch it when the quick-start
+   example or the documentation index links need to change.
+3. **`docs/usage/` (transitional)** — if this tree still exists, mirror the same topic-guide edits
+   there so the in-repo copy does not drift until it is deleted in a follow-up cutover. Do **not**
+   treat `docs/usage/` as the published source of truth.
+4. **Examples** — fix snippets that would no longer type-check or run.
+5. **ADR** — if it's a contract-level or architectural decision, record one in `docs/adr/` (use the
+   `/adr` skill). ADRs and `docs/development/` stay in-repo Markdown; they are not published on the
+   Starlight site.
+6. Do **not** hand-edit `CHANGELOG.md` — it is generated from Conventional Commits; write a clear
    `feat:` / `fix:` / `feat!:` commit instead.
 
-If you touched any doc links, run `npm run check:docs`.
+If you touched any doc links, run `npm run check:docs`. After non-trivial website content changes,
+smoke-test with `npm run docs:build` (forces `NODE_ENV=production` so Pagefind search is included).

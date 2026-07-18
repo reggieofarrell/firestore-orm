@@ -38,6 +38,10 @@ coverage/
 firestore-debug.log
 firebase-debug.log
 
+# Starlight / Astro docs site (website/ has its own package + lockfile)
+website/dist/
+website/.astro/
+website/node_modules/
 
 ./src/schemas
 ./core/TransactionContext.ts

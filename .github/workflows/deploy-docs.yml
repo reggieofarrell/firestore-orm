@@ -1,0 +1,46 @@
+# Build the Starlight site under website/ and publish to GitHub Pages.
+# Requires Settings → Pages → Source = GitHub Actions (enabled for this repo).
+name: Deploy docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'website/**'
+      - '.github/workflows/deploy-docs.yml'
+  # Allows a manual run from the Actions tab (e.g. after first enable).
+  workflow_dispatch:
+
+# Allow this job to clone the repo and create a page deployment.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout your repository using git
+        uses: actions/checkout@v7
+
+      - name: Install, build, and upload your site
+        uses: withastro/action@v6
+        with:
+          # Nested Astro app (own package.json + lockfile); not an npm workspace.
+          path: website
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

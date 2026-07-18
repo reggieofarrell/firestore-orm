@@ -105,5 +105,5 @@ behavior as the default.
 
 - [`src/core/Validation.ts`](../../src/core/Validation.ts) — combinators, `whichFieldValue`,
   `sentinelPolicy`, detector fixes.
-- [Docs → Per-Field Sentinel Approval](../usage/field-value-sentinels.md#per-field-sentinel-approval).
+- Consumer usage: the "Per-Field Sentinel Approval" guide in the published docs.
 - Branch `feat/per-field-sentinel-validation`.

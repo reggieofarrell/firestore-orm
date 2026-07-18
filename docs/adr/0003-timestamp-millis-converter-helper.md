@@ -83,5 +83,6 @@ entry.
 ## References
 
 - [`src/utils/timestamps.ts`](../../src/utils/timestamps.ts) — the four helpers.
-- [Docs → Storing a Timestamp, reading a millisecond number](../usage/timestamps.md#storing-a-timestamp-reading-a-millisecond-number).
+- Consumer usage: the "Storing a Timestamp, reading a millisecond number" guide in the published
+  docs.
 - Branch `feat/timestamp-millis-converter`.

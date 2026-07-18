@@ -19,9 +19,10 @@ Triggers:
 
 Then update:
 
-1. **Starlight site (`website/src/content/docs/`)** — published consumer docs (GitHub Pages). Prefer
-   plain `.md` with Starlight YAML frontmatter (`title`, `description`); do not introduce `.mdx`
-   unless a page truly needs custom components.
+1. **Starlight site (`website/src/content/docs/`)** — the single published source of truth for
+   consumer docs (GitHub Pages); edit it directly. Prefer plain `.md` with Starlight YAML
+   frontmatter (`title`, `description`); do not introduce `.mdx` unless a page truly needs custom
+   components.
    - **Topic guides:** `website/src/content/docs/guides/*.md` — one page per topic (e.g.
      `api-reference.md`, `schema-validation.md`). Update method contracts, options, and examples;
      keep exported names and signatures accurate. Sidebar groups live in `website/astro.config.mjs`
@@ -33,14 +34,12 @@ Then update:
      next” links need to change.
 2. **Root `README.md`** — quick start + links to the live site. Touch it when the quick-start
    example or the documentation index links need to change.
-3. **`docs/usage/` (transitional)** — if this tree still exists, mirror the same topic-guide edits
-   there so the in-repo copy does not drift until it is deleted in a follow-up cutover. Do **not**
-   treat `docs/usage/` as the published source of truth.
-4. **Examples** — fix snippets that would no longer type-check or run.
-5. **ADR** — if it's a contract-level or architectural decision, record one in `docs/adr/`
+3. **Examples** — fix snippets that would no longer type-check or run.
+4. **ADR** — if it's a contract-level or architectural decision, record one in `docs/adr/`
    (use the `/adr` skill). ADRs and `docs/development/` stay in-repo Markdown; they are not
-   published on the Starlight site.
-6. Do **not** hand-edit `CHANGELOG.md` — it is generated from Conventional Commits; write a clear
+   published on the Starlight site. Do **not** link ADRs to the (mutable) usage docs — reference the
+   source and other ADRs, and name a guide in plain text if needed.
+5. Do **not** hand-edit `CHANGELOG.md` — it is generated from Conventional Commits; write a clear
    `feat:` / `fix:` / `feat!:` commit instead.
 
 If you touched any doc links, run `npm run check:docs`. After non-trivial website content changes,

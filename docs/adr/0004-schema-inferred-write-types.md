@@ -111,5 +111,5 @@ something to design around.)
 - [`src/core/Validation.ts`](../../src/core/Validation.ts) — `CreateInput` (optional `id`).
 - [`src/tests/types/write-types.type-test.ts`](../../src/tests/types/write-types.type-test.ts) +
   `tsconfig.typecheck.json` — the compile-time gate (`npm run test:types`).
-- [Docs → Per-Field Sentinel Approval](../usage/field-value-sentinels.md#per-field-sentinel-approval).
+- Consumer usage: the "Per-Field Sentinel Approval" guide in the published docs.
 - Branch `feat/schema-inferred-write-types`.

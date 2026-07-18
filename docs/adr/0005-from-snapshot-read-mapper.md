@@ -3,9 +3,9 @@
 - **Status:** Accepted
 - **Date:** 2026-07-17
 - **Deciders:** Reggie O'Farrell
-- **Related:** [`src/core/FirestoreRepository.ts`](../../src/core/FirestoreRepository.ts);
-  [docs/usage/triggers.md](../usage/triggers.md); builds on the converter/`id`-overlay read
-  semantics in [ADR-0003](0003-timestamp-millis-converter-helper.md)
+- **Related:** [`src/core/FirestoreRepository.ts`](../../src/core/FirestoreRepository.ts); the
+  Firestore triggers usage guide; builds on the converter/`id`-overlay read semantics in
+  [ADR-0003](0003-timestamp-millis-converter-helper.md)
 
 ## Context
 
@@ -61,7 +61,8 @@ Deliberate scope choices:
 **Negative / costs**
 
 - `fromSnapshot` reconstructs but does not validate, so a stored document that has drifted from the
-  schema is not caught unless the caller opts into parsing — documented in `docs/usage/triggers.md`.
+  schema is not caught unless the caller opts into parsing — documented in the Firestore triggers
+  usage guide.
 - It is the first extraction of the `{ ...data, id }` read overlay; the ~12 inline read sites are
   left as-is (not refactored to route through it) to keep this change minimal.
 
@@ -80,6 +81,6 @@ Deliberate scope choices:
 
 - [`src/core/FirestoreRepository.ts`](../../src/core/FirestoreRepository.ts) — `fromSnapshot`
   implementation, next to the by-id reads.
-- [Docs → Using with Firestore triggers](../usage/triggers.md) and the `fromSnapshot` entry in
-  [API Reference](../usage/api-reference.md).
+- Consumer usage: the "Using with Firestore triggers" guide and the `fromSnapshot` entry in the API
+  Reference (published docs).
 - Branch `feat/from-snapshot`.

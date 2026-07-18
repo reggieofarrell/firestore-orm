@@ -1,5 +1,5 @@
 ---
-# Splash landing page for the published docs site (not the in-repo docs/usage index).
+# Splash landing page for the published docs site (distinct from the Documentation overview page).
 title: '@reggieofarrell/firestore-orm'
 description:
   Type-safe Firestore ORM for the Firebase Admin SDK — validation, hooks, and a fluent query

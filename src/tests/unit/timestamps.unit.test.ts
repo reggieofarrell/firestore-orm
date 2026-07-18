@@ -100,9 +100,11 @@ describe('timestamp converters', () => {
   });
 
   describe('createMillisTimestampConverter', () => {
-    it('recursively converts every Timestamp on fromFirestore by default', () => {
-      const converter = createMillisTimestampConverter();
-      const out = converter.fromFirestore(
+    // The helper returns the `fromFirestore` mapper directly (a `(snapshot) => T` read converter);
+    // the repository builds the full FirestoreDataConverter internally, so there is no `toFirestore`.
+    it('recursively converts every Timestamp by default', () => {
+      const fromFirestore = createMillisTimestampConverter();
+      const out = fromFirestore(
         snapshotOf({
           name: 'e',
           at: Timestamp.fromMillis(MS),
@@ -114,8 +116,8 @@ describe('timestamp converters', () => {
     });
 
     it('converts only the named fields when fields are supplied', () => {
-      const converter = createMillisTimestampConverter(['happenedAt']);
-      const out = converter.fromFirestore(
+      const fromFirestore = createMillisTimestampConverter(['happenedAt']);
+      const out = fromFirestore(
         snapshotOf({ happenedAt: Timestamp.fromMillis(MS), other: Timestamp.fromMillis(MS + 5) }),
       ) as { happenedAt: number; other: Timestamp };
 
@@ -125,15 +127,9 @@ describe('timestamp converters', () => {
     });
 
     it('ignores named fields that are absent from the document', () => {
-      const converter = createMillisTimestampConverter(['missing']);
-      const out = converter.fromFirestore(snapshotOf({ name: 'e' })) as Record<string, unknown>;
+      const fromFirestore = createMillisTimestampConverter(['missing']);
+      const out = fromFirestore(snapshotOf({ name: 'e' })) as Record<string, unknown>;
       expect(out).toEqual({ name: 'e' });
-    });
-
-    it('passes data through unchanged on toFirestore', () => {
-      const converter = createMillisTimestampConverter();
-      const model = { name: 'e', happenedAt: 123 };
-      expect(converter.toFirestore(model as never)).toEqual(model);
     });
   });
 });

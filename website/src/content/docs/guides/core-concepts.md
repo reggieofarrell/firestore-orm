@@ -34,61 +34,63 @@ enables cast-free combinator writes. Construct a repository directly with
 `new FirestoreRepository<Product>(db, 'products')` when you don't need validation. See
 [schema validation](./schema-validation/) for the full contract.
 
+To add domain helpers (`findByEmail`, `deactivate`, and so on), subclass `FirestoreRepository` or
+wrap a `withSchema` instance — both are supported. See
+[Custom repository methods](./advanced-patterns/#custom-repository-methods) for the constraints
+(`withSchema` returns a plain repository; subclasses use the public API only).
+
 The full constructor signature is
-`new FirestoreRepository<T, W>(db, collectionPath, validator?, parentPath?, converter?, schemas?)`.
+`new FirestoreRepository<T, W>(db, collectionPath, validator?, parentPath?, readConverter?, schemas?)`.
 There is no options, config, debug, or logger bag — everything is passed through these positional
 arguments (plus the trailing options object the `withSchema` and `subcollection` factories accept:
-`writeSchema`, `converter`, and `sentinelPolicy`).
+`writeSchema`, `readConverter`, and `sentinelPolicy`).
 
 ## Firestore Converters
 
-FirestoreORM supports Firestore `withConverter(...)` through optional repository converter arguments
-— mainly for custom **read** deserialization (e.g. `Timestamp -> number`/`Date`).
+FirestoreORM supports custom **read** deserialization (e.g. `Timestamp -> number`/`Date`) through an
+optional **`readConverter`**.
 
-> **`toFirestore` runs on create-family writes only — do not rely on it for write conversion.** The
-> Admin SDK invokes a converter's `toFirestore` on `add`/`set` (`create`, `bulkCreate`, `upsert`
-> when creating, `createInTransaction`) but **not** on `update()` — so it is **skipped** by
-> `update`, `patch`, `bulkUpdate`, `bulkPatch`, `upsert` (when updating), `updateInTransaction` /
-> `patchInTransaction`, and `query().update()`. `fromFirestore`, by contrast, runs on **every**
-> read. So keep `toFirestore` a pass-through and put read transforms in `fromFirestore`; for
-> write-time normalization that must apply on every path, use a `before*` hook (hooks run before
-> validation on all write paths) — see [Lifecycle Hooks](./lifecycle-hooks/).
+> **Converters are read-only.** A `readConverter` is just the `fromFirestore` half of a converter —
+> a `(snapshot) => T` mapper (the `ReadConverter<T>` type). The repository builds the full
+> `FirestoreDataConverter` internally (your mapper plus a pass-through `toFirestore`) and attaches
+> it to the **read** ref only, so `fromFirestore` runs on **every** read while writes go through a
+> **raw** ref — a `toFirestore` is never even expressible, let alone invoked. This removes a
+> long-standing footgun: the Admin SDK already skipped `toFirestore` on `update()`, so relying on it
+> was unreliable. For write-time normalization, use a `before*` hook (hooks run before validation on
+> all write paths) — see [Lifecycle Hooks](./lifecycle-hooks/).
 
 ```typescript
-import { Timestamp, FirestoreDataConverter } from 'firebase-admin/firestore';
+import { Timestamp } from 'firebase-admin/firestore';
+import { FirestoreRepository, ReadConverter } from '@reggieofarrell/firestore-orm';
 
-const userConverter: FirestoreDataConverter<User> = {
-  // Pass-through. Do NOT convert here — the Admin SDK skips toFirestore on update().
-  toFirestore: user => user as FirebaseFirestore.DocumentData,
-  // Runs on every read: map the stored Timestamp back to a Date. Return data WITHOUT `id` — the
-  // repository overlays the document id after fromFirestore returns.
-  fromFirestore: snapshot => {
-    const data = snapshot.data();
-    return { ...data, createdAt: (data.createdAt as Timestamp).toDate() } as User;
-  },
+// Runs on every read: map the stored Timestamp back to a Date. Return data WITHOUT `id` — the
+// repository overlays the document id after the mapper returns.
+const userReadConverter: ReadConverter<User> = snapshot => {
+  const data = snapshot.data();
+  return { ...data, createdAt: (data.createdAt as Timestamp).toDate() } as User;
 };
 
 // Write a Date/serverTimestamp() (stored as a Timestamp on every write path); read back a Date.
 const userRepo = FirestoreRepository.withSchema(db, 'users', userSchema, {
-  converter: userConverter,
+  readConverter: userReadConverter,
 });
 ```
 
-Because `fromFirestore` receives only the stored document body, it must return data **without** an
-`id` field; the repository reads the snapshot's document id and overlays it onto the result after
-the converter runs. This is why reads resolve to `T & { id }` even though the converter never sets
-`id` itself. A raw snapshot from a trigger cloud function is **not** converter-applied and has no
-`id` — use [`fromSnapshot`](./triggers/) to reconstruct the read shape there.
+Because the mapper receives only the stored document body, it must return data **without** an `id`
+field; the repository reads the snapshot's document id and overlays it onto the result afterward.
+This is why reads resolve to `T & { id }` even though the mapper never sets `id` itself. A raw
+snapshot from a trigger cloud function is **not** converter-applied and has no `id` — use
+[`fromSnapshot`](./triggers/) to reconstruct the read shape there.
 
 For the common `Timestamp -> number` case, the built-in
-[`createMillisTimestampConverter`](./timestamps/) packages exactly this shape (recursive read
-conversion + pass-through write).
+[`createMillisTimestampConverter`](./timestamps/) returns exactly this mapper (recursive read
+conversion), ready to pass as `readConverter`.
 
 Converter behavior is instance-local by design:
 
 - Parent repositories and subcollections do not share converters automatically.
-- Pass a converter explicitly via `subcollection(..., { converter })` for each subcollection that
-  needs converter behavior.
+- Pass a converter explicitly via `subcollection(..., { readConverter })` for each subcollection
+  that needs converter behavior.
 
 ## Delete Behavior
 

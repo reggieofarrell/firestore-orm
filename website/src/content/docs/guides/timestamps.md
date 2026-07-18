@@ -37,8 +37,9 @@ const eventWrite = eventBase.extend({
 });
 
 // The read converter recursively maps stored Timestamps to ms numbers and returns data WITHOUT
-// `id` (the repository overlays the document id afterward); toFirestore is a pass-through.
-const converter = createMillisTimestampConverter<EventDoc>();
+// `id` (the repository overlays the document id afterward); its toFirestore is a never-invoked
+// pass-through (converters are read-only).
+const readConverter = createMillisTimestampConverter<EventDoc>();
 ```
 
 Build the repository with `eventBase` as the read schema and `eventWrite` as the `writeSchema`
@@ -48,7 +49,7 @@ overlay — a `Date` / `serverTimestamp()` is then accepted with **no cast**, wh
 ```typescript
 const events = FirestoreRepository.withSchema(db, 'events', eventBase, {
   writeSchema: eventWrite,
-  converter,
+  readConverter,
 });
 
 await events.create({ name: 'launch', happenedAt: FieldValue.serverTimestamp() });
@@ -70,12 +71,11 @@ createMillisTimestampConverter<EventDoc>(['happenedAt']);
 Notes:
 
 - Write a `Date` or `serverTimestamp()`, not a raw `number` — the Admin SDK stores both as a
-  `Timestamp` on every write path (including `update()`). A `FirestoreDataConverter.toFirestore` is
-  **not** invoked on any update path (`update`, `patch`, `bulkUpdate`, `bulkPatch`,
-  `query().update`, `updateInTransaction`, `patchInTransaction`) — it runs only on create/set paths
-  — so the converter deliberately does no write-side conversion.
+  `Timestamp` on every write path (including `update()`). Converters are read-only — a
+  `readConverter` is only a `fromFirestore` mapper (writes go through a raw ref), so there is no
+  write-side conversion by design.
 - Pass the combinator schema as the `writeSchema` overlay
-  (`withSchema(db, 'events', eventBase, { writeSchema: eventWrite, converter })`): it infers the
+  (`withSchema(db, 'events', eventBase, { writeSchema: eventWrite, readConverter })`): it infers the
   write type from `eventWrite`, so a `Date` is accepted on `create`/`update` with no cast, while
   reads stay typed as `EventDoc`. Without an overlay, write inputs are typed by the read type
   (`happenedAt: number`), so `zDateWrite()` only widens _runtime_ validation — a `FieldValue` such
@@ -90,7 +90,7 @@ The main entry also exports the primitives the converter is built from:
 
 | Export                                       | Purpose                                                                             |
 | -------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `createMillisTimestampConverter<T>(fields?)` | Build a `FirestoreDataConverter` (recursive read conversion, pass-through write)    |
+| `createMillisTimestampConverter<T>(fields?)` | Build a `readConverter` mapper (recursive `Timestamp -> number` read conversion)    |
 | `convertTimestampsToMillis<T>(data)`         | Recursively convert every `Timestamp` in a value to an ms `number` (returns a copy) |
 | `convertTimestampToMillis(ts)`               | Convert a single `Timestamp` to an ms `number` (throws if not a `Timestamp`)        |
 | `convertMillisToTimestamp(ms)`               | Convert an ms `number` to a `Timestamp`                                             |
@@ -101,7 +101,7 @@ The main entry also exports the primitives the converter is built from:
 
 ## Working in `number` on both sides
 
-The converter only handles the read direction (writes go through native `Date` /
+The read converter only handles the read direction (writes go through native `Date` /
 `serverTimestamp()`). If you want application code to author `number`s on write too, convert in a
 `beforeCreate` / `beforeUpdate` hook with `convertMillisToTimestamp` (before-hooks run on the
 standard create/update write paths, ahead of validation) and widen the write schema to accept a
@@ -109,20 +109,18 @@ standard create/update write paths, ahead of validation) and widen the write sch
 
 ## Under the hood
 
-`createMillisTimestampConverter()` is equivalent to a hand-written converter whose `fromFirestore`
-maps stored Timestamps to ms and whose `toFirestore` is a pass-through:
+`createMillisTimestampConverter()` returns the `fromFirestore` mapper (a `ReadConverter<EventDoc>`).
+It is equivalent to hand-writing the read mapper you pass as `readConverter`:
 
 ```typescript
-import { Timestamp, FirestoreDataConverter } from 'firebase-admin/firestore';
+import { Timestamp } from 'firebase-admin/firestore';
+import { ReadConverter } from '@reggieofarrell/firestore-orm';
 
-const eventConverter: FirestoreDataConverter<EventDoc> = {
-  toFirestore: data => data as FirebaseFirestore.DocumentData, // pass-through
-  fromFirestore: snap => {
-    const data = snap.data();
-    return {
-      name: data.name,
-      happenedAt: (data.happenedAt as Timestamp).toMillis(),
-    } as EventDoc; // `id` is overlaid by the repository, so it is omitted here
-  },
+const eventReadConverter: ReadConverter<EventDoc> = snap => {
+  const data = snap.data();
+  return {
+    name: data.name,
+    happenedAt: (data.happenedAt as Timestamp).toMillis(),
+  } as EventDoc; // `id` is overlaid by the repository, so it is omitted here
 };
 ```

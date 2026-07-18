@@ -1,4 +1,4 @@
-import { CollectionReference, Firestore, FirestoreDataConverter } from 'firebase-admin/firestore';
+import { CollectionReference, Firestore, QueryDocumentSnapshot } from 'firebase-admin/firestore';
 import {
   CreateInput,
   makeValidator,
@@ -18,6 +18,16 @@ export type UpdateOptions = {
   merge?: boolean;
   returnDoc?: boolean;
 };
+
+/**
+ * A read-only converter: just the `fromFirestore` half of a Firestore `FirestoreDataConverter`.
+ *
+ * Given a raw `QueryDocumentSnapshot`, return the read-model shape (without `id` — the repository
+ * overlays the document id afterward). The repository builds the full `FirestoreDataConverter`
+ * internally (pairing this with a pass-through `toFirestore`) and applies it only to read
+ * references, so `toFirestore` is never invoked on any write path.
+ */
+export type ReadConverter<T> = (snapshot: QueryDocumentSnapshot) => T;
 
 type SingleHookEvent =
   'beforeCreate' | 'afterCreate' | 'beforeUpdate' | 'afterUpdate' | 'beforeDelete' | 'afterDelete';
@@ -78,7 +88,7 @@ type AnyHookFn<T, W> =
 export class FirestoreRepository<T extends { id?: ID }, W = T> {
   private hooks: { [K in HookEvent]?: AnyHookFn<T, W>[] } = {};
   private parentPath?: string;
-  private converter?: FirestoreDataConverter<T>;
+  private readConverter?: ReadConverter<T>;
   private schemasInternal?: RepositorySchemaSet;
 
   constructor(
@@ -86,11 +96,11 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
     private collectionPath: string,
     private validator?: Validator<W>,
     parentPath?: string,
-    converter?: FirestoreDataConverter<T>,
+    readConverter?: ReadConverter<T>,
     schemas?: RepositorySchemaSet,
   ) {
     this.parentPath = parentPath;
-    this.converter = converter;
+    this.readConverter = readConverter;
     this.schemasInternal = schemas ?? validator?.schemas;
   }
 
@@ -170,7 +180,9 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * @param options - Optional settings:
    *   - `writeSchema`: write-side overlay schema. When given, the write type is `z.infer<writeSchema>`
    *     and create/update validation derives from it. Need not include `id`.
-   *   - `converter`: Firestore converter for custom serialization/deserialization.
+   *   - `readConverter`: a read-only converter — the `fromFirestore(snapshot) => T` half only. The
+   *     repository builds the full `FirestoreDataConverter` internally and applies it to reads, so
+   *     `toFirestore` never runs. For write-time normalization use a `before*` hook.
    *   - `sentinelPolicy`: `'strict'` disables the permissive sentinel escape hatch, so only sentinels
    *     a field's schema explicitly permits pass. Defaults to `'permissive'`.
    * @returns Repository instance with validation enabled
@@ -209,7 +221,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
     readSchema: RS,
     options?: {
       writeSchema?: WS;
-      converter?: FirestoreDataConverter<z.infer<RS>>;
+      readConverter?: ReadConverter<z.infer<RS>>;
       sentinelPolicy?: SentinelPolicy;
     },
   ): FirestoreRepository<z.infer<RS>, z.infer<WS>>;
@@ -219,7 +231,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
     readSchema: z.ZodObject<any>,
     options?: {
       writeSchema?: z.ZodObject<any>;
-      converter?: FirestoreDataConverter<any>;
+      readConverter?: ReadConverter<any>;
       sentinelPolicy?: SentinelPolicy;
     },
   ): FirestoreRepository<any> {
@@ -239,7 +251,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
       collection,
       validator,
       undefined,
-      options?.converter,
+      options?.readConverter,
       schemas,
     );
   }
@@ -249,8 +261,9 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    *
    * Mirrors {@link FirestoreRepository.withSchema}: read/write types are inferred from schema values,
    * a required `readSchema` (with a top-level `id`) drives reads, and an optional `writeSchema`
-   * overlay drives cast-free combinator writes. Converters are explicit per repository instance and
-   * are never inherited from parent repositories — pass one in `options.converter` when needed.
+   * overlay drives cast-free combinator writes. Read converters are read-only (a
+   * `fromFirestore(snapshot) => T` mapper), explicit per repository instance, and never inherited
+   * from parent repositories — pass one in `options.readConverter` when needed.
    *
    * For an unvalidated subcollection, construct a repository directly against the full path, e.g.
    * `new FirestoreRepository<Order>(db, `${parentPath}/${parentId}/orders`)`.
@@ -258,7 +271,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * @param parentId - Parent document id
    * @param subcollectionName - Subcollection name
    * @param readSchema - Canonical read schema; must include a required top-level `id` field
-   * @param options - Optional `writeSchema` overlay, `converter`, and `sentinelPolicy` (see
+   * @param options - Optional `writeSchema` overlay, `readConverter`, and `sentinelPolicy` (see
    *   {@link FirestoreRepository.withSchema})
    *
    * @example
@@ -268,11 +281,11 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * await userOrders.create({ product: 'Widget', price: 99 });
    *
    * @example
-   * // With a write overlay (cast-free combinator writes) and a converter
+   * // With a write overlay (cast-free combinator writes) and a read-only converter
    * const orderWrite = z.object({ id: z.string(), product: z.string(), price: zNumberWrite() });
    * const userOrders = userRepo.subcollection('user-123', 'orders', orderSchema, {
    *   writeSchema: orderWrite,
-   *   converter: orderConverter,
+   *   readConverter: orderConverter,
    * });
    * await userOrders.update('o1', { price: FieldValue.increment(5) }); // no cast
    *
@@ -288,7 +301,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
     readSchema: RS,
     options?: {
       writeSchema?: WS;
-      converter?: FirestoreDataConverter<z.infer<RS>>;
+      readConverter?: ReadConverter<z.infer<RS>>;
       sentinelPolicy?: SentinelPolicy;
     },
   ): FirestoreRepository<z.infer<RS>, z.infer<WS>>;
@@ -298,7 +311,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
     readSchema: z.ZodObject<any>,
     options?: {
       writeSchema?: z.ZodObject<any>;
-      converter?: FirestoreDataConverter<any>;
+      readConverter?: ReadConverter<any>;
       sentinelPolicy?: SentinelPolicy;
     },
   ): FirestoreRepository<any> {
@@ -322,7 +335,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
       newPath,
       validator,
       newPath, // for tracking parent path for reference
-      options?.converter,
+      options?.readConverter,
       schemas,
     );
   }
@@ -434,22 +447,38 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
   }
 
   /**
-   * Build the collection reference for this repository instance.
-   * Applies a converter only when explicitly configured for this repository.
-   * Subcollections do not inherit parent converters automatically.
+   * Collection reference used by every **read** path.
+   *
+   * When a `readConverter` is configured, the repository builds a full
+   * `FirestoreDataConverter` internally — the user-supplied `fromFirestore` half plus a pass-through
+   * `toFirestore` — and applies it here so `fromFirestore` runs on reads. Because that converter is
+   * only ever attached to the read ref, its `toFirestore` is never invoked (see
+   * {@link FirestoreRepository.writeCol}). Subcollections do not inherit parent converters
+   * automatically.
    */
-  private createCollectionReference(): CollectionReference<any> {
+  private readCol(): CollectionReference<any> {
     const collectionRef = this.db.collection(this.collectionPath);
-    return this.converter ? collectionRef.withConverter(this.converter) : collectionRef;
+    if (!this.readConverter) return collectionRef;
+    const fromFirestore = this.readConverter;
+    return collectionRef.withConverter({
+      // Never invoked — this converter is only attached to the read ref; writes use writeCol().
+      // The Admin SDK's withConverter still requires a toFirestore to build the ref.
+      toFirestore: model => model as FirebaseFirestore.DocumentData,
+      fromFirestore,
+    });
   }
 
   /**
-   * Return the typed collection/query reference used by read/write operations.
-   * Keeping this as a dedicated method allows transaction-scoped repositories
-   * to override it when needed while preserving converter behavior.
+   * Collection reference used by every **write** path.
+   *
+   * Deliberately raw (never `.withConverter(...)`) so a converter's
+   * `toFirestore` is **never** invoked. The Admin SDK skips `toFirestore` on
+   * `update`/`batch.update`/`tx.update` anyway, so routing all writes through the
+   * raw ref removes that asymmetry — converters are strictly read-only. Use a
+   * `before*` hook for write-time normalization.
    */
-  private col(): CollectionReference<any> {
-    return this.createCollectionReference();
+  private writeCol(): CollectionReference<any> {
+    return this.db.collection(this.collectionPath);
   }
 
   /**
@@ -559,7 +588,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
       await this.runHooks('beforeCreate', docToCreate);
       const validData = this.validateCreateData(docToCreate as CreateInput<W>);
 
-      const docRef = await this.col().add(validData as any);
+      const docRef = await this.writeCol().add(validData as any);
       const created = { ...(validData as Record<string, any>), id: docRef.id };
 
       await this.runHooks('afterCreate', created);
@@ -599,7 +628,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    */
   async bulkCreate(dataArray: CreateInput<W>[]): Promise<(T & { id: ID })[]> {
     try {
-      const colRef = this.col();
+      const colRef = this.writeCol();
       const createdDocs: (T & { id: ID })[] = [];
 
       for (const data of dataArray) {
@@ -651,7 +680,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    */
   async getById(id: ID): Promise<(T & { id: ID }) | null> {
     try {
-      const snapshot = await this.col().doc(id).get();
+      const snapshot = await this.readCol().doc(id).get();
       if (!snapshot.exists) return null;
 
       const data = snapshot.data() as any;
@@ -686,7 +715,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * `onDocumentDeleted`). Such snapshots are **not** converter-applied (the Admin SDK only runs a
    * converter's `fromFirestore` for refs built via `withConverter`) and carry no `id` in
    * `snapshot.data()`, so a bare `snapshot.data() as T` cast is unsafe. `fromSnapshot` applies this
-   * repository's converter `fromFirestore` when one is configured, then overlays the document `id`
+   * repository's `readConverter` `fromFirestore` when one is configured, then overlays the document `id`
    * from `snapshot.id` — mirroring exactly what a normal repository read returns.
    *
    * Does no Firestore I/O. Returns the read model `T` (not the write model `W`), and `null` when the
@@ -707,8 +736,8 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    */
   fromSnapshot(snapshot: FirebaseFirestore.DocumentSnapshot): (T & { id: ID }) | null {
     if (!snapshot.exists) return null;
-    const data = this.converter
-      ? this.converter.fromFirestore(snapshot as FirebaseFirestore.QueryDocumentSnapshot)
+    const data = this.readConverter
+      ? this.readConverter(snapshot as FirebaseFirestore.QueryDocumentSnapshot)
       : (snapshot.data() as T);
     return { ...(data as T), id: snapshot.id };
   }
@@ -769,7 +798,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
     options?: UpdateOptions,
   ): Promise<{ id: ID } | (T & { id: ID })> {
     try {
-      const docRef = this.col().doc(id);
+      const docRef = this.writeCol().doc(id);
       const toUpdate = { ...(data as Record<string, any>), id } as UpdateInput<W> & { id: ID };
 
       await this.runHooks('beforeUpdate', toUpdate);
@@ -845,7 +874,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
       const ids: ID[] = [];
 
       for (const { id, data } of updates) {
-        const docRef = this.col().doc(id);
+        const docRef = this.writeCol().doc(id);
         const validData = this.validateUpdateData(data);
         const sanitizedData = this.sanitizeUpdateData(validData);
 
@@ -939,7 +968,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
       const validData = this.validateCreateData(docToCreate as CreateInput<W>);
       const validatedDocToCreate = { ...(validData as Record<string, any>) };
 
-      const docRef = this.col().doc(id);
+      const docRef = this.writeCol().doc(id);
       await docRef.set(validatedDocToCreate as any);
       const created = { ...validatedDocToCreate, id };
 
@@ -980,7 +1009,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    */
   async delete(id: ID): Promise<void> {
     try {
-      const docRef = await this.col().doc(id);
+      const docRef = this.readCol().doc(id);
       const snapshot = await docRef.get();
 
       if (!snapshot.exists) throw new NotFoundError(`Document with id ${id} not found`);
@@ -1020,7 +1049,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    */
   async bulkDelete(ids: ID[]): Promise<number> {
     try {
-      const snapshots = await Promise.all(ids.map(id => this.col().doc(id).get()));
+      const snapshots = await Promise.all(ids.map(id => this.readCol().doc(id).get()));
 
       const docsData: (T & { id: ID })[] = snapshots
         .filter(snapshot => snapshot.exists)
@@ -1038,7 +1067,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
 
       const actions: ((batch: FirebaseFirestore.WriteBatch) => void)[] = [];
       for (const doc of docsData) {
-        const docRef = this.col().doc(doc.id);
+        const docRef = this.writeCol().doc(doc.id);
         actions.push(batch => batch.delete(docRef));
       }
 
@@ -1071,7 +1100,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    */
   async findByField<K extends keyof T>(field: K, value: T[K]): Promise<(T & { id: ID })[]> {
     try {
-      const snapshot = await this.col()
+      const snapshot = await this.readCol()
         .where(field as string, '==', value)
         .get();
       return snapshot.docs.map(doc => ({ ...(doc.data() as T), id: doc.id }));
@@ -1108,7 +1137,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
     try {
       // We add `limit(1)` so Firestore only returns one document even if multiple matches exist.
       // This keeps reads/costs low and makes the method intentionally "first-match" oriented.
-      const snapshot = await this.col()
+      const snapshot = await this.readCol()
         .where(field as string, '==', value)
         .limit(1)
         .get();
@@ -1139,7 +1168,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
     try {
       // We query with limit(2) so we can efficiently detect duplicate matches
       // without paying for an unbounded query read.
-      const snapshot = await this.col()
+      const snapshot = await this.readCol()
         .where(field as string, '==', value)
         .limit(2)
         .get();
@@ -1176,7 +1205,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
     onError?: (error: Error) => void,
   ): () => void {
     try {
-      return this.col()
+      return this.readCol()
         .doc(id)
         .onSnapshot(
           snapshot => {
@@ -1220,7 +1249,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    */
   async getAll(): Promise<(T & { id: ID })[]> {
     try {
-      const snapshot = await this.col().get();
+      const snapshot = await this.readCol().get();
       return snapshot.docs.map(doc => ({ ...(doc.data() as T), id: doc.id }));
     } catch (error: any) {
       throw parseFirestoreError(error);
@@ -1257,8 +1286,8 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    */
   query(): FirestoreQueryBuilder<T, W> {
     return new FirestoreQueryBuilder<T, W>(
-      this.col(),
-      this.col(),
+      this.readCol(),
+      this.readCol(),
       this.db,
       this.commitInChunks.bind(this),
       this.runHooks.bind(this),
@@ -1333,15 +1362,15 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
           this.collectionPath,
           this.validator,
           this.parentPath,
-          this.converter,
+          this.readConverter,
           this.schemasInternal,
         );
         // Preserve registered hooks so transactional operations follow the same lifecycle behavior.
         txRepo.hooks = Object.fromEntries(
           Object.entries(this.hooks).map(([event, handlers]) => [event, [...(handlers ?? [])]]),
         ) as { [K in HookEvent]?: AnyHookFn<T, W>[] };
-        // override col() to use transaction reads/writes
-        (txRepo as any).col = () => txRepo.createCollectionReference();
+        // txRepo is a full instance: its readCol()/writeCol() already resolve the same
+        // converter-wrapped read ref and raw write ref. Transaction semantics come from tx.*.
         // pass transaction + repo to user callback
         return await fn(tx, txRepo);
       });
@@ -1372,7 +1401,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
     tx: FirebaseFirestore.Transaction,
     id: ID,
   ): Promise<(T & { id: ID }) | null> {
-    const docRef = this.col().doc(id);
+    const docRef = this.readCol().doc(id);
     const snapshot = await tx.get(docRef);
 
     if (!snapshot.exists) return null;
@@ -1427,7 +1456,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
     options?: UpdateOptions,
   ): Promise<void> {
     try {
-      const docRef = this.col().doc(id);
+      const docRef = this.writeCol().doc(id);
 
       const toUpdate = { ...(data as Record<string, any>), id } as UpdateInput<W> & { id: ID };
 
@@ -1484,7 +1513,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
     data: CreateInput<W>,
   ): Promise<T & { id: ID }> {
     try {
-      const docRef = this.col().doc();
+      const docRef = this.writeCol().doc();
       const docData = {
         ...(data as Record<string, any>),
         id: docRef.id,
@@ -1522,7 +1551,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    */
   async deleteInTransaction(tx: FirebaseFirestore.Transaction, id: ID): Promise<void> {
     try {
-      const docRef = this.col().doc(id);
+      const docRef = this.readCol().doc(id);
       const snapshot = await tx.get(docRef);
 
       if (!snapshot.exists) throw new NotFoundError(`Document with ID ${id} not found`);

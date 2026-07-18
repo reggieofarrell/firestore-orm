@@ -1,23 +1,39 @@
 import { z } from 'zod';
-import { FirestoreDataConverter } from 'firebase-admin/firestore';
-import { FirestoreRepository } from '../../core/FirestoreRepository.js';
+import { FirestoreRepository, ReadConverter } from '../../core/FirestoreRepository.js';
 
 /**
- * Create a minimal Firestore converter used to assert that repository instances
- * pass converter objects into Firestore `withConverter(...)` correctly.
+ * Strategy: unit tests asserting how repository instances wire a `readConverter` into Firestore refs.
+ *
+ * A `readConverter` is the `fromFirestore` half of a converter only (a `(snapshot) => T` mapper). The
+ * repository builds the full `FirestoreDataConverter` internally — the supplied `fromFirestore` plus a
+ * pass-through `toFirestore` — and attaches it to the READ ref only, so `fromFirestore` runs on reads
+ * while the WRITE ref stays raw (so `toFirestore` is never invoked on any write path). These tests
+ * verify:
+ *   1. no converter → both refs are the plain collection ref;
+ *   2. with a `readConverter` → the READ ref is `.withConverter(...)`-wrapped with an object whose
+ *      `fromFirestore` is the supplied mapper, and the WRITE ref is raw (not wrapped);
+ *   3. subcollections do not inherit a parent converter and honor their own `readConverter`;
+ *   4. transaction-scoped repositories preserve the read-ref converter wrapping;
+ *   5. the `withSchema` factory forwards `options.readConverter` to the read ref;
+ *   6. `withSchema` still enforces a required top-level `id` on the read schema.
  */
-function createConverter<T extends Record<string, unknown>>(): FirestoreDataConverter<T> {
-  return {
-    toFirestore: (data: T) => data,
-    fromFirestore: (snapshot: FirebaseFirestore.QueryDocumentSnapshot) => snapshot.data() as T,
-  };
+function createReadConverter<T>(): ReadConverter<T> {
+  return snapshot => snapshot.data() as T;
+}
+
+/** Assert `withConverter` was called with a converter object carrying the given `fromFirestore`. */
+function expectWrappedWith(withConverter: jest.Mock, fromFirestore: ReadConverter<unknown>): void {
+  expect(withConverter).toHaveBeenCalledTimes(1);
+  const passed = withConverter.mock.calls[0][0];
+  expect(passed.fromFirestore).toBe(fromFirestore);
+  expect(typeof passed.toFirestore).toBe('function');
 }
 
 // Minimal subcollection read schema — subcollections require a schema; converter behavior below is
 // independent of it.
 const orderSubSchema = z.object({ id: z.string(), total: z.number() });
 
-describe('converter support', () => {
+describe('read-only converter support', () => {
   it('keeps default behavior when no converter is provided', () => {
     const plainCollectionRef = {
       withConverter: jest.fn(),
@@ -27,14 +43,14 @@ describe('converter support', () => {
     } as any;
 
     const repo = new FirestoreRepository<{ id?: string; name: string }>(db, 'users');
-    const resolvedCollection = (repo as any).col();
 
-    expect(resolvedCollection).toBe(plainCollectionRef);
+    expect((repo as any).readCol()).toBe(plainCollectionRef);
+    expect((repo as any).writeCol()).toBe(plainCollectionRef);
     expect(plainCollectionRef.withConverter).not.toHaveBeenCalled();
   });
 
-  it('applies converter for top-level repositories when configured', () => {
-    const converter = createConverter<{ id?: string; name: string }>();
+  it('wraps the READ ref with the built converter but leaves the WRITE ref raw', () => {
+    const readConverter = createReadConverter<{ id?: string; name: string }>();
     const convertedCollectionRef = { kind: 'converted' };
     const collectionRef = {
       withConverter: jest.fn().mockReturnValue(convertedCollectionRef),
@@ -48,16 +64,21 @@ describe('converter support', () => {
       'users',
       undefined,
       undefined,
-      converter,
+      readConverter,
     );
-    const resolvedCollection = (repo as any).col();
 
-    expect(collectionRef.withConverter).toHaveBeenCalledWith(converter);
-    expect(resolvedCollection).toBe(convertedCollectionRef);
+    // Read ref: wrapped with a converter whose fromFirestore is the supplied mapper.
+    expect((repo as any).readCol()).toBe(convertedCollectionRef);
+    expectWrappedWith(collectionRef.withConverter, readConverter);
+
+    // Write ref: raw — the converter is never attached, so `toFirestore` can never run on writes.
+    collectionRef.withConverter.mockClear();
+    expect((repo as any).writeCol()).toBe(collectionRef);
+    expect(collectionRef.withConverter).not.toHaveBeenCalled();
   });
 
   it('does not inherit converter automatically in subcollections', () => {
-    const parentConverter = createConverter<{ id?: string; name: string }>();
+    const parentReadConverter = createReadConverter<{ id?: string; name: string }>();
     const parentCollectionRef = {
       withConverter: jest.fn().mockReturnValue({ kind: 'parentConverted' }),
     };
@@ -79,22 +100,22 @@ describe('converter support', () => {
       'users',
       undefined,
       undefined,
-      parentConverter,
+      parentReadConverter,
     );
     // Access parent once to prove parent converter remains configured.
-    (parentRepo as any).col();
+    (parentRepo as any).readCol();
 
     const subcollectionRepo = parentRepo.subcollection('user-123', 'orders', orderSubSchema);
-    const childCollection = (subcollectionRepo as any).col();
+    const childCollection = (subcollectionRepo as any).readCol();
 
     expect(db.collection).toHaveBeenCalledWith('users/user-123/orders');
     expect(childCollection).toBe(childCollectionRef);
     expect(childCollectionRef.withConverter).not.toHaveBeenCalled();
   });
 
-  it('uses explicitly provided converter for subcollections', () => {
-    const parentConverter = createConverter<{ id?: string; name: string }>();
-    const childConverter = createConverter<{ id?: string; total: number }>();
+  it('uses explicitly provided readConverter for subcollections', () => {
+    const parentReadConverter = createReadConverter<{ id?: string; name: string }>();
+    const childReadConverter = createReadConverter<{ id?: string; total: number }>();
     const parentCollectionRef = {
       withConverter: jest.fn().mockReturnValue({ kind: 'parentConverted' }),
     };
@@ -117,19 +138,19 @@ describe('converter support', () => {
       'users',
       undefined,
       undefined,
-      parentConverter,
+      parentReadConverter,
     );
     const subcollectionRepo = parentRepo.subcollection('user-123', 'orders', orderSubSchema, {
-      converter: childConverter,
+      readConverter: childReadConverter,
     });
-    const childCollection = (subcollectionRepo as any).col();
+    const childCollection = (subcollectionRepo as any).readCol();
 
-    expect(childCollectionRef.withConverter).toHaveBeenCalledWith(childConverter);
+    expectWrappedWith(childCollectionRef.withConverter, childReadConverter);
     expect(childCollection).toBe(convertedChildCollectionRef);
   });
 
-  it('preserves converter configuration for transaction-scoped repositories', async () => {
-    const converter = createConverter<{ id?: string; name: string }>();
+  it('preserves read-ref converter configuration for transaction-scoped repositories', async () => {
+    const readConverter = createReadConverter<{ id?: string; name: string }>();
     const convertedCollectionRef = {
       doc: jest.fn().mockReturnValue({}),
     };
@@ -150,23 +171,23 @@ describe('converter support', () => {
       'users',
       undefined,
       undefined,
-      converter,
+      readConverter,
     );
 
     await repo.runInTransaction(async (_tx, txRepo) => {
-      const txCollection = (txRepo as any).col();
-      expect(collectionRef.withConverter).toHaveBeenCalledWith(converter);
+      const txCollection = (txRepo as any).readCol();
+      expectWrappedWith(collectionRef.withConverter, readConverter);
       expect(txCollection).toBe(convertedCollectionRef);
       return null;
     });
   });
 
-  it('supports converter usage through withSchema factory', () => {
+  it('forwards options.readConverter to the read ref through the withSchema factory', () => {
     const userSchema = z.object({
       id: z.string(),
       name: z.string(),
     });
-    const converter = createConverter<{ id?: string; name: string }>();
+    const readConverter = createReadConverter<{ id?: string; name: string }>();
     const convertedCollectionRef = { kind: 'converted' };
     const collectionRef = {
       withConverter: jest.fn().mockReturnValue(convertedCollectionRef),
@@ -175,11 +196,10 @@ describe('converter support', () => {
       collection: jest.fn().mockReturnValue(collectionRef),
     } as any;
 
-    const repo = FirestoreRepository.withSchema(db, 'users', userSchema, { converter });
-    const resolvedCollection = (repo as any).col();
+    const repo = FirestoreRepository.withSchema(db, 'users', userSchema, { readConverter });
 
-    expect(collectionRef.withConverter).toHaveBeenCalledWith(converter);
-    expect(resolvedCollection).toBe(convertedCollectionRef);
+    expect((repo as any).readCol()).toBe(convertedCollectionRef);
+    expectWrappedWith(collectionRef.withConverter, readConverter);
   });
 
   it('throws when withSchema receives a schema without a required id field', () => {

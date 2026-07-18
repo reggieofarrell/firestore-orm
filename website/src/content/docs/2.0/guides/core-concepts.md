@@ -34,6 +34,11 @@ enables cast-free combinator writes. Construct a repository directly with
 `new FirestoreRepository<Product>(db, 'products')` when you don't need validation. See
 [schema validation](./schema-validation/) for the full contract.
 
+To add domain helpers (`findByEmail`, `deactivate`, and so on), subclass `FirestoreRepository` or
+wrap a `withSchema` instance — both are supported. See
+[Custom repository methods](./advanced-patterns/#custom-repository-methods) for the constraints
+(`withSchema` returns a plain repository; subclasses use the public API only).
+
 The full constructor signature is
 `new FirestoreRepository<T, W>(db, collectionPath, validator?, parentPath?, converter?, schemas?)`.
 There is no options, config, debug, or logger bag — everything is passed through these positional

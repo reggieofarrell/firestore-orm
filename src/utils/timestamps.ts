@@ -2,14 +2,13 @@
  * Helpers for the "store a Firestore `Timestamp`, read a milliseconds-since-epoch `number`"
  * pattern.
  *
- * firestore-orm has no read/after-find lifecycle hook (hooks are write-only), so
- * `FirestoreDataConverter.fromFirestore` is the single read-transform seam. And the Admin SDK
- * does **not** invoke `toFirestore` on `update()` / `batch.update` / `tx.update`, so write-side
- * conversion in a converter would silently no-op on those paths. The recommended write path is
- * therefore to write native temporal values (a `Date` or `FieldValue.serverTimestamp()`, both of
- * which the Admin SDK stores as a `Timestamp` on every write path) and to convert `Timestamp ->
- * number` only on read. {@link createMillisTimestampConverter} packages exactly that: a recursive
- * `fromFirestore` read conversion plus a pass-through `toFirestore`.
+ * firestore-orm has no read/after-find lifecycle hook (hooks are write-only), so a repository's
+ * `readConverter` (the `fromFirestore` half of a `FirestoreDataConverter`) is the single
+ * read-transform seam. Repository converters are read-only — writes go through a raw ref — so the
+ * recommended write path is to write native temporal values (a `Date` or
+ * `FieldValue.serverTimestamp()`, both of which the Admin SDK stores as a `Timestamp` on every write
+ * path) and to convert `Timestamp -> number` only on read. {@link createMillisTimestampConverter}
+ * packages exactly that: a recursive `fromFirestore` read mapper, ready to pass as `readConverter`.
  */
 import { Timestamp } from 'firebase-admin/firestore';
 import type { FirestoreDataConverter } from 'firebase-admin/firestore';
@@ -98,32 +97,32 @@ export function convertTimestampsToMillis<T = unknown>(data: unknown): T {
 }
 
 /**
- * Builds a `FirestoreDataConverter` whose `fromFirestore` converts stored `Timestamp`s to
- * milliseconds-since-epoch `number`s on read, and whose `toFirestore` is a pass-through.
+ * Builds a read-only converter (the `fromFirestore` half of a `FirestoreDataConverter`) that
+ * converts stored `Timestamp`s to milliseconds-since-epoch `number`s on read. Pass the result as a
+ * repository's `readConverter`; the repository builds the full converter internally and applies it
+ * to reads only.
  *
  * Write native temporal values (`Date` / `FieldValue.serverTimestamp()`) — the Admin SDK stores
- * those as a `Timestamp` on every write path, and the pass-through `toFirestore` (which the SDK
- * skips on `update()` anyway) does no write conversion. The repository overlays the document `id`
- * itself, so `fromFirestore` returns the converted data without an `id`.
+ * those as a `Timestamp` on every write path — and let this mapper convert `Timestamp -> number` on
+ * read. The repository overlays the document `id` itself, so the returned data omits `id`.
  *
  * @param fields - When provided, only these top-level fields are converted (each recursively);
  *   omit to convert the entire document recursively.
  */
-export function createMillisTimestampConverter<T>(fields?: string[]): FirestoreDataConverter<T> {
-  return {
-    toFirestore: modelObject => modelObject as FirebaseFirestore.DocumentData,
-    fromFirestore: snapshot => {
-      const data = snapshot.data();
-      if (!fields) {
-        return convertTimestampsToMillis<T>(data);
+export function createMillisTimestampConverter<T>(
+  fields?: string[],
+): FirestoreDataConverter<T>['fromFirestore'] {
+  return snapshot => {
+    const data = snapshot.data();
+    if (!fields) {
+      return convertTimestampsToMillis<T>(data);
+    }
+    const out: Record<string, unknown> = { ...data };
+    for (const field of fields) {
+      if (Object.prototype.hasOwnProperty.call(out, field)) {
+        out[field] = convertTimestampsToMillis(out[field]);
       }
-      const out: Record<string, unknown> = { ...data };
-      for (const field of fields) {
-        if (Object.prototype.hasOwnProperty.call(out, field)) {
-          out[field] = convertTimestampsToMillis(out[field]);
-        }
-      }
-      return out as T;
-    },
+    }
+    return out as T;
   };
 }

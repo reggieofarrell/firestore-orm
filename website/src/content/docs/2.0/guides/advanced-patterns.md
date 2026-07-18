@@ -1,7 +1,7 @@
 ---
 title: Advanced Patterns
-description: Audit logging, caching, event-driven updates, and denormalization
-  patterns with FirestoreORM.
+description: Custom repository methods, audit logging, caching, event-driven updates, and
+  denormalization with FirestoreORM.
 slug: 2.0/guides/advanced-patterns
 ---
 
@@ -14,8 +14,9 @@ writes, and [transactions](./transactions/) to keep connected writes atomic. Whe
 `id: z.string()` or the factory throws at construction — see
 [schema validation](./schema-validation/) for details.
 
-The eight recipes below are independent; jump to whichever one fits your problem:
+The recipes below are independent; jump to whichever one fits your problem:
 
+* [Custom repository methods](#custom-repository-methods)
 * [Audit logging](#audit-logging)
 * [Caching layer](#caching-layer)
 * [Full-text search](#full-text-search)
@@ -24,6 +25,91 @@ The eight recipes below are independent; jump to whichever one fits your problem
 * [Data archiving](#data-archiving)
 * [Rate limiting](#rate-limiting)
 * [Subclassing for enforced denormalization](#subclassing-for-enforced-denormalization)
+
+## Custom repository methods
+
+Adding domain-specific helpers on top of a collection repository is a supported extension point.
+Choose **subclassing** when callers should keep the full `FirestoreRepository` surface (plus your
+methods), or **composition** when you want a narrower app-owned API (or when you prefer to keep
+`withSchema` as the construction path).
+
+### Subclassing
+
+Extend `FirestoreRepository` and call its public methods from your helpers:
+
+```typescript
+import { FirestoreRepository, makeValidator } from '@reggieofarrell/firestore-orm';
+import { Firestore } from 'firebase-admin/firestore';
+import { z } from 'zod';
+
+const userSchema = z.object({
+  id: z.string(),
+  email: z.string().email(),
+  active: z.boolean(),
+});
+
+type User = z.infer<typeof userSchema>;
+
+class UserRepository extends FirestoreRepository<User> {
+  constructor(db: Firestore) {
+    // Pass a validator when the subclass needs the same runtime validation `withSchema` provides.
+    // `withSchema` always returns a plain `FirestoreRepository` — it cannot construct your subclass.
+    super(db, 'users', makeValidator(userSchema));
+  }
+
+  async findByEmail(email: string) {
+    return this.findByField('email', email);
+  }
+
+  async deactivate(id: string) {
+    return this.patch(id, { active: false });
+  }
+}
+
+export const userRepo = new UserRepository(db);
+```
+
+Design constraints for subclasses:
+
+* Build custom logic on the **public** API (`create`, `getById`, `findByField`, `query()`,
+  transactions, hooks, and so on). Collection refs, validators, and other internals are `private`
+  and are not available to subclasses.
+* Prefer composition (below) when you want `withSchema`'s construction-time `id` check, optional
+  converter argument, and `sentinelPolicy` opts without re-wiring them through `super(...)`.
+* Override write entry points only when you must enforce extra behavior on every path — see
+  [Subclassing for enforced denormalization](#subclassing-for-enforced-denormalization).
+
+### Composition
+
+Wrap a `withSchema` (or plain) repository and expose only the methods your app needs. This is the
+same shape used by the [caching](#caching-layer) and [rate limiting](#rate-limiting) recipes, and by
+the NestJS provider pattern in [Framework Integration](./framework-integration/):
+
+```typescript
+import { FirestoreRepository } from '@reggieofarrell/firestore-orm';
+
+class UserRepository {
+  private repo = FirestoreRepository.withSchema<User>(db, 'users', userSchema);
+
+  findByEmail(email: string) {
+    return this.repo.findByField('email', email);
+  }
+
+  deactivate(id: string) {
+    return this.repo.patch(id, { active: false });
+  }
+
+  // Delegate any other public methods your callers still need:
+  getById(id: string) {
+    return this.repo.getById(id);
+  }
+}
+
+export const userRepo = new UserRepository();
+```
+
+Composition keeps validation and factory options on `withSchema`, while your wrapper owns the
+convenience surface.
 
 ## Audit Logging
 
@@ -337,7 +423,9 @@ it satisfies `FirestoreRepository`'s type bound.
 
 When you must guarantee that base document updates always include connected denormalized writes,
 subclass `FirestoreRepository` and override write entry points so they all route through one
-transactional path.
+transactional path. For adding convenience helpers without changing write semantics, see
+[Custom repository methods](#custom-repository-methods) first — the same public-API and
+`withSchema` constraints apply here.
 
 ```typescript
 import {

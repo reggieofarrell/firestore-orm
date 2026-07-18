@@ -35,7 +35,7 @@ const COLLECTION = `test_events_timestamp_${Date.now()}`;
 describe('Timestamp <-> millis read-converter pattern', () => {
   const db = getIntegrationDb();
   const repo = FirestoreRepository.withSchema(db, COLLECTION, eventWriteSchema, {
-    converter: eventConverter,
+    readConverter: eventConverter,
     sentinelPolicy: 'strict',
   });
 

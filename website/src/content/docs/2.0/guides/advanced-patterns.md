@@ -1,7 +1,8 @@
 ---
-title: 'Advanced Patterns'
-description:
-  'Audit logging, caching, event-driven updates, and denormalization patterns with FirestoreORM.'
+title: Advanced Patterns
+description: Audit logging, caching, event-driven updates, and denormalization
+  patterns with FirestoreORM.
+slug: 2.0/guides/advanced-patterns
 ---
 
 Production-tested recipes that compose firestore-orm's hooks, transactions, and repository extension
@@ -15,14 +16,14 @@ writes, and [transactions](./transactions/) to keep connected writes atomic. Whe
 
 The eight recipes below are independent; jump to whichever one fits your problem:
 
-- [Audit logging](#audit-logging)
-- [Caching layer](#caching-layer)
-- [Full-text search](#full-text-search)
-- [Event-driven architecture](#event-driven-architecture)
-- [Multi-database pattern](#multi-database-pattern)
-- [Data archiving](#data-archiving)
-- [Rate limiting](#rate-limiting)
-- [Subclassing for enforced denormalization](#subclassing-for-enforced-denormalization)
+* [Audit logging](#audit-logging)
+* [Caching layer](#caching-layer)
+* [Full-text search](#full-text-search)
+* [Event-driven architecture](#event-driven-architecture)
+* [Multi-database pattern](#multi-database-pattern)
+* [Data archiving](#data-archiving)
+* [Rate limiting](#rate-limiting)
+* [Subclassing for enforced denormalization](#subclassing-for-enforced-denormalization)
 
 ## Audit Logging
 
@@ -79,7 +80,7 @@ writes invalidate it.
 import { Redis } from 'ioredis';
 
 class CachedUserRepository {
-  private repo = FirestoreRepository.withSchema(db, 'users', userSchema);
+  private repo = FirestoreRepository.withSchema<User>(db, 'users', userSchema);
   private cache = new Redis(process.env.REDIS_URL);
   private cacheTTL = 300; // 5 minutes
 
@@ -235,7 +236,7 @@ export const primaryDb = getFirestore(primaryApp);
 export const analyticsDb = getFirestore(analyticsApp);
 
 // repositories/user.repository.ts
-export const userRepo = FirestoreRepository.withSchema(primaryDb, 'users', userSchema);
+export const userRepo = FirestoreRepository.withSchema<User>(primaryDb, 'users', userSchema);
 
 // repositories/analytics.repository.ts
 export const userAnalyticsRepo = new FirestoreRepository<UserAnalytics>(
@@ -424,8 +425,8 @@ with `{ merge: true }`, keeping both entry points on the same transactional path
 
 Why this pattern is useful:
 
-- It prevents accidental base-only writes because callers use your subclass methods, not the raw
+* It prevents accidental base-only writes because callers use your subclass methods, not the raw
   repository methods.
-- It guarantees base + connected writes are atomic by committing them in one transaction.
-- The same structure applies to `bulkUpdate`/`bulkPatch`, and to create/delete paths when
+* It guarantees base + connected writes are atomic by committing them in one transaction.
+* The same structure applies to `bulkUpdate`/`bulkPatch`, and to create/delete paths when
   denormalization must be enforced there as well.

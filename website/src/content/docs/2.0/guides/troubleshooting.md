@@ -1,6 +1,7 @@
 ---
-title: 'Troubleshooting'
-description: 'Common FirestoreORM errors and how to fix them.'
+title: Troubleshooting
+description: Common FirestoreORM errors and how to fix them.
+slug: 2.0/guides/troubleshooting
 ---
 
 Common errors, gotchas, and their fixes when working with the repository, query builder,
@@ -32,10 +33,10 @@ await repo.runInTransaction(async (tx, repo) => {
 
 The distinction:
 
-- **`before*` hooks** (`beforeCreate`, `beforeUpdate`, `beforeDelete`) **do** fire on the tx-scoped
+* **`before*` hooks** (`beforeCreate`, `beforeUpdate`, `beforeDelete`) **do** fire on the tx-scoped
   `repo`'s transaction helpers (`createInTransaction`, `updateInTransaction` / `patchInTransaction`,
   `deleteInTransaction`).
-- **`after*` hooks** (`afterCreate`, `afterUpdate`, `afterDelete`) do **not** fire inside
+* **`after*` hooks** (`afterCreate`, `afterUpdate`, `afterDelete`) do **not** fire inside
   transactions. The transaction hasn't committed yet while the callback runs, so post-commit side
   effects belong outside it.
 
@@ -99,10 +100,7 @@ documents.
 **Solution:** Read it from the repository with `getParentId()`:
 
 ```typescript
-import { z } from 'zod';
-
-const orderSchema = z.object({ id: z.string(), total: z.number() });
-const ordersRepo = userRepo.subcollection('user-123', 'orders', orderSchema);
+const ordersRepo = userRepo.subcollection('user-123', 'orders');
 const parentId = ordersRepo.getParentId(); // 'user-123'
 ```
 

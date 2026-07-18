@@ -1,6 +1,7 @@
 ---
-title: 'Framework Integration'
-description: 'Wire FirestoreORM into Express.js and NestJS applications.'
+title: Framework Integration
+description: Wire FirestoreORM into Express.js and NestJS applications.
+slug: 2.0/guides/framework-integration
 ---
 
 Wire the repository into HTTP frameworks — Express.js route handlers and a full NestJS
@@ -26,7 +27,7 @@ import { FirestoreRepository } from '@reggieofarrell/firestore-orm';
 import { db } from '../config/firebase';
 import { userSchema, User } from '../schemas/user.schema';
 
-export const userRepo = FirestoreRepository.withSchema(db, 'users', userSchema);
+export const userRepo = FirestoreRepository.withSchema<User>(db, 'users', userSchema);
 ```
 
 Define your routes as thin handlers that call the repository and forward any thrown error to the
@@ -137,12 +138,12 @@ app.listen(3000, () => {
 
 > Notes on the API used above:
 >
-> - Reads use `getById(id)`, which returns `(User & { id }) | null` — check for `null` (or use
+> * Reads use `getById(id)`, which returns `(User & { id }) | null` — check for `null` (or use
 >   `getByIdOrThrow(id)` to get a `NotFoundError` instead).
-> - Offset pagination is `offsetPaginate(page, pageSize)`. Cursor pagination is
+> * Offset pagination is `offsetPaginate(page, pageSize)`. Cursor pagination is
 >   `paginate(pageSize, cursor?)` and requires a prior `orderBy()`; there is no `.startAfter()`
 >   chaining method. See [Queries](./queries/).
-> - `update(id, data, { returnDoc: true })` returns the updated document. The `id` field is always
+> * `update(id, data, { returnDoc: true })` returns the updated document. The `id` field is always
 >   stripped from write payloads, so spreading `...req.body` is safe.
 
 ## NestJS
@@ -209,7 +210,7 @@ import { getFirestore, Firestore } from 'firebase-admin/firestore';
 export class DatabaseModule {}
 ```
 
-Wrap the ORM repository in an injectable provider. Construct it with `withSchema(...)` (which
+Wrap the ORM repository in an injectable provider. Construct it with `withSchema<User>(...)` (which
 enforces the required `id`) and register any lifecycle hooks in the constructor:
 
 ```typescript
@@ -224,7 +225,7 @@ export class UserRepository {
   private repo: FirestoreRepository<User>;
 
   constructor(@Inject('FIRESTORE') private firestore: Firestore) {
-    this.repo = FirestoreRepository.withSchema(firestore, 'users', userSchema);
+    this.repo = FirestoreRepository.withSchema<User>(firestore, 'users', userSchema);
 
     // Setup hooks
     this.setupHooks();
@@ -456,8 +457,8 @@ bootstrap();
 
 ## See also
 
-- [Error handling](./error-handling/) — the error classes and the Express `errorHandler` middleware
-- [Schema validation](./schema-validation/) — deriving DTOs and the required `id` field
-- [Lifecycle hooks](./lifecycle-hooks/) — the `afterCreate` and related events
-- [Queries](./queries/) — pagination (`paginate`, `offsetPaginate`) and the query builder
-- [CRUD operations](./crud-operations/) — `create`, `update`, `delete`, and bulk methods
+* [Error handling](./error-handling/) — the error classes and the Express `errorHandler` middleware
+* [Schema validation](./schema-validation/) — deriving DTOs and the required `id` field
+* [Lifecycle hooks](./lifecycle-hooks/) — the `afterCreate` and related events
+* [Queries](./queries/) — pagination (`paginate`, `offsetPaginate`) and the query builder
+* [CRUD operations](./crud-operations/) — `create`, `update`, `delete`, and bulk methods

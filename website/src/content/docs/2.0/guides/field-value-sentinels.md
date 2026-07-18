@@ -1,7 +1,8 @@
 ---
-title: 'Per-Field Sentinel Approval'
-description:
-  'Write combinators, sentinelPolicy strict mode, and sharing write types with the front end.'
+title: Per-Field Sentinel Approval
+description: Write combinators, sentinelPolicy strict mode, and sharing write
+  types with the front end.
+slug: 2.0/guides/field-value-sentinels
 ---
 
 Opt into `sentinelPolicy: 'strict'` and per-field write combinators so each field accepts only its
@@ -29,12 +30,9 @@ Each combinator accepts `{ allowDelete: true }` to additionally permit `FieldVal
 
 ## Enabling strict mode
 
-Declare a **read schema** with plain types and a **write overlay** (`writeSchema`) whose fields use
-the combinators, then pass `{ sentinelPolicy: 'strict' }`. Reads stay typed by the clean read schema
-while writes accept each field's declared type or its approved sentinel with **no cast**. A plain
-field (no combinator) accepts **no** sentinel under strict. The `readSchema` needs a required
-top-level `id: z.string()` — the factory throws at construction otherwise; the write overlay need
-not include `id`.
+Declare each field with a combinator (or a plain type, which then accepts **no** sentinel under
+strict), then pass `{ sentinelPolicy: 'strict' }` as the factory options. Every schema still needs a
+required top-level `id: z.string()` — the factory throws at construction otherwise.
 
 ```typescript
 import {
@@ -46,29 +44,24 @@ import {
 import { FieldValue } from 'firebase-admin/firestore';
 import { z } from 'zod';
 
-// Clean read schema — the contract type, no sentinels.
-const userRead = z.object({
+const userSchema = z.object({
   id: z.string(), // required top-level id
-  name: z.string().min(1),
-  loginCount: z.number().int(),
-  tags: z.array(z.string()),
-  updatedAt: z.string(),
-});
-
-// Write overlay — each field declares which sentinel it accepts.
-const userWrite = userRead.extend({
   name: z.string().min(1), // plain -> no sentinel allowed under 'strict'
   loginCount: zNumberWrite(), // number | increment
   tags: zArrayWrite(z.string()), // string[] | arrayUnion | arrayRemove
   updatedAt: z.union([z.string(), zSentinel('serverTimestamp')]), // string | serverTimestamp
 });
 
-const userRepo = FirestoreRepository.withSchema(db, 'users', userRead, {
-  writeSchema: userWrite,
-  sentinelPolicy: 'strict',
-});
+// `User` is your clean read/contract type (no sentinels) — see the sharing section below.
+const userRepo = FirestoreRepository.withSchema<User>(
+  db,
+  'users',
+  userSchema,
+  undefined, // converter (unchanged position)
+  { sentinelPolicy: 'strict' },
+);
 
-await userRepo.update('u1', { loginCount: FieldValue.increment(1) }); // ok, no cast
+await userRepo.update('u1', { loginCount: FieldValue.increment(1) }); // ok
 await userRepo.update('u1', { loginCount: FieldValue.arrayUnion('x') }); // throws ValidationError
 await userRepo.update('u1', { name: FieldValue.serverTimestamp() }); // throws ValidationError
 ```
@@ -79,15 +72,20 @@ actually **enforces** which sentinel **kind** each field accepts. The combinator
 `'permissive'` mode for documentation, but permissive still accepts any sentinel on any field — only
 `'strict'` enforces them.
 
-## Cast-free combinator writes
+## Cast-free combinator writes (curried form)
 
-When you supply a `writeSchema`, the write-input types are inferred from it, so combinator fields
-accept their native values / sentinels with **no cast** while reads stay typed by `readSchema`.
-Without a `writeSchema`, the write type equals the read type (a combinator value such as a
-`Date`/sentinel would then need a cast).
+Optionally get combinator types on `create` / `update` inputs. TypeScript can't infer a second type
+argument once you specify the read type, so `withSchema` has a curried opt-in form —
+`withSchema<Read>()(db, collection, schema, …)` — where the first call fixes the read type `Read`
+and the schema's write type `W = z.infer<typeof schema>` is then inferred. With it, combinator
+fields accept their native values / sentinels with **no cast**, while reads stay typed as `Read`:
 
 ```typescript
-await userRepo.create({ name: 'Ada', loginCount: 0, tags: [], updatedAt: 't' }); // no id required
+const userRepo = FirestoreRepository.withSchema<User>()(db, 'users', userSchema, undefined, {
+  sentinelPolicy: 'strict',
+});
+
+await userRepo.create({ name: 'Ada', loginCount: 0, tags: [] }); // no id required
 await userRepo.update('u1', { loginCount: FieldValue.increment(1) }); // no cast
 await userRepo.update('u1', { tags: FieldValue.arrayUnion('x') }); // no cast
 ```
@@ -96,26 +94,35 @@ await userRepo.update('u1', { tags: FieldValue.arrayUnion('x') }); // no cast
 
 Everything else is enforced at runtime under `'strict'`:
 
-- ✅ Combinator native values / sentinels are accepted with no cast; `create` needs no `id`.
-- ✅ `create` rejects wrong scalar types at compile time (e.g. a string in a number field).
-- ⚠️ `update` is looser (Firestore's `PartialWithFieldValue`): it catches wrong primitives but not,
+* ✅ Combinator native values / sentinels are accepted with no cast; `create` needs no `id`.
+* ✅ `create` rejects wrong scalar types at compile time (e.g. a string in a number field).
+* ⚠️ `update` is looser (Firestore's `PartialWithFieldValue`): it catches wrong primitives but not,
   for example, a raw number written into a `Date`-typed field.
-- ⚠️ The sentinel **kind** is never compile-checked — Firestore's `WithFieldValue` accepts any
+* ⚠️ The sentinel **kind** is never compile-checked — Firestore's `WithFieldValue` accepts any
   `FieldValue` on any field, so `arrayUnion` into a `zNumberWrite()` field compiles and is rejected
   only at runtime under `'strict'`.
 
-The `writeSchema` overlay affects **only** these write value types — `id` handling is unchanged: a
-required `id` in the `readSchema`, never required on write inputs, and stripped from every write
-payload (see [Schema Validation](./schema-validation/#schema-validation)). `subcollection` takes the
-same `writeSchema` option with identical inference. (Converters are not inherited from the parent
-repo.)
+## Direct form and `id` handling
+
+The plain direct form — `withSchema<User>(db, 'users', schema, …)` — is unchanged and types writes
+by the read type `User` (so a combinator value such as a `Date`/sentinel needs a cast). Use the
+curried form when you want cast-free combinator writes.
+
+The curry affects **only** these write value types — `id` handling is identical in both forms: a
+required `id` in the schema, never required on write inputs, and stripped from every write payload
+(see [Schema Validation](./schema-validation/#schema-validation)).
+
+`subcollection` has the same curried opt-in form —
+`repo.subcollection<Read>()(parentId, name, schema, …)` — with identical inference; its direct form
+stays read-typed. (Converters are not inherited from the parent repo, and any schema you pass must
+also include a required `id`.)
 
 ## Sharing schema-derived types with a front-end
 
-The read type comes from `readSchema` and the write type from the `writeSchema` overlay, so the two
-concerns split cleanly across packages. Keep a **plain base schema** in shared code as the single
-source of truth for your API-contract types, and apply combinators in a thin **server-side overlay**
-— the combinators (and `firebase-admin`) never reach shared/browser code.
+`withSchema<U>` takes the read type `U` as an explicit generic, decoupled from the runtime schema.
+So keep a **plain base schema** in shared code as the single source of truth for your API-contract
+types, and apply combinators in a thin **server-side overlay** — the combinators (and
+`firebase-admin`) never reach shared/browser code.
 
 ```typescript
 // shared/user.schema.ts — importable anywhere; depends only on zod
@@ -127,14 +134,13 @@ export const userBase = z.object({
 });
 export type User = z.infer<typeof userBase>; // clean contract type: no sentinels
 
-// server/user.repo.ts — combinators live here only, as the write overlay.
+// server/user.repo.ts — combinators live here only. Curried form so writes are inferred.
 import { zNumberWrite, zArrayWrite } from '@reggieofarrell/firestore-orm';
 const userWrite = userBase.extend({
   loginCount: zNumberWrite(),
   tags: zArrayWrite(z.string()),
 });
-const userRepo = FirestoreRepository.withSchema(db, 'users', userBase, {
-  writeSchema: userWrite,
+const userRepo = FirestoreRepository.withSchema<User>()(db, 'users', userWrite, undefined, {
   sentinelPolicy: 'strict',
 });
 
@@ -144,5 +150,5 @@ await userRepo.create({ name: 'Ada', loginCount: 0, tags: [] });
 await userRepo.update('u1', { loginCount: FieldValue.increment(1) });
 ```
 
-Because `userWrite` extends `userBase`, both the shared read schema and the server-side write
-overlay carry the required top-level `id`, satisfying the factory's `id` requirement.
+Because `userWrite` extends `userBase`, it inherits the required top-level `id`, so both the shared
+contract type and the server-side write schema satisfy the factory's `id` requirement.

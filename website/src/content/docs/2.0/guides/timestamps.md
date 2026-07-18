@@ -1,6 +1,7 @@
 ---
-title: 'Storing a Timestamp, reading a millisecond number'
-description: 'createMillisTimestampConverter and the write/read timestamp pattern.'
+title: Storing a Timestamp, reading a millisecond number
+description: createMillisTimestampConverter and the write/read timestamp pattern.
+slug: 2.0/guides/timestamps
 ---
 
 Store Firestore `Timestamp`s on write but read and work with milliseconds-since-epoch `number`s in
@@ -41,24 +42,28 @@ const eventWrite = eventBase.extend({
 const converter = createMillisTimestampConverter<EventDoc>();
 ```
 
-Build the repository with `eventBase` as the read schema and `eventWrite` as the `writeSchema`
-overlay — a `Date` / `serverTimestamp()` is then accepted with **no cast**, while reads still return
-`EventDoc` (`happenedAt: number`):
+Build the repository with the **curried** form so write inputs are inferred from `eventWrite` — a
+`Date` / `serverTimestamp()` is then accepted with **no cast**, while reads still return `EventDoc`
+(`happenedAt: number`):
 
 ```typescript
-const events = FirestoreRepository.withSchema(db, 'events', eventBase, {
-  writeSchema: eventWrite,
-  converter,
-});
+const events = FirestoreRepository.withSchema<EventDoc>()(db, 'events', eventWrite, converter);
 
 await events.create({ name: 'launch', happenedAt: FieldValue.serverTimestamp() });
 await events.update(id, { happenedAt: new Date() }); // no cast
 const ev = await events.getById(id); // ev.happenedAt is a number (ms)
 ```
 
-Without a `writeSchema` overlay the write type equals the read type (`happenedAt: number`), so a
-`Date` would need a cast (a `FieldValue` such as `serverTimestamp()` would not — `WithFieldValue`
-widens every field to `| FieldValue`).
+The **direct** form is equivalent at runtime but types write inputs by the read type, so a `Date`
+needs a cast (a `FieldValue` such as `serverTimestamp()` does not — every field already accepts
+one):
+
+```typescript
+const events = FirestoreRepository.withSchema<EventDoc>(db, 'events', eventWrite, converter);
+
+await events.create({ name: 'launch', happenedAt: FieldValue.serverTimestamp() });
+await events.update(id, { happenedAt: new Date() as unknown as number }); // cast required
+```
 
 Pass a `fields` array to convert only specific top-level fields (each recursively) and leave every
 other Timestamp intact:
@@ -69,20 +74,18 @@ createMillisTimestampConverter<EventDoc>(['happenedAt']);
 
 Notes:
 
-- Write a `Date` or `serverTimestamp()`, not a raw `number` — the Admin SDK stores both as a
+* Write a `Date` or `serverTimestamp()`, not a raw `number` — the Admin SDK stores both as a
   `Timestamp` on every write path (including `update()`). A `FirestoreDataConverter.toFirestore` is
   **not** invoked on any update path (`update`, `patch`, `bulkUpdate`, `bulkPatch`,
   `query().update`, `updateInTransaction`, `patchInTransaction`) — it runs only on create/set paths
   — so the converter deliberately does no write-side conversion.
-- Pass the combinator schema as the `writeSchema` overlay
-  (`withSchema(db, 'events', eventBase, { writeSchema: eventWrite, converter })`): it infers the
-  write type from `eventWrite`, so a `Date` is accepted on `create`/`update` with no cast, while
-  reads stay typed as `EventDoc`. Without an overlay, write inputs are typed by the read type
-  (`happenedAt: number`), so `zDateWrite()` only widens _runtime_ validation — a `FieldValue` such
-  as `serverTimestamp()` is still accepted without a cast (`WithFieldValue` widens every field to
-  `| FieldValue`), but a `Date` needs one. See
-  [Per-Field Sentinel Approval](./field-value-sentinels/#per-field-sentinel-approval) for the full
-  contract.
+* Prefer the **curried** `withSchema<EventDoc>()(...)`: it infers the write type from `eventWrite`,
+  so a `Date` is accepted on `create`/`update` with no cast, while reads stay typed as `EventDoc`.
+  The **direct** form types write inputs by the read type (`happenedAt: number`), so `zDateWrite()`
+  only widens *runtime* validation there — a `FieldValue` such as `serverTimestamp()` is still
+  accepted without a cast (`WithFieldValue` widens every field to `| FieldValue`), but a `Date`
+  needs one. See [Per-Field Sentinel Approval](./field-value-sentinels/#per-field-sentinel-approval)
+  for the full contract.
 
 ## Converter helpers
 

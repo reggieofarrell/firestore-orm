@@ -1,8 +1,8 @@
 ---
 title: Getting Started
-description:
-  Install @reggieofarrell/firestore-orm, define a Zod schema, and run your first
-  create/query/update/delete.
+description: Install @reggieofarrell/firestore-orm, define a Zod schema, and run
+  your first create/query/update/delete.
+slug: 2.0/getting-started
 ---
 
 Install the package, wire Firebase Admin, define a schema, and use a repository for CRUD and
@@ -10,9 +10,9 @@ queries. This page is the shortest path from zero to a working collection.
 
 ## Prerequisites
 
-- Node.js 18+
-- A Firebase project with Cloud Firestore enabled
-- A service account key (or another Admin SDK credential) for local/server use
+* Node.js 18+
+* A Firebase project with Cloud Firestore enabled
+* A service account key (or another Admin SDK credential) for local/server use
 
 ## Install
 
@@ -83,7 +83,7 @@ import { FirestoreRepository } from '@reggieofarrell/firestore-orm';
 import { db } from './firebase';
 import { userSchema, type User } from './schemas';
 
-export const userRepo = FirestoreRepository.withSchema(db, 'users', userSchema);
+export const userRepo = FirestoreRepository.withSchema<User>(db, 'users', userSchema);
 ```
 
 Prefer `withSchema` when you want runtime validation. For an unvalidated collection, construct

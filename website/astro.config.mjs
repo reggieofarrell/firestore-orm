@@ -6,15 +6,14 @@
  * (`site` + `base` must match that URL shape). Contributor docs (ADRs,
  * development guides) stay in-repo under docs/ and are not published here.
  *
- * starlight-versions is installed and the `versions` content collection is
- * declared in src/content.config.ts. The plugin itself is not enabled yet
- * because it requires at least one archived major — enable it at the v3
- * cutover (see website/VERSIONING.md).
+ * starlight-versions is enabled below: v2 docs are archived under
+ * src/content/docs/2.0/ (snapshot in src/content/versions/2.0.json) and the
+ * root tree is the current major (v3). To archive a future major, see
+ * website/VERSIONING.md.
  */
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
-// Uncomment at v3 cutover (requires versions: [{ slug: '2.0', label: 'v2' }, …]):
-// import starlightVersions from 'starlight-versions';
+import starlightVersions from 'starlight-versions';
 
 // https://astro.build/config
 export default defineConfig({
@@ -25,13 +24,12 @@ export default defineConfig({
   integrations: [
     starlight({
       title: '@reggieofarrell/firestore-orm',
-      // At v3 cutover, add:
-      // plugins: [
-      //   starlightVersions({
-      //     versions: [{ slug: '2.0', label: 'v2' }],
-      //     current: { label: 'v3' },
-      //   }),
-      // ],
+      plugins: [
+        starlightVersions({
+          versions: [{ slug: '2.0', label: 'v2' }],
+          current: { label: 'v3' },
+        }),
+      ],
       social: [
         {
           icon: 'github',

@@ -17,7 +17,7 @@ const userSchema = z.object({
   age: z.number().int().positive().optional(),
 });
 
-const userRepo = FirestoreRepository.withSchema<User>(db, 'users', userSchema);
+const userRepo = FirestoreRepository.withSchema(db, 'users', userSchema);
 
 try {
   await userRepo.create({
@@ -69,8 +69,8 @@ required top-level `id: z.string()`. The repository asserts this at construction
   `sentinelPolicy: 'strict'` (see
   [Per-Field Sentinel Approval](./field-value-sentinels/#per-field-sentinel-approval)).
 
-> **Where `id` lives (and why the curried form doesn't change it).** There are three separate `id`
-> contexts, and it's easy to conflate them:
+> **Where `id` lives (and why a `writeSchema` overlay doesn't change it).** There are three separate
+> `id` contexts, and it's easy to conflate them:
 >
 > - **In the schema** — a required top-level `id` (e.g. `id: z.string()`) is **required**; the
 >   repository throws at construction otherwise. It describes the _read_ shape.
@@ -79,9 +79,10 @@ required top-level `id: z.string()`. The repository asserts this at construction
 >   the method's `id` argument (`update(id, …)`, `upsert(id, …)`).
 > - **On reads** — `id` is always present (results are typed `T & { id }`).
 >
-> The **curried** form (`withSchema<T>()(…)`) changes _only_ the write value types of non-`id`
-> fields (`W = z.infer<schema>`, enabling cast-free combinator writes). All three `id` rules above
-> are identical in the direct and curried forms.
+> A **`writeSchema` overlay** changes _only_ the write value types of non-`id` fields
+> (`W = z.infer<writeSchema>`, enabling cast-free combinator writes). All three `id` rules above are
+> identical whether or not a `writeSchema` is supplied — only `readSchema` must carry a required
+> top-level `id`.
 
 ## Accessing derived schemas
 
@@ -89,7 +90,7 @@ The repository exposes the read schema you provided plus the two schemas it deri
 validation.
 
 ```typescript
-const userRepo = FirestoreRepository.withSchema<User>(db, 'users', userSchema);
+const userRepo = FirestoreRepository.withSchema(db, 'users', userSchema);
 
 // Canonical read schema (includes required id)
 const readSchema = userRepo.schemas?.read;

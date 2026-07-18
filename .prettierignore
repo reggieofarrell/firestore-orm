@@ -1,0 +1,7 @@
+# starlight-versions writes frozen snapshots of prior major docs under
+# website/src/content/docs/<major>/ (e.g. 2.0/) plus a versions/*.json sidebar
+# snapshot. These are generated plugin output, not hand-authored — leave them
+# exactly as emitted instead of reformatting them. The current/latest docs at
+# website/src/content/docs/ (and everything else) stay prettier-formatted.
+website/src/content/docs/[0-9]*/**
+website/src/content/versions/*.json

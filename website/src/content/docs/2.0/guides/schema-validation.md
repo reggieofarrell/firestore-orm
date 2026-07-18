@@ -1,8 +1,10 @@
-# Schema Validation
+---
+title: Schema Validation
+description: Zod validation lifecycle, derived create/update schemas, and id handling.
+slug: 2.0/guides/schema-validation
+---
 
 Validation runs automatically before every write, using a Zod schema you attach at construction.
-
-[← Documentation index](./README.md) · [Project README](../../README.md)
 
 Validation happens automatically before any write operation using Zod schemas. Attach a schema with
 `FirestoreRepository.withSchema(...)` and the repository derives the write and update schemas it
@@ -16,7 +18,7 @@ const userSchema = z.object({
   age: z.number().int().positive().optional(),
 });
 
-const userRepo = FirestoreRepository.withSchema(db, 'users', userSchema);
+const userRepo = FirestoreRepository.withSchema<User>(db, 'users', userSchema);
 
 try {
   await userRepo.create({
@@ -48,40 +50,39 @@ required top-level `id: z.string()`. The repository asserts this at construction
 
 ## Validation behavior
 
-- Include a required top-level `id` field in schemas passed to `withSchema(...)`.
-- `create()` validates against an internal write schema derived from `schema.omit({ id: true })`.
-- `update()` validates against an internal update schema derived from
+* Include a required top-level `id` field in schemas passed to `withSchema(...)`.
+* `create()` validates against an internal write schema derived from `schema.omit({ id: true })`.
+* `update()` validates against an internal update schema derived from
   `schema.omit({ id: true }).partial()`.
-- Top-level `id` is ignored/stripped from `create`/`update`/`patch` payloads before validation and
+* Top-level `id` is ignored/stripped from `create`/`update`/`patch` payloads before validation and
   writes.
-- `create()` therefore does **not** require `id` in its input type — the id is auto-generated (or,
+* `create()` therefore does **not** require `id` in its input type — the id is auto-generated (or,
   for `upsert`, taken from the explicit `id` argument); reads always include `id`.
-- Only the document-level top-level `id` is stripped; nested IDs (for example `items[].id`) are
+* Only the document-level top-level `id` is stripped; nested IDs (for example `items[].id`) are
   treated as normal domain data.
-- Write operations follow this sequence: `before*` hook -> validation -> Firestore write -> `after*`
+* Write operations follow this sequence: `before*` hook -> validation -> Firestore write -> `after*`
   hook.
-- Validation errors are thrown after `before*` hooks run and before any Firestore write occurs.
-- Firestore `FieldValue` sentinels are supported in write payloads. By default
+* Validation errors are thrown after `before*` hooks run and before any Firestore write occurs.
+* Firestore `FieldValue` sentinels are supported in write payloads. By default
   (`sentinelPolicy: 'permissive'`) any sentinel is accepted on any field — sentinel-valued paths are
   skipped during schema validation while non-sentinel paths are still validated. To enforce which
   sentinels a field may receive, declare them with the per-field combinators and opt into
   `sentinelPolicy: 'strict'` (see
-  [Per-Field Sentinel Approval](./field-value-sentinels.md#per-field-sentinel-approval)).
+  [Per-Field Sentinel Approval](./field-value-sentinels/#per-field-sentinel-approval)).
 
-> **Where `id` lives (and why a `writeSchema` overlay doesn't change it).** There are three separate
-> `id` contexts, and it's easy to conflate them:
+> **Where `id` lives (and why the curried form doesn't change it).** There are three separate `id`
+> contexts, and it's easy to conflate them:
 >
-> - **In the schema** — a required top-level `id` (e.g. `id: z.string()`) is **required**; the
->   repository throws at construction otherwise. It describes the _read_ shape.
-> - **On write inputs** (`create` / `update` / `upsert` / `patch`) — `id` is **never** required and
+> * **In the schema** — a required top-level `id` (e.g. `id: z.string()`) is **required**; the
+>   repository throws at construction otherwise. It describes the *read* shape.
+> * **On write inputs** (`create` / `update` / `upsert` / `patch`) — `id` is **never** required and
 >   is always stripped. The document id comes from Firestore (auto-generated on `create`) or from
 >   the method's `id` argument (`update(id, …)`, `upsert(id, …)`).
-> - **On reads** — `id` is always present (results are typed `T & { id }`).
+> * **On reads** — `id` is always present (results are typed `T & { id }`).
 >
-> A **`writeSchema` overlay** changes _only_ the write value types of non-`id` fields
-> (`W = z.infer<writeSchema>`, enabling cast-free combinator writes). All three `id` rules above are
-> identical whether or not a `writeSchema` is supplied — only `readSchema` must carry a required
-> top-level `id`.
+> The **curried** form (`withSchema<T>()(…)`) changes *only* the write value types of non-`id`
+> fields (`W = z.infer<schema>`, enabling cast-free combinator writes). All three `id` rules above
+> are identical in the direct and curried forms.
 
 ## Accessing derived schemas
 
@@ -89,7 +90,7 @@ The repository exposes the read schema you provided plus the two schemas it deri
 validation.
 
 ```typescript
-const userRepo = FirestoreRepository.withSchema(db, 'users', userSchema);
+const userRepo = FirestoreRepository.withSchema<User>(db, 'users', userSchema);
 
 // Canonical read schema (includes required id)
 const readSchema = userRepo.schemas?.read;

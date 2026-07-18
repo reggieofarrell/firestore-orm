@@ -1,6 +1,8 @@
 ---
-title: 'Real-World Examples'
-description: 'End-to-end e-commerce, multi-tenant, and social feed examples using FirestoreORM.'
+title: Real-World Examples
+description: End-to-end e-commerce, multi-tenant, and social feed examples using
+  FirestoreORM.
+slug: 2.0/guides/examples
 ---
 
 Three end-to-end walkthroughs that combine schemas, hooks, transactions, queries, and real-time
@@ -14,9 +16,9 @@ pieces fit together in a real application. For focused explanations of any singl
 
 In this guide:
 
-- [Example 1: E-commerce order system](#example-1-e-commerce-order-system)
-- [Example 2: Multi-tenant SaaS application](#example-2-multi-tenant-saas-application)
-- [Example 3: Social media feed with real-time updates](#example-3-social-media-feed-with-real-time-updates)
+* [Example 1: E-commerce order system](#example-1-e-commerce-order-system)
+* [Example 2: Multi-tenant SaaS application](#example-2-multi-tenant-saas-application)
+* [Example 3: Social media feed with real-time updates](#example-3-social-media-feed-with-real-time-updates)
 
 ## Example 1: E-commerce order system
 
@@ -68,7 +70,7 @@ import { orderSchema, Order } from '../schemas/order.schema';
 import { inventoryService } from '../services/inventory.service';
 import { emailService } from '../services/email.service';
 
-export const orderRepo = FirestoreRepository.withSchema(db, 'orders', orderSchema);
+export const orderRepo = FirestoreRepository.withSchema<Order>(db, 'orders', orderSchema);
 
 // Validate inventory before creating order
 orderRepo.on('beforeCreate', async order => {
@@ -255,7 +257,7 @@ export type Tenant = z.infer<typeof tenantSchema>;
 
 ```typescript
 // repositories/tenant.repository.ts
-export const tenantRepo = FirestoreRepository.withSchema(db, 'tenants', tenantSchema);
+export const tenantRepo = FirestoreRepository.withSchema<Tenant>(db, 'tenants', tenantSchema);
 
 // Ensure slug uniqueness
 tenantRepo.on('beforeCreate', async tenant => {
@@ -413,8 +415,8 @@ import { FirestoreRepository } from '@reggieofarrell/firestore-orm';
 import { db } from '../config/firebase';
 import { Follow, followSchema, Post, postSchema } from '../schemas/post.schema';
 
-export const followRepo = FirestoreRepository.withSchema(db, 'follows', followSchema);
-export const postRepo = FirestoreRepository.withSchema(db, 'posts', postSchema);
+export const followRepo = FirestoreRepository.withSchema<Follow>(db, 'follows', followSchema);
+export const postRepo = FirestoreRepository.withSchema<Post>(db, 'posts', postSchema);
 
 // Monitor new posts in real-time
 export async function subscribeToUserFeed(userId: string, callback: (posts: Post[]) => void) {

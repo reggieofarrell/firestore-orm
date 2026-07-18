@@ -9,9 +9,8 @@
  *   stripping them (the v2 silent-drop bug), filters `undefined`, fails loud on unknown/malformed
  *   paths, and honors the sentinel escape hatch per-leaf under both `permissive` and `strict`.
  *
- * Note: these run against the installed Zod (v4). `resolveSchemaAtPath`/`unwrapWrappers` are written
- * defensively for the `^3.25 || ^4` wrapper internals the library supports; a zod-v3 CI matrix run is
- * a tracked follow-up.
+ * Note: these run against the supported Zod (`^4`). `resolveSchemaAtPath`/`unwrapWrappers` read the
+ * v4 wrapper/def internals; zod v3 is no longer a supported peer.
  */
 import { FieldValue } from 'firebase-admin/firestore';
 import { z } from 'zod';

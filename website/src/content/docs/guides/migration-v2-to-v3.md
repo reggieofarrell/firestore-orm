@@ -74,6 +74,12 @@ contracts tightened:
 
 New type helpers `FieldPaths<T>` and `PathValue<T, P>` are exported from the package root.
 
+### 4. `zod` peer floor raised to `^4.0.0`
+
+The `zod` peer range is now `^4.0.0` (was `^3.25.0 || ^4.0.0`). If you are still on zod 3, upgrade
+to zod 4 — see the [zod v4 migration guide](https://zod.dev/v4/changelog). No firestore-orm API
+changes accompany this bump; the validator internals now target the v4 schema shapes only.
+
 ### Behavior fix: Zod defaults are no longer injected on a partial `update()`
 
 This is **not** a breaking API contract (no code change is required to compile) — it removes a

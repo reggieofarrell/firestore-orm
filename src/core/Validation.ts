@@ -258,9 +258,10 @@ export function withDelete<T extends z.ZodType>(schema: T) {
  * effects/pipe) until it reaches the innermost non-wrapper schema (which may be a `ZodObject`,
  * `ZodRecord`, a scalar, etc.).
  *
- * Written defensively to work across the supported Zod range (`^3.25 || ^4`): it prefers the public
- * `.unwrap()` / `.removeDefault()` methods and falls back to reading the inner schema off the
- * internal def, tolerating both v3 (`_def.innerType` / `_def.schema`) and v4 (`_def.in`) shapes.
+ * Targets the supported Zod (`^4`): it prefers the public `.unwrap()` method (which peels
+ * `optional`/`nullable`/`default`/`readonly`/`catch`) and falls back to reading the inner schema off
+ * the internal def — `innerType` for wrappers, or `in`/`out` for `pipe`/`transform` (which expose no
+ * `.unwrap()`). `_def` is read as a still-live v4 alias of `_zod.def`.
  */
 function unwrapWrappers(schema: unknown): unknown {
   let current: any = schema;
@@ -272,12 +273,8 @@ function unwrapWrappers(schema: unknown): unknown {
       current = current.unwrap();
       continue;
     }
-    if (typeof current.removeDefault === 'function') {
-      current = current.removeDefault();
-      continue;
-    }
     const def = current._def ?? current._zod?.def;
-    const inner = def?.innerType ?? def?.schema ?? def?.in ?? def?.out;
+    const inner = def?.innerType ?? def?.in ?? def?.out;
     if (inner && inner !== current) {
       current = inner;
       continue;
@@ -294,13 +291,12 @@ function unwrapToObject(schema: unknown): z.ZodObject<any> | undefined {
 }
 
 /**
- * Normalized Zod kind, tolerant of v3 (`_def.typeName === 'ZodRecord'`) and v4
- * (`_def.type === 'record'`) — e.g. `'record'`, `'object'`, `'string'`, `'any'`, `'unknown'`.
+ * Normalized Zod kind read from the v4 def `type` — e.g. `'record'`, `'object'`, `'string'`,
+ * `'any'`, `'unknown'`. `_def` is read as a still-live v4 alias of `_zod.def`.
  */
 function normalizedKind(schema: unknown): string {
   const def = (schema as { _def?: any; _zod?: { def?: any } })?._def ?? (schema as any)?._zod?.def;
-  const raw = String(def?.typeName ?? def?.type ?? '').toLowerCase();
-  return raw.startsWith('zod') ? raw.slice(3) : raw;
+  return String(def?.type ?? '').toLowerCase();
 }
 
 /**
@@ -313,16 +309,13 @@ function isDynamicContainerSchema(schema: unknown): boolean {
 }
 
 /**
- * True when a `ZodObject` accepts unknown keys — a passthrough object (`_def.unknownKeys` in v3) or
- * one with a non-`never` catchall (`z.looseObject()` / `.catchall(...)` in v3 and v4).
+ * True when a `ZodObject` accepts unknown keys — one with a non-`never` catchall
+ * (`z.looseObject()` / `.catchall(...)` / `.passthrough()`, all represented via `catchall` in v4).
  */
 function objectAllowsUnknownKeys(obj: z.ZodObject<any>): boolean {
   const def = (obj as { _def?: any; _zod?: { def?: any } })._def ?? (obj as any)._zod?.def;
   if (!def) {
     return false;
-  }
-  if (def.unknownKeys === 'passthrough') {
-    return true;
   }
   const catchall = def.catchall;
   if (catchall) {

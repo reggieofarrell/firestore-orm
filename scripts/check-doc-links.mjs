@@ -8,6 +8,8 @@
  *
  *   1. Markdown links `[text](target)` and images `![alt](target)` in every `*.md` / `*.mdc`
  *      file — a relative target (optionally with a `#anchor`) must resolve to a file or directory.
+ *      Site-absolute Starlight URLs under `/firestore-orm/` (splash CTAs that include Astro `base`)
+ *      are resolved against `website/src/content/docs/`.
  *   2. `@import` targets in `CLAUDE.md` and `.claude/rules/**` — the relative `@../path` imports
  *      that wrap the `.cursor` rules must point at files that exist (the most rot-prone links).
  *
@@ -46,11 +48,41 @@ function collectDocs(dir, out = []) {
 
 const isExternal = target => /^(https?:|mailto:|tel:|#|\/\/)/.test(target) || target.trim() === '';
 
+/**
+ * Astro `base` for the Starlight site (must match `website/astro.config.mjs`).
+ * Splash CTAs use root-absolute `/firestore-orm/...` links so they work under both
+ * `astro preview` and GitHub Pages when the splash URL lacks a trailing slash.
+ */
+const SITE_BASE = '/firestore-orm';
+const SITE_CONTENT_ROOT = join(repoRoot, 'website', 'src', 'content', 'docs');
+
 /** Drop a trailing #anchor, return the path part. */
 const pathPart = target => {
   const hash = target.indexOf('#');
   return (hash >= 0 ? target.slice(0, hash) : target).trim();
 };
+
+/**
+ * Resolve a site-absolute Starlight URL (`/firestore-orm/getting-started/`) to a content file.
+ * Returns true when the slug maps to an existing page under website/src/content/docs/.
+ */
+function siteBaseLinkExists(absoluteTarget) {
+  if (!absoluteTarget.startsWith(`${SITE_BASE}/`) && absoluteTarget !== SITE_BASE) {
+    return false;
+  }
+  // Strip the configured base, then map the remaining slug onto the content tree.
+  const slug = absoluteTarget === SITE_BASE ? '' : absoluteTarget.slice(SITE_BASE.length);
+  const normalized = slug.replace(/^\/+|\/+$/g, '');
+  if (!normalized) {
+    // `/firestore-orm` / `/firestore-orm/` → splash index
+    return existsSync(join(SITE_CONTENT_ROOT, 'index.md'));
+  }
+  const asFile = join(SITE_CONTENT_ROOT, `${normalized}.md`);
+  if (existsSync(asFile)) return true;
+  const asIndex = join(SITE_CONTENT_ROOT, normalized, 'index.md');
+  if (existsSync(asIndex)) return true;
+  return false;
+}
 
 /** Run `fn(line, index)` for every line outside fenced code blocks. */
 function forEachProseLine(text, fn) {
@@ -98,6 +130,13 @@ function checkMarkdownLinks(file, text) {
       if (isExternal(target)) continue;
       const p = pathPart(target);
       if (!p) continue; // pure anchor
+      // Site-absolute `/firestore-orm/...` links (splash CTAs) — resolve against Starlight content.
+      if (p.startsWith('/')) {
+        if (!siteBaseLinkExists(p)) {
+          problems.push({ file, line: index + 1, target, kind: 'link' });
+        }
+        continue;
+      }
       if (!linkTargetExists(file, p)) {
         problems.push({ file, line: index + 1, target, kind: 'link' });
       }

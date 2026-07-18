@@ -62,11 +62,24 @@ each with `fromSnapshot`.
 
 Like every other read, `fromSnapshot` does **not** run schema validation — it reconstructs and
 casts. A trigger is an external input boundary, so if you want a runtime guarantee that the stored
-document still matches your schema, parse the result with the repository's read schema:
+document still matches your schema, compose `validate` after a null guard:
 
 ```typescript
-const user = event.data && userRepo.schemas?.read.parse(userRepo.fromSnapshot(event.data));
+const mapped = event.data && userRepo.fromSnapshot(event.data);
+if (!mapped) return;
+const user = userRepo.validate(mapped); // throws ValidationError on mismatch
 ```
 
-`repo.schemas?.read` is the canonical schema you supplied to `withSchema(...)` (it includes the
-required top-level `id`). See [Schema Validation](./schema-validation/).
+For a non-throwing check (or to filter bad docs from a list), use `safeValidate`:
+
+```typescript
+const result = userRepo.safeValidate(mapped);
+if (!result.success) {
+  console.error(result.error.issues);
+  return;
+}
+// result.data is the parsed User & { id }
+```
+
+Both methods require a schema-configured repository (`withSchema`). Failures are normalized to
+`ValidationError` — the same type write paths throw. See [Schema Validation](./schema-validation/).

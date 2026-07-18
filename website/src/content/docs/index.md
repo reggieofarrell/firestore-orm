@@ -11,10 +11,11 @@ hero:
     Type-safe Firestore for the Firebase Admin SDK. Repositories, Zod validation, lifecycle hooks,
     and a fluent query builder — built for Node.js backends.
   actions:
-    # Relative path so GitHub Pages `base: /firestore-orm` is preserved
-    # (Starlight hero actions do not auto-prefix absolute `/…` links with base).
+    # Include `base` explicitly: Starlight hero actions do not auto-prefix absolute `/…` links, and
+    # relative `./…` links break when the splash URL is served without a trailing slash
+    # (`/firestore-orm` → `./getting-started/` resolves to `/getting-started/`).
     - text: Get started
-      link: ./getting-started/
+      link: /firestore-orm/getting-started/
       icon: right-arrow
       variant: primary
     - text: GitHub
@@ -33,10 +34,10 @@ hero:
 
 ## Where to go next
 
-1. **[Getting Started](./getting-started/)** — install peers, define a schema, create and query
-   documents.
-2. **[Documentation overview](./overview/)** — full guide index by topic.
-3. **[Core Concepts](./guides/core-concepts/)** — repository pattern, converters, and delete
-   semantics.
-4. **[API Reference](./guides/api-reference/)** — every `FirestoreRepository` /
+1. **[Getting Started](/firestore-orm/getting-started/)** — install peers, define a schema, create
+   and query documents.
+2. **[Documentation overview](/firestore-orm/overview/)** — full guide index by topic.
+3. **[Core Concepts](/firestore-orm/guides/core-concepts/)** — repository pattern, converters, and
+   delete semantics.
+4. **[API Reference](/firestore-orm/guides/api-reference/)** — every `FirestoreRepository` /
    `FirestoreQueryBuilder` signature.

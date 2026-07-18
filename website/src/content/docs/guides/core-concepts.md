@@ -92,6 +92,45 @@ Converter behavior is instance-local by design:
 - Pass a converter explicitly via `subcollection(..., { readConverter })` for each subcollection
   that needs converter behavior.
 
+### Normalizing across schema changes
+
+Firestore is schemaless, so documents written under an older schema linger unchanged. Because reads
+are casts, a field you add to the schema later is _typed_ as present but is `undefined` at runtime
+on pre-migration documents. The `readConverter` is the seam that fixes this: it runs on **every**
+read, so normalize the raw body into the current schema shape there and every read comes back
+current — without a data migration.
+
+**Best practice:** treat the `readConverter` as the place to coerce a stored document into the
+current schema shape. A targeted backfill is cheapest — spread defaults _before_ the stored data so
+new fields fall back and existing values win:
+
+```typescript
+const userReadConverter: ReadConverter<User> = snapshot => {
+  const data = snapshot.data();
+  // `status` was added to the schema later; older docs lack it.
+  return { status: 'active', ...data } as User;
+};
+```
+
+For full coercion across every schema revision, parse the raw body through the read schema (minus
+the `id` the repository overlays) so defaults backfill and types coerce on every read. Give evolving
+fields a `.default(...)` so pre-migration documents parse cleanly:
+
+```typescript
+// userSchema gained: status: z.enum(['active', 'archived']).default('active')
+const userReadShape = userSchema.omit({ id: true });
+
+const userReadConverter: ReadConverter<User> = snapshot =>
+  userReadShape.parse(snapshot.data()) as User;
+```
+
+This is heavier than the default cast (a full Zod parse on every read), so reserve it for
+collections where drift is likely — it deliberately trades read speed for a self-healing read shape.
+It composes with the built-in [`createMillisTimestampConverter`](./timestamps/): run the timestamp
+mapper first, then parse. And because normalization already happened on the way out,
+[`validate()` / `safeValidate()`](./schema-validation/) at a trust boundary become pure assertions
+that pre-migration documents still pass.
+
 ## Delete Behavior
 
 Deletes are explicit hard deletes. Calling `delete()` removes the document from Firestore

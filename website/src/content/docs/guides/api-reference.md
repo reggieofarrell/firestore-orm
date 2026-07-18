@@ -67,8 +67,22 @@ Get document by ID; throws `NotFoundError` when missing.
 Map a raw Firestore snapshot — e.g. the one delivered to a trigger cloud function — to `T & { id }`,
 applying the repository's `readConverter` `fromFirestore` when configured and overlaying the
 document `id`. Does no Firestore I/O; returns the read model `T` (not `W`), and `null` for a
-non-existent snapshot. Not validated (like other reads); see
+non-existent snapshot. Not validated (like other reads); compose `validate` after a null guard — see
 [Using with Firestore triggers](./triggers/).
+
+**`validate(data: T & { id: ID }): T & { id: ID }`**
+**`validate(data: (T & { id: ID })[]): (T & { id: ID })[]`**
+
+Parse an already-read value through `schemas.read` and return the parsed output. Throws
+`ValidationError` on mismatch (array form is all-or-nothing). Throws a plain `Error` if the
+repository has no schema. See [Schema Validation](./schema-validation/#validating-reads-opt-in).
+
+**`safeValidate(data: T & { id: ID }): SafeResult<T>`**
+**`safeValidate(data: (T & { id: ID })[]): SafeResult<T>[]`**
+
+Non-throwing variant of `validate`. Returns `{ success: true, data }` or
+`{ success: false, error: ValidationError }` (array form: one result per element). Still throws a
+plain `Error` when no schema is configured.
 
 **`getAll(): Promise<(T & { id: ID })[]>`**
 
@@ -304,6 +318,8 @@ Types re-exported from the package entry point (`@reggieofarrell/firestore-orm`)
 - **`UpdateOptions`** — `{ merge?: boolean; returnDoc?: boolean }`.
 - **`ReadConverter<T>`** — read-only converter: the `fromFirestore(snapshot) => T` mapper passed as
   `readConverter` (the repository builds the full `FirestoreDataConverter` internally).
+- **`SafeResult<T>`** — `{ success: true; data } | { success: false; error: ValidationError }`
+  returned by `safeValidate`.
 - **`PaginatedResult<T>`** — `{ items; nextCursor; hasMore }` from cursor pagination.
 - **`UpdateInput<T>`** — update payload type (Firestore `PartialWithFieldValue<T>`-style input).
 - **`CreateInput<T>`** — create payload type; permits an optional `id` that is discarded on write.

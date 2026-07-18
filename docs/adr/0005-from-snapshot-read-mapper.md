@@ -5,7 +5,8 @@
 - **Deciders:** Reggie O'Farrell
 - **Related:** [`src/core/FirestoreRepository.ts`](../../src/core/FirestoreRepository.ts); the
   Firestore triggers usage guide; builds on the converter/`id`-overlay read semantics in
-  [ADR-0003](0003-timestamp-millis-converter-helper.md)
+  [ADR-0003](0003-timestamp-millis-converter-helper.md); for opt-in read-boundary validation see
+  [ADR-0009](0009-explicit-read-validators.md) (`repo.validate()` / `repo.safeValidate()`)
 
 ## Context
 
@@ -39,9 +40,9 @@ Deliberate scope choices:
 
 - **No validation.** Every other read in the library is a compile-time cast, not a runtime parse;
   `fromSnapshot` matches that so it is not surprisingly stricter or slower than `getById`. Callers
-  who want a runtime guarantee at the trigger trust boundary parse the result with the
-  already-exposed read schema (`repo.schemas?.read.parse(repo.fromSnapshot(snap))`). No
-  `{ validate }` option ships.
+  who want a runtime guarantee at the trigger trust boundary use the explicit validators from
+  [ADR-0009](0009-explicit-read-validators.md) (`repo.validate(mapped)` after a null guard). No
+  `{ validate }` option ships on the read path itself.
 - **`null` on a non-existent snapshot**, mirroring `getById`, rather than throwing — keeps
   `onDelete`/guard code clean.
 - **Returns the read model `T`, not the write model `W`** — it is a read.
@@ -61,8 +62,8 @@ Deliberate scope choices:
 **Negative / costs**
 
 - `fromSnapshot` reconstructs but does not validate, so a stored document that has drifted from the
-  schema is not caught unless the caller opts into parsing — documented in the Firestore triggers
-  usage guide.
+  schema is not caught unless the caller opts into `repo.validate()` / `repo.safeValidate()`
+  ([ADR-0009](0009-explicit-read-validators.md)) — documented in the Firestore triggers usage guide.
 - It is the first extraction of the `{ ...data, id }` read overlay; the ~12 inline read sites are
   left as-is (not refactored to route through it) to keep this change minimal.
 

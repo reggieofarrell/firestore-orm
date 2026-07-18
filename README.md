@@ -207,7 +207,7 @@ Start with [Getting Started](https://reggieofarrell.github.io/firestore-orm/gett
 - [Core Concepts](https://reggieofarrell.github.io/firestore-orm/guides/core-concepts/) — repository
   pattern, Firestore converters, delete behavior
 - [Schema Validation](https://reggieofarrell.github.io/firestore-orm/guides/schema-validation/) —
-  Zod validation lifecycle, derived schemas, `id` handling
+  Zod write validation, opt-in `validate` / `safeValidate` for reads, derived schemas, `id` handling
 - [Per-Field Sentinel Approval](https://reggieofarrell.github.io/firestore-orm/guides/field-value-sentinels/)
   — write combinators and `sentinelPolicy: 'strict'`
 - [Timestamps ↔ Millis](https://reggieofarrell.github.io/firestore-orm/guides/timestamps/) — the

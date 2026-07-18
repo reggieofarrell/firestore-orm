@@ -1,5 +1,11 @@
 export { FirestoreRepository } from './core/FirestoreRepository.js';
-export type { ID, HookEvent, UpdateOptions, ReadConverter } from './core/FirestoreRepository.js';
+export type {
+  ID,
+  HookEvent,
+  UpdateOptions,
+  ReadConverter,
+  SafeResult,
+} from './core/FirestoreRepository.js';
 export { FirestoreQueryBuilder } from './core/QueryBuilder.js';
 export type { PaginatedResult } from './core/QueryBuilder.js';
 

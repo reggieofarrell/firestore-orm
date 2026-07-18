@@ -20,12 +20,26 @@ export type UpdateOptions = {
 };
 
 /**
+ * Result of a non-throwing read-boundary validation via {@link FirestoreRepository.safeValidate}.
+ *
+ * Mirrors Zod's `safeParse` shape, but normalizes failures to the library's {@link ValidationError}
+ * (never a raw `ZodError`) so callers have one error type across write and read validation.
+ */
+export type SafeResult<T> =
+  { success: true; data: T & { id: ID } } | { success: false; error: ValidationError };
+
+/**
  * A read-only converter: just the `fromFirestore` half of a Firestore `FirestoreDataConverter`.
  *
  * Given a raw `QueryDocumentSnapshot`, return the read-model shape (without `id` — the repository
  * overlays the document id afterward). The repository builds the full `FirestoreDataConverter`
  * internally (pairing this with a pass-through `toFirestore`) and applies it only to read
  * references, so `toFirestore` is never invoked on any write path.
+ *
+ * Because it runs on every read, the converter is also the seam for normalizing documents into the
+ * current schema shape across schema changes — e.g. backfilling a default for a field added in a
+ * later schema version — so reads stay current-shape without a data migration. See the "Normalizing
+ * across schema changes" section of the Core Concepts guide.
  */
 export type ReadConverter<T> = (snapshot: QueryDocumentSnapshot) => T;
 
@@ -720,8 +734,8 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    *
    * Does no Firestore I/O. Returns the read model `T` (not the write model `W`), and `null` when the
    * snapshot does not exist. Validation is not performed here (reads are not validated); to validate
-   * at a trust boundary, run the result through the read schema, e.g.
-   * `repo.schemas?.read.parse(repo.fromSnapshot(snap))`.
+   * at a trust boundary, narrow null then call {@link validate}, e.g.
+   * `const doc = repo.fromSnapshot(snap); if (doc) repo.validate(doc);`.
    *
    * @param snapshot - A Firestore `DocumentSnapshot` / `QueryDocumentSnapshot`
    * @returns The document as `T & { id }`, or `null` if the snapshot does not exist
@@ -740,6 +754,138 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
       ? this.readConverter(snapshot as FirebaseFirestore.QueryDocumentSnapshot)
       : (snapshot.data() as T);
     return { ...(data as T), id: snapshot.id };
+  }
+
+  /**
+   * Validate an already-read value against this repository's canonical read schema (`schemas.read`).
+   *
+   * Reads themselves are compile-time casts; this method is the explicit opt-in trust boundary.
+   * Pass the *final* read shape (after `id` overlay and any `readConverter` transform) — e.g. the
+   * result of `getByIdOrThrow`, `getAll`, or a non-null `fromSnapshot`. Validation therefore runs
+   * against the converted shape, so write the read schema against converted types (e.g. a field a
+   * millis converter exposes as a `number` is `z.number()`). Returns the **parsed** value (Zod
+   * transforms/coercions apply), not the input; per Zod object parsing, keys not declared in the
+   * read schema are stripped from the returned value (as on the write paths).
+   *
+   * On schema mismatch, catches `ZodError` and rethrows {@link ValidationError} — matching write
+   * paths so callers handle one error type. The array overload is all-or-nothing: the first bad
+   * element throws (its `ValidationError` carries that element's issues, without an array index).
+   * Use {@link safeValidate} when one bad document should not fail the batch.
+   *
+   * Requires a schema-configured repository (`withSchema` / `subcollection`). Calling without a
+   * schema is a programmer error and throws a plain `Error` (not `ValidationError`).
+   *
+   * @param data - A single read document, or an array of read documents
+   * @returns The parsed document(s) as `T & { id }`
+   * @throws {ValidationError} If any document fails `schemas.read` validation
+   * @throws {Error} If the repository was constructed without a schema
+   *
+   * @example
+   * // Single read at a trust boundary
+   * const user = repo.validate(await repo.getByIdOrThrow(id));
+   *
+   * @example
+   * // Trigger snapshot: reconstruct, then validate
+   * const mapped = event.data && repo.fromSnapshot(event.data);
+   * if (mapped) {
+   *   const user = repo.validate(mapped);
+   * }
+   *
+   * @example
+   * // List — all-or-nothing
+   * const users = repo.validate(await repo.getAll());
+   */
+  validate(data: T & { id: ID }): T & { id: ID };
+  validate(data: (T & { id: ID })[]): (T & { id: ID })[];
+  validate(data: (T & { id: ID }) | (T & { id: ID })[]): (T & { id: ID }) | (T & { id: ID })[] {
+    const readSchema = this.requireReadSchemaForValidate('validate');
+    if (Array.isArray(data)) {
+      // All-or-nothing: parse each element; the first Zod failure becomes ValidationError.
+      return data.map(item => this.parseReadValue(readSchema, item));
+    }
+    return this.parseReadValue(readSchema, data);
+  }
+
+  /**
+   * Non-throwing variant of {@link validate}: validate an already-read value against `schemas.read`.
+   *
+   * Never throws on data-shape mismatch. Mirrors Zod's `safeParse`, but normalizes failures to
+   * {@link ValidationError} (not a raw `ZodError`). The array form returns **one result per
+   * element**, so list callers can drop bad docs instead of losing the whole read:
+   *
+   * ```ts
+   * const ok = repo
+   *   .safeValidate(await repo.getAll())
+   *   .filter(r => r.success)
+   *   .map(r => r.data);
+   * ```
+   *
+   * Still throws a plain `Error` when the repository has no schema configured — that is a
+   * programmer/config mistake, distinct from a data-shape failure.
+   *
+   * @param data - A single read document, or an array of read documents
+   * @returns A {@link SafeResult} (or array of them) with parsed data or a `ValidationError`
+   * @throws {Error} If the repository was constructed without a schema
+   *
+   * @example
+   * const result = repo.safeValidate(await repo.getByIdOrThrow(id));
+   * if (result.success) {
+   *   console.log(result.data);
+   * } else {
+   *   console.error(result.error.issues);
+   * }
+   */
+  safeValidate(data: T & { id: ID }): SafeResult<T>;
+  safeValidate(data: (T & { id: ID })[]): SafeResult<T>[];
+  safeValidate(data: (T & { id: ID }) | (T & { id: ID })[]): SafeResult<T> | SafeResult<T>[] {
+    const readSchema = this.requireReadSchemaForValidate('safeValidate');
+    if (Array.isArray(data)) {
+      // Per-item results so one bad document does not nuke the batch.
+      return data.map(item => this.safeParseReadValue(readSchema, item));
+    }
+    return this.safeParseReadValue(readSchema, data);
+  }
+
+  /**
+   * Resolve `schemas.read` for an explicit validate call, or throw a clear config error.
+   * An explicit `validate()` / `safeValidate()` with no schema can only be a mistake — no silent
+   * no-op.
+   */
+  private requireReadSchemaForValidate(method: 'validate' | 'safeValidate'): z.ZodObject<any> {
+    const readSchema = this.schemasInternal?.read;
+    if (!readSchema) {
+      throw new Error(
+        `${method}() requires a schema — construct the repository with FirestoreRepository.withSchema()`,
+      );
+    }
+    return readSchema;
+  }
+
+  /**
+   * Parse a single read value through `schemas.read`, returning the parsed output.
+   * Wraps Zod failures as {@link ValidationError} to match write-path error handling.
+   */
+  private parseReadValue(readSchema: z.ZodObject<any>, data: T & { id: ID }): T & { id: ID } {
+    try {
+      // Return the parsed value — Zod may transform/coerce, so callers get the schema output.
+      return readSchema.parse(data) as T & { id: ID };
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        throw new ValidationError(err.issues);
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Safe-parse a single read value through `schemas.read`, normalizing failures to ValidationError.
+   */
+  private safeParseReadValue(readSchema: z.ZodObject<any>, data: T & { id: ID }): SafeResult<T> {
+    const result = readSchema.safeParse(data);
+    if (result.success) {
+      return { success: true, data: result.data as T & { id: ID } };
+    }
+    return { success: false, error: new ValidationError(result.error.issues) };
   }
 
   /**

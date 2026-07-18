@@ -53,6 +53,13 @@ required top-level `id: z.string()`. The repository asserts this at construction
 - `create()` validates against an internal write schema derived from `schema.omit({ id: true })`.
 - `update()` validates against an internal update schema derived from
   `schema.omit({ id: true }).partial()`.
+- **Zod `.default(...)` values are applied on `create`, but never injected on `update`.** A partial
+  update writes only the keys you actually provide — an omitted field that has a schema default is
+  left untouched (its stored value is preserved, not silently reset to the default). This holds at
+  every nesting level, so `update(id, { name })` never clobbers a defaulted sibling like `prefs`,
+  and `update(id, { config: {} })` writes `{}` rather than re-injecting a nested `count` default.
+  Defaults remain the right behavior on `create`, where every field is being written for the first
+  time.
 - Top-level `id` is ignored/stripped from `create`/`update`/`patch` payloads before validation and
   writes.
 - `create()` therefore does **not** require `id` in its input type — the id is auto-generated (or,
@@ -99,6 +106,11 @@ const readSchema = userRepo.schemas?.read;
 const createSchema = userRepo.schemas?.create; // userSchema without id
 const updateSchema = userRepo.schemas?.update; // create schema made partial
 ```
+
+`schemas.update` is the raw `.partial()` Zod schema, so parsing a payload through it **directly**
+(`schemas.update.parse(...)`) still applies Zod defaults for omitted keys. The default-stripping
+described above happens in the repository's `update`/`patch` path, not in this raw schema — prefer
+the repository methods for writes.
 
 ## Validating reads (opt-in)
 

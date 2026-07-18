@@ -388,6 +388,48 @@ export function resolveSchemaAtPath(root: z.ZodType<any>, segments: string[]): P
   return { kind: 'passthrough' };
 }
 
+/**
+ * A plain data object — excludes `null`, arrays, and class instances (`Date`, `Timestamp`,
+ * `GeoPoint`, `DocumentReference`, `FieldValue`, …). Used to decide what {@link stripInjectedDefaults}
+ * may recurse into.
+ */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+/**
+ * Removes keys that Zod *added* which the caller did not provide — i.e. `.default(...)` values
+ * injected for keys absent from an UPDATE payload. Walks recursively, keeping only the keys present
+ * in the caller's `input` at each level.
+ *
+ * This exists because the update schema is `createWriteSchema.partial()`, and `.partial()` keeps the
+ * `ZodDefault` wrapper, so `safeParse` fires defaults for omitted keys. On a partial update that is
+ * data loss: `update(id, { name })` on a schema with `prefs: z.object(...).default({})` would write
+ * `{ name, prefs: {} }` and clobber the stored `prefs`. Create keeps defaults (they are correct
+ * there); this is only applied on the update path.
+ *
+ * Leaf values keep the *parsed* value (so Zod coercions survive); arrays and class instances are
+ * treated as leaves and never descended into (the whole value replaces the stored one on write). A
+ * scalar/array/instance input short-circuits to the parsed value, so the common dotted-leaf case
+ * (`'address.city': 'LA'`) is a no-op.
+ */
+function stripInjectedDefaults(parsed: unknown, input: unknown): unknown {
+  if (!isPlainObject(parsed) || !isPlainObject(input)) {
+    return parsed;
+  }
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(input)) {
+    if (Object.prototype.hasOwnProperty.call(parsed, key)) {
+      out[key] = stripInjectedDefaults(parsed[key], input[key]);
+    }
+  }
+  return out;
+}
+
 export function makeValidator<T extends z.ZodObject<any>>(
   readSchema: T,
   updateSchema?: z.ZodObject<any>,
@@ -429,6 +471,15 @@ export function makeValidator<T extends z.ZodObject<any>>(
   };
 
   /**
+   * Parses a caller-provided update object against the (default-bearing) update schema, then strips
+   * any `.default(...)` value Zod injected for a key the caller omitted (see
+   * {@link stripInjectedDefaults}). This is what keeps a partial update from clobbering stored fields
+   * the caller never mentioned.
+   */
+  const runUpdateObjectParse = (obj: Record<string, unknown>): Record<string, unknown> =>
+    stripInjectedDefaults(runParse(updateWriteSchema, obj), obj) as Record<string, unknown>;
+
+  /**
    * Validates an update payload with dot-notation awareness. `undefined` values are filtered out
    * first (Firestore rejects `undefined`; the documented contract is "filtered, existing value
    * preserved"), so a required leaf is not spuriously rejected. Non-dotted keys are then validated
@@ -455,14 +506,12 @@ export function makeValidator<T extends z.ZodObject<any>>(
 
     // Fast path: no dot-notation keys — behave exactly as before.
     if (dottedEntries.length === 0) {
-      return runParse<Result>(updateWriteSchema, Object.fromEntries(entries));
+      return runUpdateObjectParse(Object.fromEntries(entries)) as Result;
     }
 
     const nonDotted = Object.fromEntries(entries.filter(([key]) => !isDotNotation(key)));
     const validatedNonDotted =
-      Object.keys(nonDotted).length > 0
-        ? (runParse(updateWriteSchema, nonDotted) as Record<string, unknown>)
-        : {};
+      Object.keys(nonDotted).length > 0 ? runUpdateObjectParse(nonDotted) : {};
 
     const validatedDotted: Record<string, unknown> = {};
     for (const [key, value] of dottedEntries) {
@@ -481,7 +530,9 @@ export function makeValidator<T extends z.ZodObject<any>>(
       }
 
       validatedDotted[key] =
-        resolution.kind === 'leaf' ? runParse(resolution.schema, value) : value;
+        resolution.kind === 'leaf'
+          ? stripInjectedDefaults(runParse(resolution.schema, value), value)
+          : value;
     }
 
     return { ...validatedNonDotted, ...validatedDotted } as UpdateData<Omit<z.infer<T>, 'id'>>;

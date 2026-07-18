@@ -74,6 +74,23 @@ contracts tightened:
 
 New type helpers `FieldPaths<T>` and `PathValue<T, P>` are exported from the package root.
 
+### Behavior fix: Zod defaults are no longer injected on a partial `update()`
+
+This is **not** a breaking API contract (no code change is required to compile) — it removes a
+silent data-loss bug, so it is called out here separately from the three breaking contracts above.
+
+In v2, a partial `update()` on a schema-validated repository re-applied every field's Zod
+`.default(...)`, including for fields you did not mention. On a schema with, say,
+`prefs: z.object({ … }).default({})`, calling `update(id, { name })` silently wrote `prefs: {}` and
+**overwrote the stored `prefs` map** — data loss for a field the caller never touched. (This bit any
+field with a default, and is especially easy to hit with the read-side `.default(...)` backfill
+pattern recommended in [Core Concepts](./core-concepts/#normalizing-across-schema-changes).)
+
+In v3, a partial update writes only the keys you actually provide, at every nesting level;
+`update(id, { config: {} })` writes `{}` rather than re-injecting a nested `count` default. Defaults
+still apply on `create`. No migration is needed — but if you were relying on a partial update to
+re-apply a default, set that value explicitly in the update payload.
+
 ## Migration steps
 
 ### Drop curry and explicit `<T>` on factories

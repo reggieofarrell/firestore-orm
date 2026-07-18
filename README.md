@@ -233,6 +233,8 @@ Start with [Getting Started](https://reggieofarrell.github.io/firestore-orm/gett
 
 **Guidance**
 
+- [Migrating from v2 to v3](https://reggieofarrell.github.io/firestore-orm/guides/migration-v2-to-v3/)
+  — breaking changes and step-by-step upgrade from 2.x
 - [Best Practices](https://reggieofarrell.github.io/firestore-orm/guides/best-practices/)
 - [Performance](https://reggieofarrell.github.io/firestore-orm/guides/performance/)
 - [Real-World Examples](https://reggieofarrell.github.io/firestore-orm/guides/examples/)

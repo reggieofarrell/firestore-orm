@@ -79,6 +79,7 @@ export default defineConfig({
         {
           label: 'Guidance',
           items: [
+            { label: 'Migrating from v2 to v3', slug: 'guides/migration-v2-to-v3' },
             { label: 'Best Practices', slug: 'guides/best-practices' },
             { label: 'Performance', slug: 'guides/performance' },
             { label: 'Real-World Examples', slug: 'guides/examples' },

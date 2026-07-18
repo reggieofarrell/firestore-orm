@@ -14,7 +14,8 @@ below).
 - **Operations** — the day-to-day API: CRUD, queries, transactions, subcollections, nested updates.
 - **Reference** — exhaustive signatures and error semantics.
 - **Integration & extensions** — framework wiring and the optional vector-search module.
-- **Guidance** — best practices, cost model, worked examples, patterns, and troubleshooting.
+- **Guidance** — upgrading from v2, best practices, cost model, worked examples, patterns, and
+  troubleshooting.
 
 ## Contents
 
@@ -55,10 +56,11 @@ below).
 
 ### Guidance
 
-| Page                                             | What it covers                                        |
-| ------------------------------------------------ | ----------------------------------------------------- |
-| [Best Practices](./guides/best-practices/)       | Recommended patterns for production use               |
-| [Performance](./guides/performance/)             | Firestore cost model, optimization tips, benchmarks   |
-| [Real-World Examples](./guides/examples/)        | End-to-end e-commerce, multi-tenant, and social feed  |
-| [Advanced Patterns](./guides/advanced-patterns/) | Audit logging, caching, event-driven, denormalization |
-| [Troubleshooting](./guides/troubleshooting/)     | Common errors and their fixes                         |
+| Page                                                    | What it covers                                        |
+| ------------------------------------------------------- | ----------------------------------------------------- |
+| [Migrating from v2 to v3](./guides/migration-v2-to-v3/) | Breaking changes and step-by-step upgrade from 2.x    |
+| [Best Practices](./guides/best-practices/)              | Recommended patterns for production use               |
+| [Performance](./guides/performance/)                    | Firestore cost model, optimization tips, benchmarks   |
+| [Real-World Examples](./guides/examples/)               | End-to-end e-commerce, multi-tenant, and social feed  |
+| [Advanced Patterns](./guides/advanced-patterns/)        | Audit logging, caching, event-driven, denormalization |
+| [Troubleshooting](./guides/troubleshooting/)            | Common errors and their fixes                         |

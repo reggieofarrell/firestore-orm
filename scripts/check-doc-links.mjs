@@ -22,7 +22,14 @@ import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const IGNORE_DIRS = new Set(['node_modules', '.git', 'dist', 'coverage']);
+// Ignore dependency / build trees (including the nested Starlight site under website/).
+const IGNORE_DIRS = new Set([
+  'node_modules',
+  '.git',
+  'dist',
+  'coverage',
+  '.astro', // Astro generated types under website/.astro
+]);
 const DOC_EXT = /\.mdc?$/; // .md or .mdc
 
 /** Recursively collect doc files; skip ignored dirs; do not follow symlinks. */
@@ -59,6 +66,29 @@ function forEachProseLine(text, fn) {
 
 const problems = [];
 
+/**
+ * Resolve a relative Markdown link target on disk.
+ *
+ * Starlight pages use slug URLs (`./topic/` → topic.md in the same folder, or
+ * `../` → parent index.md). GitHub-style docs still use explicit `./topic.md`.
+ * Accept either shape so `check:docs` covers both trees.
+ */
+function linkTargetExists(fromFile, relativeTarget) {
+  const base = resolve(dirname(fromFile), relativeTarget);
+  if (existsSync(base)) return true;
+
+  // Trailing slash / directory-style slug → sibling or nested .md file.
+  const trimmed = base.replace(/[/\\]+$/, '');
+  if (existsSync(`${trimmed}.md`)) return true;
+  if (existsSync(join(trimmed, 'index.md'))) return true;
+  if (existsSync(join(trimmed, 'README.md'))) return true;
+
+  // Bare slug without slash / extension (e.g. ./topic).
+  if (!/\.[a-z0-9]+$/i.test(trimmed) && existsSync(`${trimmed}.md`)) return true;
+
+  return false;
+}
+
 function checkMarkdownLinks(file, text) {
   const linkRe = /\]\(([^)]+)\)/g;
   forEachProseLine(text, (line, index) => {
@@ -68,7 +98,7 @@ function checkMarkdownLinks(file, text) {
       if (isExternal(target)) continue;
       const p = pathPart(target);
       if (!p) continue; // pure anchor
-      if (!existsSync(resolve(dirname(file), p))) {
+      if (!linkTargetExists(file, p)) {
         problems.push({ file, line: index + 1, target, kind: 'link' });
       }
     }

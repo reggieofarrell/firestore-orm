@@ -20,11 +20,12 @@ consequences. They explain _why_ the codebase looks the way it does, which commi
 
 ## Index
 
-| ADR                                                 | Title                                                                        | Status                                                        | Date       |
-| --------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------- | ---------- |
-| [0001](0001-fork-and-2.0.0-rearchitecture.md)       | Fork `spacelabs-firestoreorm` and re-architect as a deliberate `2.0.0` break | Accepted                                                      | 2026-07-08 |
-| [0002](0002-per-field-sentinel-write-validation.md) | Per-field `FieldValue` sentinel approval via opt-in strict validation        | Accepted                                                      | 2026-07-16 |
-| [0003](0003-timestamp-millis-converter-helper.md)   | `Timestamp ↔ millis` converter helper                                        | Accepted                                                      | 2026-07-17 |
-| [0004](0004-schema-inferred-write-types.md)         | Schema-inferred write-input types (and optional `id` on create)              | Superseded by [0007](0007-retire-curried-schema-factories.md) | 2026-07-17 |
-| [0005](0005-from-snapshot-read-mapper.md)           | `fromSnapshot()` read-mapper for raw Firestore snapshots                     | Accepted                                                      | 2026-07-17 |
-| [0007](0007-retire-curried-schema-factories.md)     | Retire curried schema factories for value-inferred read/write types          | Accepted                                                      | 2026-07-17 |
+| ADR                                                            | Title                                                                        | Status                                                        | Date       |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------- | ---------- |
+| [0001](0001-fork-and-2.0.0-rearchitecture.md)                  | Fork `spacelabs-firestoreorm` and re-architect as a deliberate `2.0.0` break | Accepted                                                      | 2026-07-08 |
+| [0002](0002-per-field-sentinel-write-validation.md)            | Per-field `FieldValue` sentinel approval via opt-in strict validation        | Accepted                                                      | 2026-07-16 |
+| [0003](0003-timestamp-millis-converter-helper.md)              | `Timestamp ↔ millis` converter helper                                        | Accepted                                                      | 2026-07-17 |
+| [0004](0004-schema-inferred-write-types.md)                    | Schema-inferred write-input types (and optional `id` on create)              | Superseded by [0007](0007-retire-curried-schema-factories.md) | 2026-07-17 |
+| [0005](0005-from-snapshot-read-mapper.md)                      | `fromSnapshot()` read-mapper for raw Firestore snapshots                     | Accepted                                                      | 2026-07-17 |
+| [0006](0006-starlight-docs-site-and-major-version-archives.md) | Starlight docs site and major-version archives                               | Accepted                                                      | 2026-07-17 |
+| [0007](0007-retire-curried-schema-factories.md)                | Retire curried schema factories for value-inferred read/write types          | Accepted                                                      | 2026-07-17 |

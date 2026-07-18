@@ -80,7 +80,7 @@ Thank you to Happy and the original contributors for the foundation this fork bu
   streaming
 - **Vector Search Extension** - Opt-in KNN similarity search via
   `@reggieofarrell/firestore-orm/vector`
-  ([guide](https://github.com/reggieofarrell/firestore-orm/blob/main/docs/usage/vector-search.md))
+  ([guide](https://reggieofarrell.github.io/firestore-orm/guides/vector-search/))
 - **Transaction Support** - ACID guarantees for critical operations
 - **Subcollection Support** - Navigate document hierarchies naturally
 - **Dot Notation Updates** - Update nested fields without replacing entire objects
@@ -198,48 +198,46 @@ await userRepo.delete(user.id);
 
 ## Documentation
 
-Full documentation lives in the
-[`docs/usage/`](https://github.com/reggieofarrell/firestore-orm/blob/main/docs/usage/README.md)
-guide — one page per topic. Start at the
-[documentation index](https://github.com/reggieofarrell/firestore-orm/blob/main/docs/usage/README.md),
-or jump straight to a page below.
+[https://reggieofarrell.github.io/firestore-orm/](https://reggieofarrell.github.io/firestore-orm/)
+
+Start with [Getting Started](https://reggieofarrell.github.io/firestore-orm/getting-started/)
 
 **Concepts**
 
-- [Core Concepts](https://github.com/reggieofarrell/firestore-orm/blob/main/docs/usage/core-concepts.md)
-  — repository pattern, Firestore converters, delete behavior
-- [Schema Validation](https://github.com/reggieofarrell/firestore-orm/blob/main/docs/usage/schema-validation.md)
-  — Zod validation lifecycle, derived schemas, `id` handling
-- [Per-Field Sentinel Approval](https://github.com/reggieofarrell/firestore-orm/blob/main/docs/usage/field-value-sentinels.md)
+- [Core Concepts](https://reggieofarrell.github.io/firestore-orm/guides/core-concepts/) — repository
+  pattern, Firestore converters, delete behavior
+- [Schema Validation](https://reggieofarrell.github.io/firestore-orm/guides/schema-validation/) —
+  Zod validation lifecycle, derived schemas, `id` handling
+- [Per-Field Sentinel Approval](https://reggieofarrell.github.io/firestore-orm/guides/field-value-sentinels/)
   — write combinators and `sentinelPolicy: 'strict'`
-- [Timestamps ↔ Millis](https://github.com/reggieofarrell/firestore-orm/blob/main/docs/usage/timestamps.md)
-  — the timestamp/millisecond converter
-- [Lifecycle Hooks](https://github.com/reggieofarrell/firestore-orm/blob/main/docs/usage/lifecycle-hooks.md)
+- [Timestamps ↔ Millis](https://reggieofarrell.github.io/firestore-orm/guides/timestamps/) — the
+  timestamp/millisecond converter
+- [Lifecycle Hooks](https://reggieofarrell.github.io/firestore-orm/guides/lifecycle-hooks/)
 
 **Operations**
 
-- [CRUD Operations](https://github.com/reggieofarrell/firestore-orm/blob/main/docs/usage/crud-operations.md)
-- [Queries](https://github.com/reggieofarrell/firestore-orm/blob/main/docs/usage/queries.md) — query
-  builder, aggregations, streaming, real-time
-- [Transactions](https://github.com/reggieofarrell/firestore-orm/blob/main/docs/usage/transactions.md)
-- [Subcollections](https://github.com/reggieofarrell/firestore-orm/blob/main/docs/usage/subcollections.md)
-- [Dot Notation for Nested Updates](https://github.com/reggieofarrell/firestore-orm/blob/main/docs/usage/dot-notation.md)
+- [CRUD Operations](https://reggieofarrell.github.io/firestore-orm/guides/crud-operations/)
+- [Queries](https://reggieofarrell.github.io/firestore-orm/guides/queries/) — query builder,
+  aggregations, streaming, real-time
+- [Transactions](https://reggieofarrell.github.io/firestore-orm/guides/transactions/)
+- [Subcollections](https://reggieofarrell.github.io/firestore-orm/guides/subcollections/)
+- [Dot Notation for Nested Updates](https://reggieofarrell.github.io/firestore-orm/guides/dot-notation/)
 
 **Reference & integration**
 
-- [API Reference](https://github.com/reggieofarrell/firestore-orm/blob/main/docs/usage/api-reference.md)
-- [Error Handling](https://github.com/reggieofarrell/firestore-orm/blob/main/docs/usage/error-handling.md)
-- [Framework Integration](https://github.com/reggieofarrell/firestore-orm/blob/main/docs/usage/framework-integration.md)
+- [API Reference](https://reggieofarrell.github.io/firestore-orm/guides/api-reference/)
+- [Error Handling](https://reggieofarrell.github.io/firestore-orm/guides/error-handling/)
+- [Framework Integration](https://reggieofarrell.github.io/firestore-orm/guides/framework-integration/)
   — Express, NestJS
-- [Vector Search](https://github.com/reggieofarrell/firestore-orm/blob/main/docs/usage/vector-search.md)
+- [Vector Search](https://reggieofarrell.github.io/firestore-orm/guides/vector-search/)
 
 **Guidance**
 
-- [Best Practices](https://github.com/reggieofarrell/firestore-orm/blob/main/docs/usage/best-practices.md)
-- [Performance](https://github.com/reggieofarrell/firestore-orm/blob/main/docs/usage/performance.md)
-- [Real-World Examples](https://github.com/reggieofarrell/firestore-orm/blob/main/docs/usage/examples.md)
-- [Advanced Patterns](https://github.com/reggieofarrell/firestore-orm/blob/main/docs/usage/advanced-patterns.md)
-- [Troubleshooting](https://github.com/reggieofarrell/firestore-orm/blob/main/docs/usage/troubleshooting.md)
+- [Best Practices](https://reggieofarrell.github.io/firestore-orm/guides/best-practices/)
+- [Performance](https://reggieofarrell.github.io/firestore-orm/guides/performance/)
+- [Real-World Examples](https://reggieofarrell.github.io/firestore-orm/guides/examples/)
+- [Advanced Patterns](https://reggieofarrell.github.io/firestore-orm/guides/advanced-patterns/)
+- [Troubleshooting](https://reggieofarrell.github.io/firestore-orm/guides/troubleshooting/)
 
 ## Testing Strategy
 
@@ -362,7 +360,8 @@ attribution to the original author must be preserved in source distributions.
 ## Support
 
 - **Issues:** [GitHub Issues](https://github.com/reggieofarrell/firestore-orm/issues)
-- **Documentation:** [GitHub Repository](https://github.com/reggieofarrell/firestore-orm)
+- **Documentation:**
+  [https://reggieofarrell.github.io/firestore-orm/](https://reggieofarrell.github.io/firestore-orm/)
 - **Email:** reggie@blackflag.design
 
 ## Acknowledgments

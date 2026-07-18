@@ -5,6 +5,27 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0](https://github.com/reggieofarrell/firestore-orm/compare/v2.1.0...v2.2.0) (2026-07-18)
+
+### Added
+
+- **repository:** add fromSnapshot() to map raw snapshots to the read type
+  ([#13](https://github.com/reggieofarrell/firestore-orm/issues/13))
+  ([87f3dec](https://github.com/reggieofarrell/firestore-orm/commit/87f3dec144d01d34f401fc86b0cc7fbcfb34be5f))
+- **repository:** opt-in schema-inferred write types (curried withSchema); optional id on create
+  ([#9](https://github.com/reggieofarrell/firestore-orm/issues/9))
+  ([e8c88c7](https://github.com/reggieofarrell/firestore-orm/commit/e8c88c7eeef0e9371c77eff528c3ed3046bde354)),
+  closes [#10](https://github.com/reggieofarrell/firestore-orm/issues/10)
+- **timestamps:** Timestamp <-> millis converter helpers
+  ([#8](https://github.com/reggieofarrell/firestore-orm/issues/8))
+  ([6498929](https://github.com/reggieofarrell/firestore-orm/commit/64989290c29755808c8588b2ae2e8c8e737593c0))
+
+### Documentation
+
+- reorganize README into docs/usage/ topic pages
+  ([#12](https://github.com/reggieofarrell/firestore-orm/issues/12))
+  ([07fd711](https://github.com/reggieofarrell/firestore-orm/commit/07fd711f27c73b1bdc9394eceb7a2fe8336791b8))
+
 ## [2.1.0](https://github.com/reggieofarrell/firestore-orm/compare/v2.0.1...v2.1.0) (2026-07-17)
 
 ### Added

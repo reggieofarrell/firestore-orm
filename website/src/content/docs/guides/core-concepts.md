@@ -124,6 +124,11 @@ const userReadConverter: ReadConverter<User> = snapshot =>
   userReadShape.parse(snapshot.data()) as User;
 ```
 
+Giving fields a `.default(...)` for read-side backfill is safe for writes: defaults are applied on
+`create` but never injected on a partial `update`, so a later `update(id, { … })` that omits a
+defaulted field leaves the stored value untouched (see
+[Schema Validation](./schema-validation/#validation-behavior)).
+
 This is heavier than the default cast (a full Zod parse on every read), so reserve it for
 collections where drift is likely — it deliberately trades read speed for a self-healing read shape.
 It composes with the built-in [`createMillisTimestampConverter`](./timestamps/): run the timestamp

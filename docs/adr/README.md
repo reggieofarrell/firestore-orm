@@ -32,3 +32,4 @@ consequences. They explain _why_ the codebase looks the way it does, which commi
 | [0008](0008-read-only-converters.md)                           | Firestore converters are read-only (`readConverter`)                         | Accepted                                                      | 2026-07-18 |
 | [0009](0009-explicit-read-validators.md)                       | Explicit `validate()` / `safeValidate()` read-boundary validators            | Accepted                                                      | 2026-07-18 |
 | [0010](0010-type-safe-dot-notation.md)                         | Type-safe dot-notation and dot-aware write validation                        | Accepted                                                      | 2026-07-18 |
+| [0011](0011-no-defaults-on-partial-update.md)                  | Zod `.default(...)` values are not injected on a partial update              | Accepted                                                      | 2026-07-18 |

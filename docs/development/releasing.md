@@ -59,31 +59,60 @@ chore(deps): bump firebase-tools to ^14.28.0
 
 ## Cutting a release
 
-Version bumps and tags are cut **locally**. Publishing to npm happens in CI when you push a `v*` tag
-(see [`.github/workflows/publish.yml`](../../.github/workflows/publish.yml)).
+Direct pushes to `main` are not allowed, so a release is a **two-step** flow: bump the version on a
+branch and merge it via PR, then publish a GitHub Release off `main`. Publishing to npm happens in
+CI when a GitHub Release is published (see
+[`.github/workflows/publish.yml`](../../.github/workflows/publish.yml)).
+
+### 1. Bump on a branch, then open a PR
 
 ```bash
-# preview the next version + changelog without writing anything
-npm run release:dry
+git checkout -b release/x.y.z
 
-# bump version (from commits), regenerate CHANGELOG.md, commit, and tag
-npm run release
+# preview the next version + changelog without writing anything
+npm run release:bump:dry
+
+# bump version (from commits), regenerate CHANGELOG.md, and commit — does NOT tag
+npm run release:bump
 
 # override the bump if needed
-npm run release -- --release-as minor
-npm run release -- --release-as 2.1.0
+npm run release:bump -- --release-as minor
+npm run release:bump -- --release-as 2.2.0
 
-# push the release commit and tag — CI runs coverage gates, builds, and publishes
-git push --follow-tags
+# push the branch only — never push tags from the branch (see the warning below)
+git push -u origin release/x.y.z
 ```
 
-`npm run release` will:
+Open a PR for the branch and let CI run. `npm run release:bump` will:
 
 1. Determine the next version from the commits since the last tag.
 2. Prepend a new section to [CHANGELOG.md](../../CHANGELOG.md) (existing entries are preserved) and
    run Prettier over it.
 3. Bump `version` in `package.json`.
-4. Create a `chore(release): x.y.z` commit and a `vx.y.z` git tag.
+4. Create a `chore(release): x.y.z` commit. It does **not** create a tag (`--skip.tag`).
+
+### 2. Merge the PR, then publish the Release
+
+Once the release PR is merged, create a GitHub Release targeting `main` — publishing the Release is
+what triggers the npm publish:
+
+```bash
+git checkout main && git pull
+npm run release:publish
+```
+
+`release:publish` runs
+`gh release create v$npm_package_version --target main --title v$npm_package_version --generate-notes`.
+It creates the `vx.y.z` tag **on `main`'s current tip, resolved server-side** (via `--target main`)
+plus a GitHub Release, which fires the publish workflow. Because the commit comes from `main` on the
+remote, it doesn't matter which branch you have checked out — but the tag _name_ is read from your
+local `package.json`, so pull `main` first (as above) or you'll label the release with a stale
+version.
+
+> **Tags no longer trigger publishing — only a published GitHub Release does.** A stray `git push`
+> of a tag is therefore harmless, and you can create baseline/backfill tags freely (see below).
+> `--generate-notes` fills the Release page from merged PRs; swap in `--notes-file` if you want it
+> to mirror `CHANGELOG.md`.
 
 The publish workflow then:
 
@@ -110,19 +139,21 @@ Trusted Publishing only works after the package exists on the registry. Bootstra
 ### One-time baseline tag
 
 The `2.0.0` entry in the changelog was written by hand and the repo has no `v2.0.0` tag yet. So the
-first automated release computes its delta from **all** history. To make the first `npm run release`
-produce a clean delta instead, create the baseline tag once, on the commit that shipped `2.0.0`:
+first automated release computes its delta from **all** history. To make the first
+`npm run release:bump` produce a clean delta instead, create the baseline tag once, on the commit
+that shipped `2.0.0`:
 
 ```bash
 git tag -a v2.0.0 <2.0.0-release-commit> -m "2.0.0"
 git push origin v2.0.0
 ```
 
-After that, every `npm run release` diffs from the most recent `vx.y.z` tag.
+After that, every `npm run release:bump` diffs from the most recent `vx.y.z` tag.
 
-> **Note:** Pushing `v2.0.0` will trigger the publish workflow. Complete the first-time npm setup
-> above before pushing that tag if you want CI to publish `2.0.0`, or publish `2.0.0` manually first
-> and use tags only for subsequent releases.
+> **Safe now:** because publishing is triggered only by a **published GitHub Release** (not by a tag
+> push), you can push baseline or backfill tags — e.g. a missing `v2.1.0` on its `chore(release)`
+> commit — without triggering an npm publish. Such tags only affect how the next
+> `npm run release:bump` computes its changelog delta.
 
 ## Configuration
 
@@ -130,5 +161,5 @@ After that, every `npm run release` diffs from the most recent `vx.y.z` tag.
   formats, and the `postchangelog` Prettier hook.
 - [`commitlint.config.js`](../../commitlint.config.js) — extends `@commitlint/config-conventional`.
 - [`.husky/commit-msg`](../../.husky/commit-msg) — runs commitlint on each commit message.
-- [`.github/workflows/publish.yml`](../../.github/workflows/publish.yml) — tag-triggered npm publish
-  with coverage gates and OIDC Trusted Publishing.
+- [`.github/workflows/publish.yml`](../../.github/workflows/publish.yml) — release-triggered npm
+  publish with coverage gates and OIDC Trusted Publishing.

@@ -99,3 +99,51 @@ const readSchema = userRepo.schemas?.read;
 const createSchema = userRepo.schemas?.create; // userSchema without id
 const updateSchema = userRepo.schemas?.update; // create schema made partial
 ```
+
+## Validating reads (opt-in)
+
+Reads are **compile-time casts**, not runtime validation — `getById`, query terminals,
+`fromSnapshot`, and the rest return the Firestore payload (plus `id` overlay / `readConverter`)
+without parsing through Zod. That keeps the default path fast and predictable.
+
+When you need a runtime guarantee at a trust boundary, compose the explicit validators:
+
+```typescript
+// Throwing — returns the parsed value (Zod transforms/coercions apply)
+const user = userRepo.validate(await userRepo.getByIdOrThrow(id));
+
+// List — all-or-nothing (first bad doc throws ValidationError)
+const users = userRepo.validate(await userRepo.getAll());
+
+// Non-throwing — filter bad docs instead of failing the whole batch
+const ok = userRepo
+  .safeValidate(await userRepo.getAll())
+  .filter(r => r.success)
+  .map(r => r.data);
+```
+
+Both methods require a schema-configured repository (`withSchema`). Data-shape failures become
+`ValidationError` (same as writes). Calling them without a schema throws a plain `Error` — that is a
+config mistake, not a validation failure.
+
+### What gets validated
+
+Both methods run against the **converted** read shape — after any `readConverter` transform and the
+`id` overlay, since that is what the read methods return. Write your read schema against the
+converted types: if `createMillisTimestampConverter` exposes a stored `Timestamp` as a `number`,
+declare that field `z.number()`, not a Timestamp type.
+
+As with all Zod object parsing (and the write paths), keys **not** declared in the read schema are
+**stripped** from the returned value. A stored document that has drifted to include fields outside
+the schema comes back with those fields dropped — the return value is the parsed shape, not a copy
+of the input.
+
+To keep documents written under an older schema in the current shape on **every** read (not only
+where you call `validate`), do the coercion in the `readConverter` — see
+[Normalizing across schema changes](./core-concepts/#normalizing-across-schema-changes). With that
+in place, `validate` / `safeValidate` become pure assertions that pre-migration documents still
+pass.
+
+For listeners / streams, validate inside the callback (`repo.validate(doc)` /
+`repo.safeValidate(docs)`). See [Using with Firestore triggers](./triggers/) for the
+`fromSnapshot` + `validate` pattern.

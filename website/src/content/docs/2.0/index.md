@@ -9,8 +9,9 @@ hero:
     validation, lifecycle hooks, and a fluent query builder — built for Node.js
     backends.
   actions:
+    # Include `base` explicitly (same trailing-slash footgun as the current splash — see index.md).
     - text: Get started
-      link: ./getting-started/
+      link: /firestore-orm/2.0/getting-started/
       icon: right-arrow
       variant: primary
     - text: GitHub
@@ -30,10 +31,10 @@ slug: "2.0"
 
 ## Where to go next
 
-1. **[Getting Started](./getting-started/)** — install peers, define a schema, create and query
+1. **[Getting Started](/firestore-orm/2.0/getting-started/)** — install peers, define a schema, create and query
    documents.
-2. **[Documentation overview](./overview/)** — full guide index by topic.
-3. **[Core Concepts](./guides/core-concepts/)** — repository pattern, converters, and delete
+2. **[Documentation overview](/firestore-orm/2.0/overview/)** — full guide index by topic.
+3. **[Core Concepts](/firestore-orm/2.0/guides/core-concepts/)** — repository pattern, converters, and delete
    semantics.
-4. **[API Reference](./guides/api-reference/)** — every `FirestoreRepository` /
+4. **[API Reference](/firestore-orm/2.0/guides/api-reference/)** — every `FirestoreRepository` /
    `FirestoreQueryBuilder` signature.

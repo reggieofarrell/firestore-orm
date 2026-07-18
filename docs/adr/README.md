@@ -30,3 +30,4 @@ consequences. They explain _why_ the codebase looks the way it does, which commi
 | [0006](0006-starlight-docs-site-and-major-version-archives.md) | Starlight docs site and major-version archives                               | Accepted                                                      | 2026-07-17 |
 | [0007](0007-retire-curried-schema-factories.md)                | Retire curried schema factories for value-inferred read/write types          | Accepted                                                      | 2026-07-17 |
 | [0008](0008-read-only-converters.md)                           | Firestore converters are read-only (`readConverter`)                         | Accepted                                                      | 2026-07-18 |
+| [0009](0009-explicit-read-validators.md)                       | Explicit `validate()` / `safeValidate()` read-boundary validators            | Accepted                                                      | 2026-07-18 |

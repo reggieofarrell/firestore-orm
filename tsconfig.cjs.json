@@ -1,0 +1,9 @@
+{
+  "//": "CommonJS half of the dual build. Emits to dist/cjs; finalize-dual-build.mjs then drops a { \"type\": \"commonjs\" } package.json there so Node treats dist/cjs/*.js as CJS. The ESM half is the default `tsc` (tsconfig.json) build to dist/.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Node10",
+    "outDir": "./dist/cjs"
+  }
+}

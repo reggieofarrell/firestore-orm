@@ -1,7 +1,10 @@
 /**
- * Strategy: smoke test that the package entry re-exports public API surface.
+ * Strategy: smoke test that the package entry re-exports public API surface, and that the Express
+ * adapter lives on the optional `./express` subpath rather than the root (so express stays out of
+ * the core type graph).
  */
 import * as orm from '../../index.js';
+import { errorHandler } from '../../express/index.js';
 
 describe('package exports', () => {
   it('should export repository and query builder classes', () => {
@@ -15,7 +18,16 @@ describe('package exports', () => {
     expect(orm.ConflictError).toBeDefined();
     expect(orm.FirestoreIndexError).toBeDefined();
     expect(orm.parseFirestoreError).toBeDefined();
-    expect(orm.errorHandler).toBeDefined();
+  });
+
+  it('should NOT export the Express errorHandler from the root entry', () => {
+    // errorHandler moved to the `./express` subpath to keep express out of the core type graph.
+    expect((orm as Record<string, unknown>).errorHandler).toBeUndefined();
+  });
+
+  it('should export errorHandler from the ./express subpath', () => {
+    expect(errorHandler).toBeDefined();
+    expect(typeof errorHandler).toBe('function');
   });
 
   it('should export validation and dot-notation utilities', () => {

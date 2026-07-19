@@ -10,7 +10,7 @@ import {
   NotFoundError,
   ValidationError,
 } from '../../core/Errors.js';
-import { errorHandler } from '../../core/ErrorHandler.js';
+import { errorHandler } from '../../express/index.js';
 
 function createMockResponse() {
   const res = {

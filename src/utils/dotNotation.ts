@@ -24,6 +24,22 @@ export function hasDotNotationKeys(obj: Record<string, any>): boolean {
 }
 
 /**
+ * Path segments that must never be used as object keys — writing to any of these mutates the
+ * prototype chain instead of an own property (CWE-1321 prototype pollution). These helpers accept
+ * arbitrary, potentially untrusted key strings (e.g. request bodies), so reject them outright.
+ */
+const FORBIDDEN_PATH_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
+
+function assertSafePathSegment(segment: string, key: string): void {
+  if (FORBIDDEN_PATH_SEGMENTS.has(segment)) {
+    throw new Error(
+      `Invalid dot notation path: "${key}". Segment "${segment}" is not allowed ` +
+        '(would pollute the object prototype).',
+    );
+  }
+}
+
+/**
  * Converts a flat object with dot notation keys into a nested object
  * Example:
  *   Input:  { 'address.city': 'LA', 'address.zip': '90001', name: 'John' }
@@ -45,6 +61,7 @@ export function expandDotNotation<T = any>(flatObj: Record<string, any>): T {
       // Navigating thru the structure, creating objects as needed
       for (let i = 0; i < parts.length - 1; i++) {
         const part = parts[i];
+        assertSafePathSegment(part, key);
         // Initializing nested object if it doesn't exist
         if (!current[part] || typeof current[part] !== 'object') {
           current[part] = {};
@@ -54,9 +71,11 @@ export function expandDotNotation<T = any>(flatObj: Record<string, any>): T {
 
       // Setting the final value
       const lastPart = parts[parts.length - 1];
+      assertSafePathSegment(lastPart, key);
       current[lastPart] = value;
     } else {
       // Non-dot notation are added directly as usual
+      assertSafePathSegment(key, key);
       result[key] = value;
     }
   }
@@ -126,17 +145,23 @@ export function mergeDotNotationUpdate(
 
       for (let i = 0; i < parts.length - 1; i++) {
         const part = parts[i];
+        assertSafePathSegment(part, key);
 
-        if (!current[part] || typeof current[part] !== 'object') {
-          current[part] = {};
-        }
+        // Copy-on-write: clone the existing branch before descending so we never mutate a nested
+        // object shared with the caller's `existingData` (the top-level `{ ...existingData }` above
+        // is only a shallow copy).
+        const existingBranch = current[part];
+        current[part] =
+          existingBranch && typeof existingBranch === 'object' ? { ...existingBranch } : {};
 
         current = current[part];
       }
 
       const lastPart = parts[parts.length - 1];
+      assertSafePathSegment(lastPart, key);
       current[lastPart] = value;
     } else {
+      assertSafePathSegment(key, key);
       result[key] = value;
     }
   }
@@ -163,6 +188,7 @@ export function validateDotNotationPath(key: string): void {
     if (part.trim() === '') {
       throw new Error(`Invalid dot notation path: "${key}". Parts cannot be empty`);
     }
+    assertSafePathSegment(part, key);
   }
 }
 

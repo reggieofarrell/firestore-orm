@@ -76,8 +76,9 @@ export function errorHandler(err: any, req: Request, res: Response, _next: NextF
   }
 
   if (err instanceof FirestoreIndexError) {
-    return res.status(404).json({
-      error: 'Query needs to be index',
+    // A missing composite index is a server/configuration failure, not a client 4xx.
+    return res.status(503).json({
+      error: 'Query needs an index',
       message: err.message,
       url: err.indexUrl,
     });
@@ -90,7 +91,7 @@ export function errorHandler(err: any, req: Request, res: Response, _next: NextF
     });
   }
 
-  // Default: Internnal Server Error
+  // Default: Internal Server Error
   return res.status(500).json({
     error: 'InternalServerError',
     message: 'Something went wrong',

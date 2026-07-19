@@ -40,8 +40,43 @@ describe('parseFirestoreError', () => {
     expect((parsed as FirestoreIndexError).indexUrl).toBe('');
   });
 
+  it('should map the string status "failed-precondition" to FirestoreIndexError', () => {
+    const details =
+      'The query requires an index. Create it at https://console.firebase.google.com/x on fields [a, b]';
+    const parsed = parseFirestoreError({ code: 'failed-precondition', details });
+    expect(parsed).toBeInstanceOf(FirestoreIndexError);
+    expect((parsed as FirestoreIndexError).fields).toEqual(['a', 'b']);
+  });
+
+  it('should not treat a failed-precondition without an index message as an index error', () => {
+    const parsed = parseFirestoreError({ code: 9, details: 'some other precondition' });
+    expect(parsed).not.toBeInstanceOf(FirestoreIndexError);
+  });
+
   it('should return the original error when not a known Firestore code', () => {
     const original = new Error('permission denied');
+    expect(parseFirestoreError(original)).toBe(original);
+  });
+
+  // Robustness: classifying must never throw, whatever the input shape (accepts `unknown`).
+  it.each([
+    ['null', null],
+    ['undefined', undefined],
+    ['a string primitive', 'boom'],
+    ['a number primitive', 42],
+    ['a boolean primitive', true],
+    ['a plain object with no code', { message: 'weird' }],
+    ['an object with a non-string details for an index code', { code: 9, details: 12345 }],
+  ])('normalizes %s into an Error without throwing', (_label, input) => {
+    let parsed: Error;
+    expect(() => {
+      parsed = parseFirestoreError(input);
+    }).not.toThrow();
+    expect(parsed!).toBeInstanceOf(Error);
+  });
+
+  it('preserves the original Error instance for a plain object that is an Error', () => {
+    const original = new Error('boom');
     expect(parseFirestoreError(original)).toBe(original);
   });
 });

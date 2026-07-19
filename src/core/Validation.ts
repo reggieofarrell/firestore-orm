@@ -37,12 +37,15 @@ export type UpdateInput<T> = UpdateData<Omit<T, 'id'>>;
 /**
  * Controls how FieldValue sentinels are validated against a schema on write.
  *
- * - `'permissive'` (default, backwards compatible): when Zod validation fails only at paths
- *   that hold a sentinel, the errors are waived and the raw input is written. Any sentinel is
- *   accepted on any field.
- * - `'strict'`: the sentinel escape hatch is disabled. Only sentinels that a field's schema
- *   explicitly permits (see {@link zNumberWrite}, {@link zArrayWrite}, {@link zDateWrite},
- *   {@link withDelete}, {@link zSentinel}) pass; every other Zod failure throws.
+ * - `'strict'` (default as of v3): the sentinel escape hatch is disabled. Only sentinels that a
+ *   field's schema explicitly permits (see {@link zNumberWrite}, {@link zArrayWrite},
+ *   {@link zDateWrite}, {@link withDelete}, {@link zSentinel}) pass; every other Zod failure
+ *   throws. Because parsing succeeds normally, the full Zod output — coercions, defaults, unknown-key
+ *   stripping, and transforms — is always returned.
+ * - `'permissive'` (opt-in; the pre-v3 default): when Zod validation fails only at paths that hold a
+ *   sentinel, the errors are waived and the **raw input** is written verbatim. This discards every
+ *   successful Zod coercion/default/transform elsewhere in the same payload, so prefer `'strict'`
+ *   with the write combinators and enable this only as a migration shim.
  */
 export type SentinelPolicy = 'permissive' | 'strict';
 
@@ -428,7 +431,7 @@ export function makeValidator<T extends z.ZodObject<any>>(
   updateSchema?: z.ZodObject<any>,
   opts?: { sentinelPolicy?: SentinelPolicy },
 ): Validator<z.infer<T>> {
-  const policy: SentinelPolicy = opts?.sentinelPolicy ?? 'permissive';
+  const policy: SentinelPolicy = opts?.sentinelPolicy ?? 'strict';
   const createWriteSchema = omitTopLevelId(readSchema);
   const updateWriteSchema = updateSchema
     ? omitTopLevelId(updateSchema)

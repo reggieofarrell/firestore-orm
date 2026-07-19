@@ -210,8 +210,10 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    *   - `readConverter`: a read-only converter — the `fromFirestore(snapshot) => T` half only. The
    *     repository builds the full `FirestoreDataConverter` internally and applies it to reads, so
    *     `toFirestore` never runs. For write-time normalization use a `before*` hook.
-   *   - `sentinelPolicy`: `'strict'` disables the permissive sentinel escape hatch, so only sentinels
-   *     a field's schema explicitly permits pass. Defaults to `'permissive'`.
+   *   - `sentinelPolicy`: defaults to `'strict'` (v3), which only accepts sentinels a field's schema
+   *     explicitly permits and always returns the parsed Zod output. Set `'permissive'` to opt into
+   *     the pre-v3 escape hatch that writes the raw input verbatim when parsing fails only at
+   *     sentinel paths (discards sibling coercions/defaults/transforms).
    * @returns Repository instance with validation enabled
    *
    * @example

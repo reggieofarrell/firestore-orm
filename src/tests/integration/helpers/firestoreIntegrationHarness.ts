@@ -164,12 +164,27 @@ export function createUserRepoHarness(prefix: string = 'test_users_integration')
 
 /**
  * Builds an isolated schema-validated repository for hook/sentinel integration tests.
+ * Uses the v3 default `sentinelPolicy: 'strict'`.
  */
 export function createValidatedRepo(db: Firestore) {
   return FirestoreRepository.withSchema(
     db,
     makeCollectionName('test_users_hook_order'),
     hookValidatedUserSchema,
+  );
+}
+
+/**
+ * Builds an isolated schema-validated repository that opts into the pre-v3
+ * `sentinelPolicy: 'permissive'` escape hatch (bare sentinels waived on a plain schema). Used to
+ * cover the still-supported permissive path now that `'strict'` is the default.
+ */
+export function createPermissiveRepo(db: Firestore) {
+  return FirestoreRepository.withSchema(
+    db,
+    makeCollectionName('test_users_permissive'),
+    hookValidatedUserSchema,
+    { sentinelPolicy: 'permissive' },
   );
 }
 

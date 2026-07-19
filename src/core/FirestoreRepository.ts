@@ -132,15 +132,28 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
       );
     }
 
-    if (idSchema.isOptional()) {
+    // The id must be required (rejects `undefined`) and non-nullable (rejects `null`) so every read
+    // document carries a concrete string id. Probing via safeParse avoids Zod's deprecated
+    // `.isOptional()`/`.isNullable()` reflection and also covers wrappers like `.nullish()`.
+    if (idSchema.safeParse(undefined).success) {
       throw new Error(
         `${context} requires "id" to be required in the schema. Use "id: z.string()" instead of an optional id.`,
       );
     }
 
-    if (!idSchema.safeParse('firestoreorm-id').success) {
+    if (idSchema.safeParse(null).success) {
       throw new Error(
-        `${context} requires "id" to accept string values. Define the field as a string-compatible schema.`,
+        `${context} requires "id" to be non-nullable. Use "id: z.string()" instead of a nullable id.`,
+      );
+    }
+
+    // The id must accept a string AND its parsed output must remain a string — reject transforms
+    // that change the output type (e.g. `z.string().transform(v => v.length)` yields a number),
+    // which would break the repository's `T & { id: string }` contract.
+    const parsed = idSchema.safeParse('firestoreorm-id');
+    if (!parsed.success || typeof parsed.data !== 'string') {
+      throw new Error(
+        `${context} requires "id" to accept and preserve string values. Avoid transforms that change the id's type.`,
       );
     }
   }
@@ -594,39 +607,49 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * Create a new document in the collection.
    * Runs validation if schema is configured.
    *
+   * By default returns only `{ id }` (the generated document id) — the write path validates the
+   * write model but does not read the document back, so it cannot honestly return the read model
+   * `T` (which may differ when a `writeSchema` overlay or `readConverter` is configured). Pass
+   * `{ returnDoc: true }` to read the created document back through the `readConverter` and return
+   * the converted read model. This mirrors the `update`/`upsert` return contract.
+   *
    * @param data - Document data (without ID)
-   * @returns Created document with generated ID
+   * @param options - `{ returnDoc: true }` to return the converted read model instead of `{ id }`
+   * @returns `{ id }` by default, or the created document (`T & { id }`) when `returnDoc` is true
    * @throws {ValidationError} If schema validation fails
    *
    * @example
-   * // Simple create
-   * const user = await userRepo.create({
-   *   name: 'John Doe',
-   *   email: 'john@example.com'
-   * });
-   * console.log(user.id); // Auto-generated ID
+   * // Default: returns { id }
+   * const { id } = await userRepo.create({ name: 'John Doe', email: 'john@example.com' });
    *
    * @example
-   * // With validation error handling
-   * try {
-   *   await userRepo.create({ name: '', email: 'invalid' });
-   * } catch (error) {
-   *   if (error instanceof ValidationError) {
-   *     console.log(error.issues); // Field-specific errors
-   *   }
-   * }
+   * // Return the converted read model
+   * const user = await userRepo.create(
+   *   { name: 'John Doe', email: 'john@example.com' },
+   *   { returnDoc: true },
+   * );
+   * console.log(user.name);
    */
-  async create(data: CreateInput<W>): Promise<T & { id: ID }> {
+  async create(data: CreateInput<W>, options: { returnDoc: true }): Promise<T & { id: ID }>;
+  async create(data: CreateInput<W>, options?: { returnDoc?: false }): Promise<{ id: ID }>;
+  async create(
+    data: CreateInput<W>,
+    options?: { returnDoc?: boolean },
+  ): Promise<{ id: ID } | (T & { id: ID })> {
     try {
       const docToCreate = { ...(data as Record<string, any>) } as Record<string, any>;
       await this.runHooks('beforeCreate', docToCreate);
       const validData = this.validateCreateData(docToCreate as CreateInput<W>);
 
       const docRef = await this.writeCol().add(validData as any);
-      const created = { ...(validData as Record<string, any>), id: docRef.id };
 
-      await this.runHooks('afterCreate', created);
-      return created as T & { id: ID };
+      // Hooks receive the validated write model plus the generated id.
+      await this.runHooks('afterCreate', { ...(validData as Record<string, any>), id: docRef.id });
+
+      if (options?.returnDoc === true) {
+        return await this.getByIdOrThrow(docRef.id);
+      }
+      return { id: docRef.id };
     } catch (err: any) {
       if (err instanceof z.ZodError) {
         throw new ValidationError(err.issues);
@@ -639,58 +662,77 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * Create multiple documents in a single batched operation.
    * More efficient than calling create() in a loop. Uses Firestore batches (500 ops per batch).
    *
+   * By default returns `{ id }[]` (one generated id per input, in order). Pass
+   * `{ returnDoc: true }` to read every created document back through the `readConverter` and return
+   * the converted read models — matching the single {@link create} contract.
+   *
    * @param dataArray - Array of documents to create
-   * @returns Array of created documents with generated IDs
+   * @param options - `{ returnDoc: true }` to return the converted read models instead of `{ id }[]`
+   * @returns `{ id }[]` by default, or the created documents (`(T & { id })[]`) when `returnDoc` is true
    * @throws {ValidationError} If any document fails validation
    *
    * @example
-   * // Bulk insert users
-   * const users = await userRepo.bulkCreate([
+   * // Default: returns [{ id }, ...]
+   * const ids = await userRepo.bulkCreate([
    *   { name: 'Alice', email: 'alice@example.com' },
    *   { name: 'Bob', email: 'bob@example.com' },
-   *   { name: 'Charlie', email: 'charlie@example.com' }
    * ]);
    *
    * @example
-   * // Import from CSV
-   * const products = csvData.map(row => ({
-   *   name: row.name,
-   *   price: parseFloat(row.price),
-   *   sku: row.sku
-   * }));
-   * await productRepo.bulkCreate(products);
+   * // Return the converted read models
+   * const users = await userRepo.bulkCreate(rows, { returnDoc: true });
    */
-  async bulkCreate(dataArray: CreateInput<W>[]): Promise<(T & { id: ID })[]> {
+  async bulkCreate(
+    dataArray: CreateInput<W>[],
+    options: { returnDoc: true },
+  ): Promise<(T & { id: ID })[]>;
+  async bulkCreate(
+    dataArray: CreateInput<W>[],
+    options?: { returnDoc?: false },
+  ): Promise<{ id: ID }[]>;
+  async bulkCreate(
+    dataArray: CreateInput<W>[],
+    options?: { returnDoc?: boolean },
+  ): Promise<{ id: ID }[] | (T & { id: ID })[]> {
     try {
       const colRef = this.writeCol();
-      const createdDocs: (T & { id: ID })[] = [];
 
-      for (const data of dataArray) {
+      // Draft docs: raw input + a pre-assigned id. This is what `beforeBulkCreate` sees and may
+      // mutate before validation.
+      const drafts: (CreateInput<W> & { id: ID })[] = dataArray.map(data => {
         const docRef = colRef.doc();
-        const docData = {
+        return {
           ...(data as Record<string, any>),
           id: docRef.id,
         } as unknown as CreateInput<W> & { id: ID };
+      });
 
-        createdDocs.push(docData as unknown as T & { id: ID });
-      }
+      await this.runHooks('beforeBulkCreate', drafts);
 
-      await this.runHooks('beforeBulkCreate', createdDocs);
       const actions: ((batch: FirebaseFirestore.WriteBatch) => void)[] = [];
+      // Result/hook payload is built from the VALIDATED data (never the raw draft), so any key Zod
+      // strips is absent from both the return value and the afterBulkCreate payload.
+      const validatedDocs: (CreateInput<W> & { id: ID })[] = [];
 
-      for (const createdDoc of createdDocs) {
-        const docRef = colRef.doc(createdDoc.id);
-        const draftDoc = createdDoc as Record<string, any>;
-        const validData = this.validateCreateData(draftDoc as CreateInput<W>);
-        const validatedDocData = { ...(validData as Record<string, any>) };
+      for (const draft of drafts) {
+        const { id } = draft;
+        const docRef = colRef.doc(id);
+        const validData = this.validateCreateData(draft as CreateInput<W>);
 
-        actions.push(batch => batch.set(docRef, validatedDocData as any));
-        Object.assign(createdDoc as Record<string, any>, validatedDocData);
+        actions.push(batch => batch.set(docRef, validData as any));
+        validatedDocs.push({
+          ...(validData as Record<string, any>),
+          id,
+        } as unknown as CreateInput<W> & { id: ID });
       }
 
       await this.commitInChunks(actions);
-      await this.runHooks('afterBulkCreate', createdDocs);
-      return createdDocs;
+      await this.runHooks('afterBulkCreate', validatedDocs);
+
+      if (options?.returnDoc === true) {
+        return await Promise.all(validatedDocs.map(doc => this.getByIdOrThrow(doc.id)));
+      }
+      return validatedDocs.map(doc => ({ id: doc.id }));
     } catch (error: any) {
       if (error instanceof z.ZodError) throw new ValidationError(error.issues);
       throw parseFirestoreError(error);
@@ -1692,25 +1734,30 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * Create a document within a transaction.
    * Must be used inside runInTransaction callback.
    *
+   * Returns only `{ id }`: a transaction cannot read a document back after writing it (Firestore
+   * requires all reads before writes and the write is not committed until the callback returns), so
+   * there is no `returnDoc` option here. Read the document after the transaction completes if the
+   * converted read model is needed.
+   *
    * @param tx - Firestore transaction object
    * @param data - Document data
-   * @returns Created document with ID
+   * @returns `{ id }` — the generated document id
    * @throws {ValidationError} If validation fails
    *
    * @example
    * await repo.runInTransaction(async (tx, repo) => {
-   *   const newOrder = await repo.createInTransaction(tx, {
+   *   const { id } = await repo.createInTransaction(tx, {
    *     userId: 'user-123',
    *     total: 99.99,
    *     status: 'pending'
    *   });
-   *   console.log('Order created:', newOrder.id);
+   *   console.log('Order created:', id);
    * });
    */
   async createInTransaction(
     tx: FirebaseFirestore.Transaction,
     data: CreateInput<W>,
-  ): Promise<T & { id: ID }> {
+  ): Promise<{ id: ID }> {
     try {
       const docRef = this.writeCol().doc();
       const docData = {
@@ -1720,10 +1767,11 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
 
       await this.runHooks('beforeCreate', docData);
       const validData = this.validateCreateData(docData as CreateInput<W>);
-      const validatedDocData = { ...(validData as Record<string, any>) };
 
-      tx.set(docRef, validatedDocData as any);
-      return { ...validatedDocData, id: docRef.id } as T & { id: ID };
+      // NOTE: after* hooks intentionally do not run inside a transaction (the write is not committed
+      // until the callback returns) — only beforeCreate fires, matching updateInTransaction.
+      tx.set(docRef, validData as any);
+      return { id: docRef.id };
     } catch (error: any) {
       if (error instanceof z.ZodError) {
         throw new ValidationError(error.issues);

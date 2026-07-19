@@ -31,10 +31,10 @@ describe('FirestoreRepository CRUD lifecycle', () => {
   });
 
   it('should bulk create multiple documents', async () => {
-    const created = await userRepo.bulkCreate([
-      createTestUserInput({ name: 'Bulk 1' }),
-      createTestUserInput({ name: 'Bulk 2' }),
-    ]);
+    const created = await userRepo.bulkCreate(
+      [createTestUserInput({ name: 'Bulk 1' }), createTestUserInput({ name: 'Bulk 2' })],
+      { returnDoc: true },
+    );
     created.forEach(doc => trackUser(doc.id));
 
     expect(created).toHaveLength(2);

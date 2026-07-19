@@ -31,12 +31,15 @@ describe('FirestoreRepository QueryBuilder', () => {
   });
 
   async function seedCatalog(): Promise<CatalogUser[]> {
-    const items = await userRepo.bulkCreate([
-      { name: 'A', category: 'books', sortKey: 1, active: true },
-      { name: 'B', category: 'books', sortKey: 2, active: true },
-      { name: 'C', category: 'games', sortKey: 3, active: false },
-      { name: 'D', category: 'games', sortKey: 4, active: true },
-    ] as any[]);
+    const items = await userRepo.bulkCreate(
+      [
+        { name: 'A', category: 'books', sortKey: 1, active: true },
+        { name: 'B', category: 'books', sortKey: 2, active: true },
+        { name: 'C', category: 'games', sortKey: 3, active: false },
+        { name: 'D', category: 'games', sortKey: 4, active: true },
+      ] as any[],
+      { returnDoc: true },
+    );
     items.forEach(item => trackUser(item.id));
     return items as CatalogUser[];
   }

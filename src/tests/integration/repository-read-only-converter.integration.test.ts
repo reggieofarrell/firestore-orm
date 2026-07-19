@@ -59,18 +59,27 @@ describe('read-only converters: writes bypass the converter (issue #11)', () => 
     }
   });
 
-  it('create(): stores the raw value; the converter transforms only on read', async () => {
-    const created = await repo.create({ name: 'alpha', value: 1 });
-    // create() returns the validated write payload (not a read) → untransformed.
-    expect(created.name).toBe('alpha');
+  it('create(): returns { id } by default and stores the raw value (converter runs only on read)', async () => {
+    const result = await repo.create({ name: 'alpha', value: 1 });
+    // Default contract: create() returns only { id } (no implicit read-back).
+    expect(Object.keys(result)).toEqual(['id']);
 
     // Stored verbatim (no write-side transform).
-    expect(await rawName(created.id)).toBe('alpha');
+    expect(await rawName(result.id)).toBe('alpha');
 
     // Repo read applies the converter's fromFirestore.
-    const read = await repo.getById(created.id);
+    const read = await repo.getById(result.id);
     expect(read?.name).toBe('ALPHA');
     expect(read?.value).toBe(1);
+  });
+
+  it('create(returnDoc): reads the created document back through the converter', async () => {
+    // returnDoc re-reads via readCol(), so the returned value is the CONVERTED read model.
+    const created = await repo.create({ name: 'delta', value: 9 }, { returnDoc: true });
+    expect(created.name).toBe('DELTA');
+    expect(created.value).toBe(9);
+    // ...while the stored value stays raw.
+    expect(await rawName(created.id)).toBe('delta');
   });
 
   it('bulkCreate(): stores raw values; reads transform', async () => {

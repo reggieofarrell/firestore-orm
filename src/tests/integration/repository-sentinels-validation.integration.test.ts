@@ -124,12 +124,15 @@ describe('FirestoreRepository hook-first validation ordering', () => {
     const repo = createValidatedRepo(db);
 
     try {
-      const user = await repo.create({
-        name: 'Sentinel Query Update',
-        score: 4,
-        tags: ['initial'],
-        createdAt: new Date().toISOString(),
-      } as HookValidatedUser);
+      const user = await repo.create(
+        {
+          name: 'Sentinel Query Update',
+          score: 4,
+          tags: ['initial'],
+          createdAt: new Date().toISOString(),
+        } as HookValidatedUser,
+        { returnDoc: true },
+      );
 
       await repo
         .query()
@@ -285,10 +288,13 @@ describe('FirestoreRepository hook-first validation ordering', () => {
         (payload as HookValidatedUser).createdAt = new Date().toISOString();
       });
 
-      const user = await repo.create({
-        name: 'Query Hook Validation',
-        score: 3,
-      } as HookValidatedUser);
+      const user = await repo.create(
+        {
+          name: 'Query Hook Validation',
+          score: 3,
+        } as HookValidatedUser,
+        { returnDoc: true },
+      );
 
       await expect(
         repo.query().where('name', '==', user.name).update({ score: -1 }),
@@ -512,12 +518,15 @@ describe('FirestoreRepository strict sentinelPolicy (per-field combinators)', ()
     const repo = createStrictRepo(db);
 
     try {
-      const user = await repo.create({
-        name: 'Strict Query',
-        score: 1,
-        loginCount: 1,
-        createdAt: new Date().toISOString(),
-      } as HookValidatedUser);
+      const user = await repo.create(
+        {
+          name: 'Strict Query',
+          score: 1,
+          loginCount: 1,
+          createdAt: new Date().toISOString(),
+        } as HookValidatedUser,
+        { returnDoc: true },
+      );
 
       // approved sentinel passes
       await repo

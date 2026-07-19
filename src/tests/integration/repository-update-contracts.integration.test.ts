@@ -255,8 +255,8 @@ describe('FirestoreRepository update return and hook contracts', () => {
   });
 
   it('should emit id-list payload for afterBulkUpdate from query().update()', async () => {
-    const user1 = await userRepo.create({ name: 'Query Hook 1' });
-    const user2 = await userRepo.create({ name: 'Query Hook 2' });
+    const user1 = await userRepo.create({ name: 'Query Hook 1' }, { returnDoc: true });
+    const user2 = await userRepo.create({ name: 'Query Hook 2' }, { returnDoc: true });
     trackUser(user1.id);
     trackUser(user2.id);
 

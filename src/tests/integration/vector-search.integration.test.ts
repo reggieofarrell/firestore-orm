@@ -85,10 +85,13 @@ describe('Vector search extension', () => {
 
   it('should proxy repository write methods through withVectorSearch', async () => {
     const wrapped = withVectorSearch(vectorRepo);
-    const created = await wrapped.create({
-      name: 'proxied-create',
-      embedding: FieldValue.vector([0.5, 0.5, 0]),
-    } as VectorDoc);
+    const created = await wrapped.create(
+      {
+        name: 'proxied-create',
+        embedding: FieldValue.vector([0.5, 0.5, 0]),
+      } as VectorDoc,
+      { returnDoc: true },
+    );
 
     expect(created.name).toBe('proxied-create');
   });

@@ -100,8 +100,8 @@
     "firebase-orm",
     "firestore-wrapper",
     "firestore-repository",
-    "fireorm-altenative",
-    "typesaurus-altenative",
+    "fireorm-alternative",
+    "typesaurus-alternative",
     "typeorm-alternative",
     "prisma-alternative"
   ],

@@ -1,7 +1,6 @@
 # ADR-0003: `Timestamp ↔ millis` converter helper
 
-- **Status:** Accepted (implemented on branch `feat/timestamp-millis-converter`; pending
-  merge/release)
+- **Status:** Accepted (merged to main)
 - **Date:** 2026-07-17
 - **Deciders:** Reggie O'Farrell
 - **Related:** Fast-follow to [ADR-0002](0002-per-field-sentinel-write-validation.md) (which shipped

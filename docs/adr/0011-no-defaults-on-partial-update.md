@@ -1,6 +1,6 @@
 # ADR-0011: Zod `.default(...)` values are not injected on a partial update
 
-- **Status:** Accepted (pending merge/release on branch `fix/update-default-injection`)
+- **Status:** Accepted (merged to main)
 - **Date:** 2026-07-18
 - **Deciders:** Reggie O'Farrell
 - **Related:** [0010](0010-type-safe-dot-notation.md) (dot-aware write validation — same

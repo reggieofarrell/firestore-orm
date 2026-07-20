@@ -1,7 +1,7 @@
 # ADR-0002: Per-field `FieldValue` sentinel approval via opt-in strict validation
 
-- **Status:** Accepted (implemented on branch `feat/per-field-sentinel-validation`; pending
-  merge/release)
+- **Status:** Accepted (merged to main). The opt-in mechanism shipped in v2.x; **v3 flips the
+  default to `'strict'`** — see the "v3 addendum" at the end of this ADR.
 - **Date:** 2026-07-16
 - **Deciders:** Reggie O'Farrell
 - **Related:** Refines decision #6 of [ADR-0001](0001-fork-and-2.0.0-rearchitecture.md);
@@ -107,3 +107,18 @@ behavior as the default.
   `sentinelPolicy`, detector fixes.
 - Consumer usage: the "Per-Field Sentinel Approval" guide in the published docs.
 - Branch `feat/per-field-sentinel-validation`.
+
+## v3 addendum: `'strict'` is now the default
+
+This ADR (in v2.x) kept `'permissive'` as the default for backward compatibility and reserved a
+future major to reconsider it. In **v3 we flip the default to `'strict'`**.
+
+The trigger was that the permissive escape hatch, on a sentinel-path parse failure, returned the
+**entire raw input** — discarding every successful Zod coercion, default, unknown-key strip, and
+transform elsewhere in the same payload. A caller reasonably expects a successful validate to be the
+schema's parsed output, so permissive silently produced surprising, lossy writes.
+
+Under the strict default, parsing succeeds normally and the parsed output is always returned; only
+sentinels a field's combinator permits pass. `'permissive'` remains available as an explicit opt-in
+(`{ sentinelPolicy: 'permissive' }`) for migration. This is a breaking change, recorded here rather
+than as a separate ADR because it is the same decision axis this ADR introduced.

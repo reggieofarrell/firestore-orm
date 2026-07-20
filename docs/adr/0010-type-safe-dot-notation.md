@@ -1,6 +1,6 @@
 # ADR-0010: Type-safe dot-notation and dot-aware write validation
 
-- **Status:** Accepted (pending merge/release on branch `feat/overhaul-dot-notation`)
+- **Status:** Accepted (merged to main)
 - **Date:** 2026-07-18
 - **Deciders:** Reggie O'Farrell
 - **Related:** [0002](0002-per-field-sentinel-write-validation.md) (sentinel validation),

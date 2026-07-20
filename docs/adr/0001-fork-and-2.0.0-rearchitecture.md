@@ -52,11 +52,14 @@ We forked upstream and shipped a deliberate, breaking **`2.0.0`** under
    / `tx.update()` directly instead of read-modify-write merge. A nested object therefore replaces
    that entire map field unless `{ merge: true }` (or the new `patch()` aliases) is used; top-level
    `undefined` is stripped; an empty payload is a no-op; a missing document surfaces as
-   `NotFoundError`.
+   `NotFoundError`. _(v3 update: an empty payload is now **rejected** with a `ValidationError`
+   rather than a silent no-op — see ADR-0014.)_
 
 3. **ID-returning write contracts with opt-in read-back.** `update()`, `bulkUpdate()`, and
    `upsert()` return `{ id }` / `{ id }[]` by default; `{ returnDoc: true }` (new `UpdateOptions`)
-   re-reads and returns the document. `after*` update hooks receive `{ id }` / `{ ids }`.
+   re-reads and returns the document. `after*` update hooks receive `{ id }` / `{ ids }`. _(v3
+   update: `create()` / `bulkCreate()` / `createInTransaction()` adopt the same
+   `{ id }`-by-default + `returnDoc` contract — see ADR-0013.)_
 
 4. **Deterministic hook ordering.** `before*` → validation → write → `after*`. `before*` hooks run
    _before_ schema validation and receive the raw caller input, so they can enrich/normalize a

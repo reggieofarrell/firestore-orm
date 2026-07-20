@@ -31,8 +31,9 @@ export type PaginatedResult<T extends { id?: string }> = {
  * @template T - The document (read model) type
  * @template W - The write model type (for `update`)
  * @template R - The current result shape of terminal reads. Defaults to the full `T & { id }`;
- *   `select(...)` narrows it to `Partial<T> & { id }` so fields projected away become compile
- *   errors when accessed (Firestore returns only the selected fields at runtime).
+ *   `select(...)` narrows it to `DeepPartial<T> & { id }` (nested map properties optional too) so
+ *   fields projected away — at any depth — become compile errors when accessed (Firestore returns
+ *   only the selected fields at runtime).
  */
 export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { id: ID }> {
   private query: Query<any>;

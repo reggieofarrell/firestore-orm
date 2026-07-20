@@ -24,7 +24,7 @@ reach the raw Admin SDK for anything not yet wrapped.
 | Field filters + chained AND (`where`)           | Values typed `unknown` (read-converter divergence)          |
 | Ordering, forward `limit`                       |                                                             |
 | Cursor + offset pagination                      | Opaque, forward-only cursor bound to the collection         |
-| Field projections (`select`)                    | Result type narrows to `Partial<T> & { id }`                |
+| Field projections (`select`)                    | Result type narrows to `DeepPartial<T> & { id }`            |
 | Real-time listeners (`onSnapshot`)              | Full-model arrays; not combinable with `select()`           |
 | Count / sum / average aggregates                | Numeric field-path typing for sum/average                   |
 | Native query streaming (`stream`)               | Backed by the SDK's `Query.stream()`                        |

@@ -11,7 +11,9 @@
 > the round-3 response at `0904197` is under
 > [Round-3 response verification](#round-3-response-verification-july-20-2026). The verification of
 > the round-4 response at `b9be1fa` is under
-> [Round-4 response verification](#round-4-response-verification-july-20-2026). The opening review
+> [Round-4 response verification](#round-4-response-verification-july-20-2026). The verification of
+> the round-5 response at `6e9f655` is under
+> [Round-5 response verification](#round-5-response-verification-july-20-2026). The opening review
 > remains as the historical assessment of `9239283`.
 
 ## Executive conclusion
@@ -1244,3 +1246,245 @@ Before publishing v3:
 Once the high broad-string issue and the mixed-union type contract are fixed, I would consider the
 implementation findings from rounds 1–4 closed. The deferred server-side Firestore parity work can
 remain in its existing v3.x issue/ADR scope.
+
+---
+
+## Round-5 response verification (July 20, 2026)
+
+- **Reviewed branch:** `v3-release-hardening` at `6e9f655`
+- **Previous implementation head reviewed:** `b9be1fa`
+- **Response reviewed:**
+  [`v3-release-review-response-round5.md`](./v3-release-review-response-round5.md)
+- **Response implementation commits:** `ef32cda`, `cc10058`, and `e7c636d`
+- **Full change set:** 4 commits; 9 files; 550 insertions and 33 deletions (including `6e9f655`,
+  which commits the preceding round-4 verification)
+
+### Round-5 conclusion
+
+The response resolves the previous high-severity vector result bug. Literal distance fields still
+replace collisions precisely; broad `string` fields now preserve `id`, make other known properties
+original-type-or-number, and expose arbitrary keys as `unknown`. Extracted/pretyped options,
+optional strings, literal unions, and the exported `VectorSearchResult` all behave conservatively in
+focused type probes.
+
+The union-distributive `DeepPartial` and `FieldPaths` fixes also work as stated. A directly declared
+`Timestamp | map` preserves the complete `Timestamp` branch, valid map-member paths remain
+available, and class methods such as `toMillis` are no longer emitted as Firestore paths. The custom
+`readConverter` class-instance limitation is conservative rather than unsound and is now disclosed.
+
+One adjacent **medium-severity public path-type defect remains**. `FieldPaths` now distributes over
+union members, but the exported `PathValue` does not. A path newly and correctly admitted from one
+union branch therefore resolves to `never`. `NumericFieldPaths` then evaluates that concrete `never`
+as extending `number`, causing `sum()` and `average()` to accept string-valued paths from union
+branches. A checked probe compiled `sum('metric.label')` for a field whose present value is a
+string. This should be corrected before v3 freezes the type-safe field-path contract.
+
+There is also a small documentation contradiction around arbitrary class instances: the API
+reference and one test comment still say only plain maps recurse, immediately before acknowledging
+that an unrecognized class also recurses. The limitation itself is acceptable if described precisely
+and with actionable guidance.
+
+### Round-5 disposition
+
+| Round-5 item                          | Verification result                                                                                                                      | Disposition                                             |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| Broad-string distance result          | Known fields are conservative, `id` remains a string, arbitrary-key access is `unknown`, and extracted options retain the same behavior. | **Verified fixed**                                      |
+| Literal/union distance result         | Fresh and colliding literals remain precise; literal unions describe only the possible successful result branches.                       | **Verified fixed**                                      |
+| Distributive `DeepPartial` leaves     | Known leaf members remain complete when mixed with map members.                                                                          | **Verified fixed**                                      |
+| Map-only `FieldPaths` recursion       | Valid map paths remain; Timestamp/class API members are excluded.                                                                        | **Verified fixed; exposed a `PathValue` follow-on bug** |
+| Arbitrary converter-produced classes  | Still recursively partialized, but conservatively and now documented.                                                                    | **Accepted residual; wording needs tightening**         |
+| Literal guidance and stale references | Vector guide, option JSDoc, API reference, and prior shallow test comment were updated.                                                  | **Verified, with one contradictory phrase remaining**   |
+| Claimed release verification          | Canonical gate, Admin 12/13/14 consumers, docs, website, workflow lint, and release rehearsal pass.                                      | **Verified**                                            |
+
+### Finding 1 — Medium: `PathValue` does not follow `FieldPaths` through unions, making string paths numeric
+
+[`FieldPaths<T>`](../../src/utils/pathTypes.ts) now correctly removes leaf members before recursing
+into a union's map members:
+
+```ts
+Exclude<NonNullable<T[K]>, Leaf>;
+```
+
+For this model, it correctly includes both `value` and `value.legacy` while excluding
+`value.toMillis`:
+
+```ts
+type Model = {
+  value: Timestamp | { legacy: string };
+};
+```
+
+However, the exported [`PathValue<T, P>`](../../src/utils/pathTypes.ts) still checks a union as a
+whole:
+
+```ts
+export type PathValue<T, P extends string> = P extends `${infer Head}.${infer Rest}`
+  ? Head extends keyof T
+    ? PathValue<NonNullable<T[Head]>, Rest>
+    : never
+  : P extends keyof T
+    ? T[P]
+    : never;
+```
+
+At the recursive step, `T` is `Timestamp | { legacy: string }`. `keyof` for that union contains only
+keys common to every member, so `'legacy'` does not pass the check and the otherwise valid path
+resolves to `never`:
+
+```ts
+const path: FieldPaths<Model> = 'value.legacy'; // compiles correctly
+const value: PathValue<Model, 'value.legacy'> = 'old'; // compile error: value type is never
+```
+
+This is already a public API inconsistency because both helpers are exported together and
+`PathValue` is documented as resolving a valid field path. It also opens an unsound aggregate path
+through the internal `NumericFieldPaths`:
+
+```ts
+export type NumericFieldPaths<T> = {
+  [P in FieldPaths<T>]: NonNullable<PathValue<T, P>> extends number ? P : never;
+}[FieldPaths<T>];
+```
+
+For a concrete `never`, the conditional `never extends number` selects the true branch. Every
+union-member path that `PathValue` failed to resolve is therefore classified as numeric, regardless
+of its actual value:
+
+```ts
+const schema = z.object({
+  id: z.string(),
+  metric: z.union([z.object({ count: z.number() }), z.object({ label: z.string() })]),
+});
+
+const repo = FirestoreRepository.withSchema(db, 'mixed', schema);
+repo.query().sum('metric.count'); // expected
+repo.query().sum('metric.label'); // also compiled; label is string when present
+```
+
+The temporary type probe also directly assigned both `'metric.count'` and `'metric.label'` to
+`NumericFieldPaths<Model>`, confirming this is the derived type rather than overload inference or a
+`FieldPath` escape hatch.
+
+**Required before v3**
+
+- Make `PathValue` distributive over `T`, so each union member contributes its value when the path
+  exists and contributes `never` when it does not. A small helper with a naked `T extends unknown`
+  branch is sufficient; the resulting union should collapse to the actual reachable value types.
+- Explicitly exclude an unresolved `never` before the numeric check instead of relying on
+  `never extends number` behavior.
+- Preserve the existing rule that a path whose resolved non-null value is a mixed `number | string`
+  is not numeric.
+- Add type regressions for a top-level union, nested map unions, leaf-or-map unions, optional/null
+  members, numeric and string branch-specific paths, and mixed-value paths.
+- Exercise `sum()` and `average()` through the public builder in addition to testing the helper
+  aliases directly.
+
+Conceptually, the missing guards are:
+
+```ts
+type PathValue<T, P extends string> = T extends unknown
+  ? /* resolve P against this member */
+  : never;
+
+type NumericPath<T, P extends FieldPaths<T>> = [PathValue<T, P>] extends [never]
+  ? never
+  : NonNullable<PathValue<T, P>> extends number
+    ? P
+    : never;
+```
+
+The precise implementation can differ, but `FieldPaths<T>` and `PathValue<T, P>` must agree on which
+union branches contribute to a path.
+
+### Finding 2 — Low: arbitrary-class documentation remains internally contradictory
+
+The response appropriately chooses conservative treatment for arbitrary class instances returned as
+read-model field values. TypeScript's structural type system cannot reliably distinguish every class
+instance from a map-shaped object, and making methods optional is safer than preserving possibly
+unselected map siblings.
+
+Two statements still overclaim the implementation:
+
+- The [API reference](../../website/src/content/docs/guides/api-reference.md) says “Only plain map
+  objects recurse,” then says a custom class that is not a known leaf also recurses.
+- [`query-paths.type-test.ts`](../../src/tests/types/query-paths.type-test.ts) retains the comment
+  “`DeepPartial` only recurses into plain (map) objects.”
+
+The source implementation has no plain-object predicate; it recurses into **every object not
+assignable to the private `Leaf` union**. The source JSDoc states that more accurately. The wording
+should use the same rule everywhere.
+
+The phrase “a `?.` guard restores” a custom class method also deserves precision. Guarding only the
+optional field does not make a recursively optional method callable:
+
+```ts
+row.value?.normalized(); // still an error: normalized may be undefined
+row.value?.normalized?.(); // compiles by guarding the method too
+```
+
+Finally, “treat that field as atomic” is not directly actionable because `Leaf` is private and there
+is no public marker or atomic-type parameter. Either describe the available assertion/conversion
+workaround explicitly, or consider an opt-in marker/escape hatch in a later minor release. This is a
+documented conservative limitation, not a v3 release blocker.
+
+### What verified cleanly in round 5
+
+- A broad `string` distance field no longer turns `id` or every model property into `number`.
+- Known non-ID fields in the broad case become original-type-or-number, preserving required/optional
+  modifiers from the current result shape.
+- Arbitrary broad-string access is `unknown`, preventing a false universal numeric promise.
+- A pretyped `FindNearestOptions` object takes the same conservative result branch.
+- `string | undefined` combines the conservative and no-distance result safely.
+- Literal distance fields retain replacement typing; colliding fields become required numbers.
+- Literal unions distribute through the builder/exported result type, and reserved `id` contributes
+  no successful result branch.
+- `DeepPartial` now distributes its leaf test per union member.
+- `FieldPaths` recurses only into the non-leaf/map members of a mixed union and rejects
+  `'value.toMillis'`.
+- The vector guide and `FindNearestOptions` JSDoc now contain the previously missing literal-name
+  recommendation and accurately describe broad-string result behavior.
+- The canonical release gate and all declared Admin peer consumers pass.
+
+### Verification performed for round 5
+
+| Check                                    | Result                                                                                                  |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Commit/diff audit                        | `b9be1fa..6e9f655`: 4 commits, 9 files, 550 insertions, 33 deletions                                    |
+| `npm run release:verify`                 | Passed end-to-end                                                                                       |
+| Lint + checked-in type tests             | Passed                                                                                                  |
+| Manifest/lockfile/meta check             | Passed                                                                                                  |
+| Runtime-only audit                       | 0 vulnerabilities                                                                                       |
+| Dual ESM/CommonJS build                  | Passed                                                                                                  |
+| Package allowlist                        | Passed; 74 packed files                                                                                 |
+| Packed consumer, Admin 14                | Compile + runtime load passed for root, `/vector`, `/express`, ESM and CommonJS                         |
+| Packed consumer, Admin 12 and 13         | Same checks passed in separate matrix-equivalent runs                                                   |
+| Unit suite + path gates                  | 212/212 passed; all gates passed                                                                        |
+| Emulator integration suite + path gates  | 218/218 passed; all gates passed                                                                        |
+| Documentation link check                 | Passed; 94 Markdown/MDX files scanned                                                                   |
+| Website build                            | Passed; 49 pages built (same missing-404-entry warning)                                                 |
+| Workflow validation                      | `actionlint` passed                                                                                     |
+| Release bump rehearsal                   | Passed; selected `3.0.0`; generated projection entry still requires the declared `DeepPartial` curation |
+| Temporary extracted-options vector probe | Verified `id` stays string and broad known fields are conservative                                      |
+| Temporary union `PathValue` probe        | **Failed contract**: a valid `'value.legacy'` path resolved to `never`                                  |
+| Temporary numeric union-path probe       | **Compiled unsafely**: `NumericFieldPaths` and `sum()` accepted string-valued `'metric.label'`          |
+| Temporary reserved-ID union result probe | Verified the exported result describes only the possible successful non-ID branch                       |
+
+The temporary probes were removed after execution. The user's existing `.gitignore` edit remains the
+only other uncommitted workspace change and was not modified by this review.
+
+### Revised acceptance order after round 5
+
+Before publishing v3:
+
+1. Make `PathValue` distribute over union members and explicitly reject unresolved `never` values
+   from `NumericFieldPaths`.
+2. Add direct `PathValue`, numeric-helper, `sum`, and `average` regression coverage for union-backed
+   paths.
+3. Replace the two remaining “only plain map” claims with the actual known-leaf rule and make the
+   custom-class workaround precise.
+4. Perform the declared changelog curation, then rerun the canonical release gate, Admin 12/13/14
+   consumers, workflow validation, and version rehearsal from the final commit.
+
+After the union path-value/aggregate fix, I would consider the implementation findings from rounds
+1–5 closed. The intentionally deferred server-side Firestore parity features remain appropriately
+tracked for v3.x.

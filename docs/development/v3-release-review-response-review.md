@@ -13,7 +13,9 @@
 > the round-4 response at `b9be1fa` is under
 > [Round-4 response verification](#round-4-response-verification-july-20-2026). The verification of
 > the round-5 response at `6e9f655` is under
-> [Round-5 response verification](#round-5-response-verification-july-20-2026). The opening review
+> [Round-5 response verification](#round-5-response-verification-july-20-2026). The verification of
+> the round-6 response at `18963bb` is under
+> [Round-6 response verification](#round-6-response-verification-july-20-2026). The opening review
 > remains as the historical assessment of `9239283`.
 
 ## Executive conclusion
@@ -1488,3 +1490,190 @@ Before publishing v3:
 After the union path-value/aggregate fix, I would consider the implementation findings from rounds
 1–5 closed. The intentionally deferred server-side Firestore parity features remain appropriately
 tracked for v3.x.
+
+---
+
+## Round-6 response verification (July 20, 2026)
+
+- **Reviewed branch:** `v3-release-hardening` at `18963bb`
+- **Previous implementation head reviewed:** `6e9f655`
+- **Response reviewed:**
+  [`v3-release-review-response-round6.md`](./v3-release-review-response-round6.md)
+- **Response implementation commits:** `3194ca8` and `b7e6083`
+- **Full change set:** 3 commits; 5 files; 468 insertions and 24 deletions (including `18963bb`,
+  which commits the round-5 verification and adds the round-6 response)
+
+### Round-6 conclusion
+
+The response fixes the reported union-path defect. `PathValue` now distributes per union member,
+branch-specific paths resolve to their reachable value types, mixed same-key paths resolve to a
+value union, and `NumericFieldPaths` rejects the previously admitted string and mixed union paths.
+The public `sum()`/`average()` regressions cover the exact prior failure. The custom-class wording
+is also corrected: documentation now describes the known-leaf rule, guards the optional method
+itself, and provides an assertion workaround.
+
+The canonical release gate and independently rerun Firebase Admin 12/13/14 packed consumers pass at
+this head. I found no new runtime defect in the round-six changes.
+
+One **medium type-safety edge remains** in the newly added `never` defense. The guard checks raw
+`PathValue<T, P>` before `NonNullable` is applied. A field whose resolved type is exactly `null`,
+exactly `undefined`, or only `null | undefined` passes that first guard, then normalizes to `never`;
+the following `never extends number` check again admits the path as numeric. A focused test compiled
+both a direct numeric-path assignment and `repo.query().sum('nil')` for a Zod `z.null()` field.
+
+This is narrower than the union bug and does not invalidate the new distributive `PathValue`, but it
+defeats the same public promise that numeric aggregates accept only number-valued fields. The fix is
+small and should land before v3.
+
+### Round-6 disposition
+
+| Round-6 item                        | Verification result                                                                                                            | Disposition                                    |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------- |
+| Union-distributive `PathValue`      | Branch-specific, top-level union, leaf-or-map, optional/null parent, and mixed-value paths resolve correctly.                  | **Verified fixed**                             |
+| Union-backed numeric aggregates     | Numeric branch path accepted; string and number-or-string paths rejected through helper and public builder tests.              | **Verified fixed for non-nullish value types** |
+| Explicit unresolved-`never` defense | Rejects a raw unresolved path, but misses values that become `never` only after `NonNullable`.                                 | **Incomplete for nullish-only fields**         |
+| Arbitrary-class documentation       | Known-leaf rule, method-level optional guard, and assertion workaround now match the implementation.                           | **Verified fixed**                             |
+| Claimed release verification        | Canonical gate, Admin 12/13/14 consumers, documentation, website, workflow lint, and release rehearsal all pass independently. | **Verified**                                   |
+
+### Finding 1 — Medium: null-only and undefined-only fields are still classified as numeric
+
+The new [`NumericFieldPaths<T>`](../../src/utils/pathTypes.ts) correctly prevents a raw unresolved
+`never` from reaching the numeric check:
+
+```ts
+export type NumericFieldPaths<T> = {
+  [P in FieldPaths<T>]: [PathValue<T, P>] extends [never]
+    ? never
+    : NonNullable<PathValue<T, P>> extends number
+      ? P
+      : never;
+}[FieldPaths<T>];
+```
+
+The normalization happens after that guard. For an actual field type of `null`, the stages are:
+
+```ts
+PathValue<T, 'nil'>             // null
+[null] extends [never]          // false — continue
+NonNullable<null>               // never
+never extends number            // true — incorrectly include 'nil'
+```
+
+The same occurs for `undefined` and `null | undefined`. This temporary checked probe passed without
+errors:
+
+```ts
+type Doc = {
+  id: string;
+  nil: null;
+  missing?: undefined;
+  maybeNumber: number | null;
+  maybeString: string | null;
+};
+
+const a: NumericFieldPaths<Doc> = 'nil'; // compiled incorrectly
+const b: NumericFieldPaths<Doc> = 'missing'; // compiled incorrectly
+const c: NumericFieldPaths<Doc> = 'maybeNumber'; // correctly accepted
+// @ts-expect-error correctly rejected
+const d: NumericFieldPaths<Doc> = 'maybeString';
+```
+
+The same leak reaches the public builder with a Firestore-valid null field:
+
+```ts
+const schema = z.object({
+  id: z.string(),
+  nil: z.null(),
+  maybeNumber: z.number().nullable(),
+  maybeString: z.string().nullable(),
+});
+
+const repo = FirestoreRepository.withSchema(db, 'nullable', schema);
+repo.query().sum('maybeNumber'); // expected
+repo.query().sum('nil'); // compiled, although this field can never contain a number
+```
+
+The prior union regression remains fixed: string-valued `metric.label` and mixed `number | string`
+paths are rejected. This finding is specifically about performing the empty-value guard on the
+pre-normalized type.
+
+**Required before v3**
+
+- Compute the non-nullish resolved value first.
+- Reject that normalized type when it is `never`.
+- Use a non-distributive numeric check so a mixed `number | string` remains rejected.
+- Add direct and public-builder regressions for null-only, undefined-only, null-or-undefined,
+  nullable number, optional number, nullable string, and the existing mixed-value union.
+
+Conceptually, both checks should operate on the same normalized value:
+
+```ts
+type V = NonNullable<PathValue<T, P>>;
+
+[V] extends [never]
+  ? never
+  : [V] extends [number]
+    ? P
+    : never;
+```
+
+The tuple around the number test is important if the implementation introduces an inferred helper
+type: it prevents a `number | string` value union from distributing and admitting the numeric half.
+
+### What verified cleanly in round 6
+
+- `PathValue` distributes over top-level and nested union members without changing ordinary-object
+  paths.
+- A leaf-or-map path such as `ts.legacy` resolves to `string`, while the Timestamp branch
+  contributes no value.
+- Branch-specific number and string paths resolve independently.
+- A same-key number-or-string path resolves to the full union.
+- Optional/null parent containers are removed before recursion, allowing their nested value to
+  resolve normally.
+- Raw unresolved `never` paths are no longer classified numeric.
+- Public `sum()` and `average()` reject string and mixed-value union paths.
+- The DeepPartial API reference and source/test comments now state the actual known-leaf recursion
+  rule consistently.
+- The method-level optional guard and class assertion examples match TypeScript behavior.
+- The full release and declared peer-compatibility gates pass.
+
+### Verification performed for round 6
+
+| Check                                     | Result                                                                                                  |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Commit/diff audit                         | `6e9f655..18963bb`: 3 commits, 5 files, 468 insertions, 24 deletions                                    |
+| `npm run release:verify`                  | Passed end-to-end                                                                                       |
+| Lint + checked-in type tests              | Passed                                                                                                  |
+| Manifest/lockfile/meta check              | Passed                                                                                                  |
+| Runtime-only audit                        | 0 vulnerabilities                                                                                       |
+| Dual ESM/CommonJS build                   | Passed                                                                                                  |
+| Package allowlist                         | Passed; 74 packed files                                                                                 |
+| Packed consumer, Admin 14                 | Compile + runtime load passed for root, `/vector`, `/express`, ESM and CommonJS                         |
+| Packed consumer, Admin 12 and 13          | Same checks passed in separate matrix-equivalent runs                                                   |
+| Unit suite + path gates                   | 212/212 passed; all gates passed                                                                        |
+| Emulator integration suite + path gates   | 218/218 passed; all gates passed                                                                        |
+| Documentation link check                  | Passed; 95 Markdown/MDX files scanned                                                                   |
+| Website build                             | Passed; 49 pages built (same missing-404-entry warning)                                                 |
+| Workflow validation                       | `actionlint` passed                                                                                     |
+| Release bump rehearsal                    | Passed; selected `3.0.0`; generated projection entry still requires the declared `DeepPartial` curation |
+| Temporary nullish-only helper probe       | **Compiled unsafely**: both `nil: null` and optional `undefined` paths were treated as numeric          |
+| Temporary null-only public-builder probe  | **Compiled unsafely**: `sum('nil')` accepted a `z.null()` field                                         |
+| Existing union numeric/string regressions | Verified string and mixed union paths remain rejected                                                   |
+
+The temporary probes were removed after execution. The user's existing `.gitignore` edit remains the
+only other uncommitted workspace change and was not modified by this review.
+
+### Revised acceptance order after round 6
+
+Before publishing v3:
+
+1. Move the `never` defense to the normalized `NonNullable<PathValue<T, P>>` value and retain a
+   non-distributive numeric check.
+2. Add nullish-only and nullable/optional numeric/string regressions through both the helper and
+   public aggregate methods.
+3. Perform the declared changelog curation, then rerun the canonical release gate, Admin 12/13/14
+   consumers, workflow validation, and version rehearsal from the final commit.
+
+After that normalized-value guard, I would consider the implementation findings from rounds 1–6
+closed. The documented custom-class limitation and deferred server-side Firestore parity work are
+appropriate post-v3 scope.

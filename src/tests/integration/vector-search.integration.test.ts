@@ -223,6 +223,51 @@ describe('Vector search extension', () => {
     expect(results[0]).toHaveProperty('vectorDistance');
   });
 
+  it('includes the distance field for an ID-only (empty) projection', async () => {
+    await seedBasicVectors();
+
+    // select() with no fields is a valid ID-only projection; the configured distanceResultField must
+    // still be returned (findNearest widens the mask to include it), not dropped.
+    const results = await withVectorSearch(vectorRepo)
+      .query()
+      .select()
+      .findNearest({
+        vectorField: 'embedding',
+        queryVector: [1, 0, 0],
+        limit: 1,
+        distanceMeasure: 'EUCLIDEAN',
+        distanceResultField: 'vectorDistance',
+      })
+      .get();
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toHaveProperty('vectorDistance');
+    expect(typeof (results[0] as Record<string, unknown>).vectorDistance).toBe('number');
+    // No stored fields were selected, so `name` is absent.
+    expect((results[0] as Record<string, unknown>).name).toBeUndefined();
+  });
+
+  it('select() is immutable: a pre-select vector alias returns the full model', async () => {
+    await seedBasicVectors();
+
+    const query = withVectorSearch(vectorRepo).query();
+    query.select('name'); // returned narrowed builder intentionally ignored
+
+    // The original alias was not projected, so findNearest on it returns full documents.
+    const results = await query
+      .findNearest({
+        vectorField: 'embedding',
+        queryVector: [1, 0, 0],
+        limit: 1,
+        distanceMeasure: 'EUCLIDEAN',
+      })
+      .get();
+
+    expect(results).toHaveLength(1);
+    // `embedding` (a non-selected field) is present because the alias was never projected.
+    expect(results[0]).toHaveProperty('embedding');
+  });
+
   it('should throw when orderBy() is called after findNearest()', () => {
     const wrapped = withVectorSearch(vectorRepo);
     const builder = wrapped.query().findNearest({

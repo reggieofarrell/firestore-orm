@@ -207,4 +207,44 @@ describe('VectorQueryBuilder', () => {
       }),
     ).toThrow(/non-empty number array/i);
   });
+
+  it('should reject distanceThreshold 0 at findNearest()', () => {
+    const { builder } = createMockCoreBuilder();
+    const vectorBuilder = new VectorQueryBuilder(builder);
+
+    expect(() =>
+      vectorBuilder.findNearest({ ...findNearestOptions, distanceThreshold: 0 }),
+    ).toThrow(/distanceThreshold cannot be 0/i);
+  });
+
+  it('select() is an immutable transition: returns a new wrapper', () => {
+    const { builder } = createMockCoreBuilder();
+    const vectorBuilder = new VectorQueryBuilder(builder);
+
+    const projected = vectorBuilder.select('name');
+
+    expect(projected).not.toBe(vectorBuilder);
+  });
+
+  it('does not widen the mask when no projection is active (never selected)', () => {
+    const { builder, query } = createMockCoreBuilder();
+    const vectorBuilder = new VectorQueryBuilder(builder);
+
+    vectorBuilder.findNearest({ ...findNearestOptions, distanceResultField: 'vectorDistance' });
+
+    // No select() → no field mask → nothing to widen.
+    expect(query.select).not.toHaveBeenCalled();
+  });
+
+  it('widens an ID-only (empty) projection to include the distance field', () => {
+    const { builder, query } = createMockCoreBuilder();
+
+    // select() with zero fields is still an active projection; findNearest must add the computed
+    // distance field to the mask (otherwise Firestore returns only { id } and drops the promised field).
+    new VectorQueryBuilder(builder)
+      .select()
+      .findNearest({ ...findNearestOptions, distanceResultField: 'vectorDistance' });
+
+    expect(query.select).toHaveBeenCalledWith('vectorDistance');
+  });
 });

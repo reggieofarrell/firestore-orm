@@ -143,12 +143,40 @@ export function validateFindNearestOptions(
     throw new Error('findNearest() distanceResultField must be a non-empty string when provided.');
   }
 
-  if (
-    options.distanceThreshold !== undefined &&
-    (typeof options.distanceThreshold !== 'number' || !Number.isFinite(options.distanceThreshold))
-  ) {
-    // Number.isFinite rejects NaN AND +/-Infinity.
-    throw new Error('findNearest() distanceThreshold must be a finite number when provided.');
+  if (options.distanceThreshold !== undefined) {
+    if (
+      typeof options.distanceThreshold !== 'number' ||
+      !Number.isFinite(options.distanceThreshold)
+    ) {
+      // Number.isFinite rejects NaN AND +/-Infinity.
+      throw new Error('findNearest() distanceThreshold must be a finite number when provided.');
+    }
+
+    // Reject 0: the installed @google-cloud/firestore serializer drops a zero distanceThreshold via a
+    // truthiness check (`threshold ? { value } : undefined`), so it would be silently omitted from
+    // the query and broaden the result to all nearest neighbors instead of applying the bound. Fail
+    // loudly rather than change the query behind the caller's back.
+    if (options.distanceThreshold === 0) {
+      throw new Error(
+        'findNearest() distanceThreshold cannot be 0: the installed Firestore SDK serializer drops a ' +
+          'zero threshold, which would silently broaden the query to all nearest neighbors. Use a ' +
+          'small positive epsilon for a near-exact match, or omit distanceThreshold.',
+      );
+    }
+
+    // EUCLIDEAN and COSINE distances are non-negative, so a negative threshold is meaningless and
+    // would match nothing (or behave unpredictably). Negative thresholds are only meaningful for
+    // DOT_PRODUCT, where the similarity score can be negative.
+    if (
+      (options.distanceMeasure === VectorDistanceMeasure.EUCLIDEAN ||
+        options.distanceMeasure === VectorDistanceMeasure.COSINE) &&
+      options.distanceThreshold < 0
+    ) {
+      throw new Error(
+        `findNearest() distanceThreshold cannot be negative for ${options.distanceMeasure} ` +
+          '(distances are non-negative). Negative thresholds are only meaningful for DOT_PRODUCT.',
+      );
+    }
   }
 }
 

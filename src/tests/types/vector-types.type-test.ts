@@ -67,9 +67,59 @@ export async function selectComposesThroughFindNearest() {
     })
     .get();
 
-  rows[0].name?.toUpperCase(); // selected field present (Partial after projection)
+  rows[0].name?.toUpperCase(); // selected field present (DeepPartial after projection)
   const distance: number = rows[0].score; // distance field composes onto the projected shape
   // @ts-expect-error `embedding` was projected away by select('name'), so it is not on the result
   rows[0].embedding.length.toFixed();
+  return distance;
+}
+
+// Regression: vector select() is an immutable transition, so a pre-select alias keeps the full model
+// at both type and runtime (they no longer disagree).
+export async function vectorSelectIsImmutableForAliases() {
+  const q = vectorRepo.query();
+  const projected = q.select('name'); // returned narrowed builder
+
+  // The ignored original alias `q` is still the full model — safe to access any field.
+  const full = await q
+    .findNearest({
+      vectorField: 'embedding',
+      queryVector: [0.1, 0.2, 0.3],
+      limit: 1,
+      distanceMeasure: 'COSINE',
+    })
+    .get();
+  full[0].embedding.length.toFixed();
+
+  const rows = await projected
+    .findNearest({
+      vectorField: 'embedding',
+      queryVector: [0.1, 0.2, 0.3],
+      limit: 1,
+      distanceMeasure: 'COSINE',
+    })
+    .get();
+  // @ts-expect-error projected-away field is not guaranteed present on the narrowed vector builder
+  rows[0].embedding.length.toFixed();
+}
+
+// Regression: an ID-only projection (select() with no fields) still carries the configured distance
+// field in its result type.
+export async function emptyVectorProjectionIncludesDistanceField() {
+  const rows = await vectorRepo
+    .query()
+    .select()
+    .findNearest({
+      vectorField: 'embedding',
+      queryVector: [0.1, 0.2, 0.3],
+      limit: 1,
+      distanceMeasure: 'COSINE',
+      distanceResultField: 'score',
+    })
+    .get();
+
+  const distance: number = rows[0].score; // distance field present despite the empty projection
+  // @ts-expect-error `name` was not selected (ID-only projection)
+  rows[0].name.toUpperCase();
   return distance;
 }

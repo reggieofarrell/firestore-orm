@@ -1,7 +1,7 @@
 import { parseFirestoreError } from '../core/ErrorParser.js';
 import { FirestoreQueryBuilder, getQueryRef } from '../core/QueryBuilder.js';
 import { ID } from '../core/FirestoreRepository.js';
-import { FieldPaths } from '../utils/pathTypes.js';
+import { DeepPartial, FieldPaths } from '../utils/pathTypes.js';
 import { FieldPath, QueryDocumentSnapshot, WhereFilterOp } from 'firebase-admin/firestore';
 import {
   assertVectorSearchSupported,
@@ -25,6 +25,9 @@ type FirestoreVectorQuery<T> = {
  */
 export class VectorQueryBuilder<T extends { id?: string }, R = T & { id: ID }> {
   private vectorQuery: FirestoreVectorQuery<T> | null = null;
+  // Whether select() has been called. Tracked explicitly (not via selectedFields.length) so an
+  // ID-only projection — select() with zero fields — still counts as an active projection.
+  private projectionActive = false;
   // Fields passed to select(), retained so findNearest() can re-apply the mask including the
   // computed distanceResultField (a field mask otherwise drops the computed distance).
   private selectedFields: (FieldPaths<T> | FieldPath)[] = [];
@@ -72,17 +75,24 @@ export class VectorQueryBuilder<T extends { id?: string }, R = T & { id: ID }> {
    * findNearest(), not a stored document field, and it is added to the result type automatically
    * when you configure it on findNearest().
    */
-  select(...fields: (FieldPaths<T> | FieldPath)[]): VectorQueryBuilder<T, Partial<T> & { id: ID }> {
+  select(
+    ...fields: (FieldPaths<T> | FieldPath)[]
+  ): VectorQueryBuilder<T, DeepPartial<T> & { id: ID }> {
     if (this.vectorQuery) {
       throw new Error('select() cannot be called after findNearest().');
     }
-    // Core select() is immutable (returns a new builder), so capture it — otherwise the projection
-    // would be dropped when findNearest() reads the core query. The narrowed result shape composes
-    // through findNearest() (see its return type). Retain the fields so findNearest() can widen the
-    // mask to include the computed distance field.
-    this.selectedFields = fields;
-    this.coreBuilder = this.coreBuilder.select(...fields);
-    return this as unknown as VectorQueryBuilder<T, Partial<T> & { id: ID }>;
+    // Immutable transition (mirrors core select()): return a NEW wrapper around the projected core
+    // builder instead of mutating and re-casting `this`. Mutating in place left any pre-select vector
+    // alias statically typed for the full model while its shared runtime query was projected — the
+    // same unsoundness core select() was changed to remove. The retained fields let findNearest()
+    // widen the mask to include the computed distance field; projectionActive is set even for an
+    // ID-only (zero-field) projection.
+    const next = new VectorQueryBuilder<T, DeepPartial<T> & { id: ID }>(
+      this.coreBuilder.select(...fields),
+    );
+    next.projectionActive = true;
+    next.selectedFields = fields;
+    return next;
   }
 
   /**
@@ -104,7 +114,9 @@ export class VectorQueryBuilder<T extends { id?: string }, R = T & { id: ID }> {
     // field mask to include the distance field — Firestore drops the computed distance from a
     // field-masked result unless the mask names it. Callers never name it in select() (it is not a
     // stored/schema field); we add it here so it survives the projection and appears in the result.
-    if (options.distanceResultField !== undefined && this.selectedFields.length > 0) {
+    // Keyed on projectionActive (not selectedFields.length) so an ID-only projection — select() with
+    // zero fields — still gets the distance field it was promised (mask becomes [distanceResultField]).
+    if (options.distanceResultField !== undefined && this.projectionActive) {
       this.coreBuilder = this.coreBuilder.select(
         ...this.selectedFields,
         options.distanceResultField as unknown as FieldPaths<T>,

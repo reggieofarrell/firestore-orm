@@ -176,6 +176,48 @@ describe('VectorSearch utilities', () => {
     ).toThrow(/distanceThreshold must be a finite number/i);
   });
 
+  it('should reject distanceThreshold 0 (silently dropped by the SDK serializer)', () => {
+    // The installed @google-cloud/firestore serializer omits a zero threshold via a truthiness
+    // check, which would broaden the query to all neighbors — reject it loudly instead.
+    for (const distanceMeasure of Object.values(VectorDistanceMeasure)) {
+      expect(() =>
+        validateFindNearestOptions({ ...validOptions, distanceMeasure, distanceThreshold: 0 }),
+      ).toThrow(/distanceThreshold cannot be 0/i);
+    }
+  });
+
+  it('should reject a negative distanceThreshold for EUCLIDEAN and COSINE only', () => {
+    expect(() =>
+      validateFindNearestOptions({
+        ...validOptions,
+        distanceMeasure: 'EUCLIDEAN',
+        distanceThreshold: -0.5,
+      }),
+    ).toThrow(/cannot be negative for EUCLIDEAN/i);
+
+    expect(() =>
+      validateFindNearestOptions({
+        ...validOptions,
+        distanceMeasure: 'COSINE',
+        distanceThreshold: -0.5,
+      }),
+    ).toThrow(/cannot be negative for COSINE/i);
+
+    // DOT_PRODUCT similarity can be negative, so a negative threshold is legitimate.
+    expect(() =>
+      validateFindNearestOptions({
+        ...validOptions,
+        distanceMeasure: 'DOT_PRODUCT',
+        distanceThreshold: -0.5,
+      }),
+    ).not.toThrow();
+
+    // A positive threshold remains valid for every measure.
+    expect(() =>
+      validateFindNearestOptions({ ...validOptions, distanceThreshold: 0.5 }),
+    ).not.toThrow();
+  });
+
   describe('isVectorFieldValue', () => {
     it('should detect FieldValue.vector() write values', () => {
       expect(isVectorFieldValue(FieldValue.vector([1, 2, 3]))).toBe(true);

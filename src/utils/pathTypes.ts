@@ -37,6 +37,7 @@ type Leaf =
   | DocumentReference
   | FieldValue
   | VectorValueLike
+  | Uint8Array
   | readonly unknown[]
   | ((...args: any[]) => any);
 
@@ -124,15 +125,11 @@ export type NumericFieldPaths<T> = {
  * makes nested map properties optional, so a dotted projection such as `select('address.city')` does
  * not leave the unselected sibling `address.zip` statically required once `address` is guarded.
  *
- * Arrays and `Date` are preserved: a Firestore field mask does not project into array elements, and a
- * selected `Date` field is returned whole. (Raw Firestore value classes like `Timestamp`/`GeoPoint`
- * left in a read model would recurse; read models normally expose converted primitives, so this is a
- * rare, non-unsound over-approximation.)
+ * Only plain (map) objects recurse. Every {@link Leaf} type is preserved whole so a selected value
+ * keeps its real API after the parent is guarded — scalars, `Date`, Firestore value classes
+ * (`Timestamp`, `GeoPoint`, `DocumentReference`, `FieldValue`, structural vector values), byte values
+ * (`Uint8Array`/`Buffer`), functions, and **arrays** (a Firestore field mask never projects into
+ * array elements, so the array is returned whole rather than element-partialized).
  */
-export type DeepPartial<T> = T extends (infer U)[]
-  ? DeepPartial<U>[]
-  : T extends Date
-    ? T
-    : T extends object
-      ? { [K in keyof T]?: DeepPartial<T[K]> }
-      : T;
+export type DeepPartial<T> =
+  IsLeaf<T> extends true ? T : T extends object ? { [K in keyof T]?: DeepPartial<T[K]> } : T;

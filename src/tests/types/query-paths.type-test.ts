@@ -8,9 +8,10 @@
  * un-annotated call must type-check.
  */
 import { FieldPath } from 'firebase-admin/firestore';
+import type { Timestamp, GeoPoint, DocumentReference } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import { FirestoreRepository } from '../../index.js';
-import type { FieldPaths, PathValue } from '../../index.js';
+import type { DeepPartial, FieldPaths, PathValue } from '../../index.js';
 
 declare const db: FirebaseFirestore.Firestore;
 
@@ -174,3 +175,32 @@ const validPaths: FieldPaths<Doc>[] = [
   'createdAt',
 ];
 export const _fieldPaths = validPaths;
+
+// `DeepPartial` only recurses into plain (map) objects. Every leaf value — scalars, `Date`,
+// Firestore value classes, byte values, functions, and arrays — is preserved WHOLE, so a selected
+// value keeps its real API after the parent is guarded (it does not become a partialized object).
+type LeafyDoc = {
+  id: string;
+  meta: { note: string }; // plain map — recurses
+  at: Timestamp;
+  loc: GeoPoint;
+  ref: DocumentReference;
+  bytes: Uint8Array;
+  tags: string[];
+  when: Date;
+};
+
+export function deepPartialPreservesLeafApis(row: DeepPartial<LeafyDoc>) {
+  if (row.meta) {
+    // Nested map property is optional (the whole point of DeepPartial).
+    row.meta.note?.toUpperCase();
+  }
+  // Leaf values keep their real, callable APIs after guarding.
+  if (row.at) row.at.toMillis().toFixed();
+  if (row.loc) row.loc.latitude.toFixed();
+  if (row.ref) row.ref.id.toUpperCase();
+  if (row.bytes) row.bytes.byteLength.toFixed();
+  if (row.when) row.when.getTime().toFixed();
+  // Arrays are preserved whole (not element-partialized), so element access is fully typed.
+  if (row.tags) row.tags[0]?.toUpperCase();
+}

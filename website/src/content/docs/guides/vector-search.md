@@ -163,10 +163,21 @@ return a `VectorQueryBuilder`.
 | `getOne()`                | Return the nearest single document or `null`   |
 
 `select(...)` narrows the result type and that projection **composes through** `findNearest()`. Pass
-only stored document fields — do **not** list `distanceResultField`. It is a computed output field,
-not a stored one; `findNearest()` appends it to the result and, when you also use `select()`,
-automatically widens the field mask so the distance survives. It appears in the result type
-automatically (`DeepPartial<T> & { id } & { [distanceResultField]: number }`).
+only stored document fields to `select()` — do **not** list `distanceResultField`. It is a computed
+output field, not a stored one; `findNearest()` appends it to the result and, when you also use
+`select()`, automatically widens the field mask so the distance survives.
+
+The computed distance field is added to the result type as a `number`. Prefer a **string literal**
+for `distanceResultField` (e.g. `'score'`) for precise typing:
+
+- A literal name is added as a numeric property; if it collides with a model field, it **replaces**
+  that field's type with `number` (matching Firestore, which overwrites the stored field with the
+  computed distance).
+- `'id'` is **rejected** at runtime — the repository overlays the document id on every result, which
+  would overwrite the distance.
+- A non-literal `string` (a value from a variable) yields a **conservative** result type: `id` stays
+  a string, every other known field becomes `T[field] | number` (the runtime name may collide with
+  any one), and arbitrary keys are `unknown`. It never claims every field is numeric.
 
 `findNearest(options)` takes
 `{ vectorField, queryVector, limit, distanceMeasure, distanceResultField?, distanceThreshold? }`. It

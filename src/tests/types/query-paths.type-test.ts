@@ -60,7 +60,7 @@ export async function projectionNarrowsResultType() {
   full[0].createdAt.getTime();
   full[0].name.toUpperCase();
 
-  // Projected read: result narrows to Partial<Doc> & { id }.
+  // Projected read: result narrows to DeepPartial<Doc> & { id }.
   const projected = await repo.query().select('name').get();
   projected[0].id.toUpperCase(); // id is always present
   // @ts-expect-error a projected-away field is not guaranteed present after select()

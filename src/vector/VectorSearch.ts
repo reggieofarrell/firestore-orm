@@ -42,6 +42,11 @@ export type FindNearestOptions<
   /**
    * Optional result field name where Firestore writes the computed distance per document.
    * Requires `@google-cloud/firestore` >= 7.10.0 (bundled with firebase-admin >= 13).
+   *
+   * Prefer a string **literal** for precise result typing (see {@link DistanceFieldResult}): a
+   * literal is added as a numeric property and replaces any colliding model field. `'id'` is
+   * rejected (the repository overlays the document id, which would overwrite the distance). A
+   * non-literal `string` yields a conservative result type rather than typing every field as number.
    */
   distanceResultField?: string;
   /**

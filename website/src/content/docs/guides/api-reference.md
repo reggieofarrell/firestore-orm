@@ -343,7 +343,11 @@ Types re-exported from the package entry point (`@reggieofarrell/firestore-orm`)
   returned by `safeValidate`.
 - **`PaginatedResult<T>`** — `{ items; nextCursor; hasMore }` from cursor pagination.
 - **`DeepPartial<T>`** — recursively-optional `T` (nested map properties optional too); the terminal
-  result shape after `select(...)`. Arrays and `Date` are preserved.
+  result shape after `select(...)`. Only plain map objects recurse; leaf values are preserved whole
+  — scalars, `Date`, Firestore value classes (`Timestamp`, `GeoPoint`, `DocumentReference`,
+  `FieldValue`, vector values), byte values (`Uint8Array`/`Buffer`), functions, and arrays. The leaf
+  test is distributive over unions. (A custom class instance produced by a `readConverter` as a
+  field value is not a known leaf and recurses — its methods type as optional after a projection.)
 - **`FieldPaths<T>` / `PathValue<T, P>`** — typed field-path union and the value type at a path.
 - **`UpdateInput<T>`** — update payload type (Firestore `PartialWithFieldValue<T>`-style input).
 - **`CreateInput<T>`** — create payload type; permits an optional `id` that is discarded on write.

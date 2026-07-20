@@ -343,11 +343,15 @@ Types re-exported from the package entry point (`@reggieofarrell/firestore-orm`)
   returned by `safeValidate`.
 - **`PaginatedResult<T>`** — `{ items; nextCursor; hasMore }` from cursor pagination.
 - **`DeepPartial<T>`** — recursively-optional `T` (nested map properties optional too); the terminal
-  result shape after `select(...)`. Only plain map objects recurse; leaf values are preserved whole
-  — scalars, `Date`, Firestore value classes (`Timestamp`, `GeoPoint`, `DocumentReference`,
-  `FieldValue`, vector values), byte values (`Uint8Array`/`Buffer`), functions, and arrays. The leaf
-  test is distributive over unions. (A custom class instance produced by a `readConverter` as a
-  field value is not a known leaf and recurses — its methods type as optional after a projection.)
+  result shape after `select(...)`. It recurses into **every object not assignable to the leaf set**
+  (there is no plain-map predicate); leaf values are preserved whole — scalars, `Date`, Firestore
+  value classes (`Timestamp`, `GeoPoint`, `DocumentReference`, `FieldValue`, vector values), byte
+  values (`Uint8Array`/`Buffer`), functions, and arrays. The leaf test is distributive over unions.
+  A custom class instance produced by a `readConverter` as a field value is not a known leaf, so it
+  recurses and its methods type as optional after a projection. Guarding only the field does not
+  make such a method callable (`row.value?.method()` still errors — `method` is now optional too);
+  guard the method as well (`row.value?.method?.()`) or assert the field back to its class type
+  after a null check (`(row.value as ClassType).method()`).
 - **`FieldPaths<T>` / `PathValue<T, P>`** — typed field-path union and the value type at a path.
 - **`UpdateInput<T>`** — update payload type (Firestore `PartialWithFieldValue<T>`-style input).
 - **`CreateInput<T>`** — create payload type; permits an optional `id` that is discarded on write.

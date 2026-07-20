@@ -131,5 +131,6 @@ gating row, and the "everything else is satisfied" closing line) inline in that 
 
 ## What still remains for release time (unchanged from round 1)
 
-Curate the generated v3 changelog, close/update issue #17, and (if the review artifacts are
-committed into the repo) fix the stale `src/core/ErrorHandler.ts` link in the original review doc.
+Curate the generated v3 changelog and close/update issue #17. (The original review's stale
+`src/core/ErrorHandler.ts` link was already de-linked to `src/express/index.ts`; `check:docs` passes
+across all committed review files, so that task is done.)

@@ -6,8 +6,10 @@
 **Response reviewed:** [`v3-release-review-response.md`](./v3-release-review-response.md)  
 **Original review:** [`v3-release-review.md`](./v3-release-review.md)
 
-> **Follow-up:** The verification of the round-2 response at `a8c4c23` is appended under
-> [Round-2 response verification](#round-2-response-verification-july-19-2026). The opening review
+> **Follow-ups:** The verification of the round-2 response at `a8c4c23` is under
+> [Round-2 response verification](#round-2-response-verification-july-19-2026). The verification of
+> the round-3 response at `0904197` is under
+> [Round-3 response verification](#round-3-response-verification-july-20-2026). The opening review
 > remains as the historical assessment of `9239283`.
 
 ## Executive conclusion
@@ -723,3 +725,250 @@ Before publishing v3:
 
 After those items, the remaining server-side Firestore omissions are appropriately documented v3.x
 scope rather than unacknowledged v3 blockers.
+
+---
+
+## Round-3 response verification (July 20, 2026)
+
+- **Reviewed branch:** `v3-release-hardening` at `0904197`
+- **Previous reviewed head:** `a8c4c23`
+- **Response reviewed:**
+  [`v3-release-review-response-round3.md`](./v3-release-review-response-round3.md)
+- **Round-3 change set:** 6 commits; 18 files; 793 insertions and 54 deletions
+
+### Round-3 conclusion
+
+All six findings from the prior pass are addressed in their stated scenarios. Dotted projections are
+now conservatively safe, vector `select()` is immutable, the ID-only projection retains its distance
+field, zero thresholds fail locally, the publish job verifies its release identity and runs all
+three Admin consumers, and the API-reference terminal signatures use result generic `R`. The full
+release gate passes at this head.
+
+I found one new **high-severity vector result-shaping bug** that should still block v3:
+`distanceResultField` is allowed to collide with the repository's reserved `id` or any existing
+model property. The result type intersects the old property with `number`; incompatible collisions
+collapse to `never`, which TypeScript permits to be assigned to either side. Runtime behavior then
+disagrees in two different ways: Firestore replaces an ordinary colliding field with the numeric
+distance, while the ORM's final `{ id: doc.id }` overlay replaces a computed `id` distance with the
+string document ID.
+
+There is also one medium type-quality issue worth tightening before the public v3 contract freezes:
+`DeepPartial<T>` recursively maps native Firestore scalar/class values such as `Timestamp`,
+`GeoPoint`, and `DocumentReference`, destroying their callable method types after a projection. The
+same file already knows these are atomic `Leaf` values. Finally, three stale `Partial<T>` references
+remain in source/scope documentation, and the generated changelog still describes the old shallow
+projection type.
+
+### Round-3 disposition
+
+| Round-3 item                      | Verification result                                                                                                           | Disposition                                       |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| Dotted projection soundness       | `DeepPartial<T>` makes nested siblings optional; the new type tests cover deep, multiple, parent/child, and dynamic paths.    | **Verified fixed for plain-object models**        |
+| Immutable vector `select()`       | A new wrapper is returned around the projected core builder; type, unit, and emulator alias tests pass.                       | **Verified fixed**                                |
+| Empty projection distance field   | Explicit `projectionActive` distinguishes ID-only projection from no projection; emulator result includes a numeric distance. | **Verified fixed**                                |
+| Zero `distanceThreshold`          | Zero fails locally before the SDK; negative Euclidean/Cosine and negative dot-product behavior is tested; issue #42 exists.   | **Verified guarded**                              |
+| Publish identity and Admin matrix | Tag/prerelease preflight, actionlint, branch simulations, and Admin 12/13/14 packed consumers all verify.                     | **Verified fixed for the stated policy**          |
+| API-reference result signatures   | `get`, `getOne`, pagination, `stream`, and `onSnapshot` use `R`; numeric aggregate signatures are corrected.                  | **Verified fixed; minor stale references remain** |
+
+### Finding 1 — High: `distanceResultField` collisions produce unsound result types and can lose the distance
+
+[`VectorQueryBuilder.findNearest()`](../../src/vector/VectorQueryBuilder.ts) models a configured
+distance field by intersecting it with the current result:
+
+```ts
+R & Record<DF, number>;
+```
+
+That works only when `DF` is a fresh property name. `FindNearestOptions` accepts any non-empty
+string, so a caller may use an existing model key or the ORM-reserved `id`.
+
+#### Collision with an ordinary model field
+
+For a model containing `name: string`, this is accepted:
+
+```ts
+const rows = await vectorRepo
+  .query()
+  .findNearest({
+    vectorField: 'embedding',
+    queryVector: [1, 0, 0],
+    limit: 1,
+    distanceMeasure: 'EUCLIDEAN',
+    distanceResultField: 'name',
+  })
+  .get();
+```
+
+Firestore returns `name` as the computed number, replacing the stored string. The static type is
+`string & number`, which reduces to `never`. This looks restrictive, but `never` is assignable to
+every type, so both of these compiled in a focused branch type probe:
+
+```ts
+const distance: number = rows[0].name;
+const originalName: string = rows[0].name;
+```
+
+The second assignment promises a string even though the emulator returned a number. Code using the
+assigned value as a string can therefore fail at runtime.
+
+#### Collision with the reserved `id`
+
+The mismatch is worse for `distanceResultField: 'id'`. Firestore supplies a numeric output field,
+but [`VectorQueryBuilder.get()`](../../src/vector/VectorQueryBuilder.ts) builds every result as:
+
+```ts
+{
+  ...doc.data(),
+  id: doc.id,
+}
+```
+
+The numeric distance is silently overwritten by the string document ID. The intersection again
+reduces `id` to `never`, allowing this to compile:
+
+```ts
+const distance: number = rows[0].id;
+distance.toFixed();
+```
+
+The focused emulator reproduction returned `typeof rows[0].id === 'string'`, so the promised numeric
+distance is not merely mistyped; it is unavailable.
+
+**Required before v3**
+
+- Reject `distanceResultField: 'id'` locally because `id` is reserved and overlaid by the ORM.
+- Model ordinary collisions as replacement, not intersection—for literal fields, use an equivalent
+  of `Omit<R, DF> & Record<DF, number>`.
+- Define a conservative policy for a dynamically typed `string` field name, which may collide with
+  any model key; consider requiring a literal for strongly typed distance output.
+- Add type and emulator regressions for a fresh field, a nonnumeric model-field collision, a numeric
+  model-field collision, `id`, and a dotted output name. The focused dotted-name probe returned a
+  literal own key such as `'metrics.distance'`, matching the current `Record<DF, number>` treatment.
+
+### Finding 2 — Medium: `DeepPartial` destroys native Firestore value APIs
+
+[`DeepPartial<T>`](../../src/utils/pathTypes.ts) preserves mutable array containers and `Date`, then
+recursively maps every other object:
+
+```ts
+export type DeepPartial<T> = T extends (infer U)[]
+  ? DeepPartial<U>[]
+  : T extends Date
+    ? T
+    : T extends object
+      ? { [K in keyof T]?: DeepPartial<T[K]> }
+      : T;
+```
+
+That recursive object branch includes common Firestore read values: `Timestamp`, `GeoPoint`,
+`DocumentReference`, and structural vector values. Their methods are functions, and recursively
+mapping a function produces an object-shaped partial rather than a callable signature. This focused
+type probe behaved as follows:
+
+```ts
+declare const row: DeepPartial<{ at: Timestamp }>;
+
+if (row.at) {
+  row.at.toMillis(); // compile error: the mapped `toMillis` is no longer callable
+}
+```
+
+The runtime selected value is still a complete `Timestamp`; only the new public result type makes it
+unusable. This is conservative rather than unsafe, but native Firestore values are normal
+server-side model fields, not an exotic case. Byte values (`Buffer`/`Uint8Array`) and readonly
+arrays deserve the same review.
+
+The file already defines `Leaf` specifically to stop recursion for `Timestamp`, `GeoPoint`,
+`DocumentReference`, `FieldValue`, vector values, arrays, dates, and functions when deriving field
+paths. Reusing an atomic-value definition for `DeepPartial` would keep projected maps safe without
+erasing scalar APIs. Because Firestore does not project into array elements, preserving the complete
+array value rather than recursively partializing each element would also more closely match runtime.
+
+**Recommended before v3**
+
+- Preserve all Firestore atomic/leaf value types, not only `Date`.
+- Include server byte values and readonly arrays/tuples in the policy.
+- Add type tests showing that a selected `Timestamp`, `GeoPoint`, `DocumentReference`, vector value,
+  byte value, and array retain their normal APIs after the parent field is guarded.
+- Adjust the public `DeepPartial` documentation to state exactly which values recurse and which are
+  atomic.
+
+### Finding 3 — Low: projection wording is not fully synchronized
+
+The primary API reference and migration/query/vector guides are corrected, but these checked-in
+references still say `Partial<T>`:
+
+- [`src/core/QueryBuilder.ts`](../../src/core/QueryBuilder.ts) class JSDoc;
+- [`src/vector/VectorQueryBuilder.ts`](../../src/vector/VectorQueryBuilder.ts) result-shape comment;
+- [Scope & Capabilities](../../website/src/content/docs/guides/scope-and-capabilities.md) capability
+  table.
+
+The `release:bump:dry` output also still generates the earlier breaking-change text saying projected
+reads return `Partial<T> & { id }`. Changelog curation is already a declared release-time task; it
+should explicitly replace that text with `DeepPartial<T> & { id }` and include the later immutable
+vector `select()` break.
+
+### What verified cleanly in round 3
+
+- Core dotted projections no longer permit an unselected nested sibling to be dereferenced after
+  guarding the parent map.
+- Core and vector projections use the same exported `DeepPartial<T>` result contract.
+- Vector `select()` returns a distinct wrapper and leaves the ignored original alias unprojected at
+  both type and runtime.
+- An empty vector `select()` widens the field mask with the configured distance field and returns
+  only `{ id, distance }` as intended.
+- `distanceThreshold: 0` now throws a clear local error instead of reaching the affected SDK
+  serializer; the negative-threshold policy matches the three measures.
+- [Issue #42](https://github.com/reggieofarrell/firestore-orm/issues/42) is open and records the
+  serializer evidence, interim guard, and future upgrade work with `bug`, `parity`, and `v3.x`
+  labels.
+- The publish preflight reads release fields through environment variables, accepts the exact stable
+  tag, rejects prerelease and mismatched-tag simulations, and passes `actionlint`.
+- The publish workflow runs the packed consumer sequentially for Admin 12, 13, and 14 after the
+  canonical release verification.
+- API-reference terminal signatures use `R`, and `sum`/`average` document
+  `NumericFieldPaths<T> | FieldPath`.
+- The obsolete ErrorHandler release-time task is removed.
+
+### Verification performed for round 3
+
+| Check                                     | Result                                                                                                                  |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Commit/diff audit                         | `a8c4c23..0904197`: 6 commits, 18 files, 793 insertions, 54 deletions                                                   |
+| `npm run release:verify`                  | Passed end-to-end                                                                                                       |
+| Lint + checked-in type tests              | Passed                                                                                                                  |
+| Manifest/lockfile/meta check              | Passed                                                                                                                  |
+| Runtime-only audit                        | 0 vulnerabilities                                                                                                       |
+| Dual ESM/CommonJS build                   | Passed                                                                                                                  |
+| Package allowlist                         | Passed; 74 packed files                                                                                                 |
+| Packed consumer, Admin 14                 | Compile + runtime load passed for root, `/vector`, `/express`, ESM and CommonJS                                         |
+| Packed consumer, Admin 12 and 13          | Same checks passed in separate matrix-equivalent runs                                                                   |
+| Unit suite + path gates                   | 211/211 passed; all gates passed                                                                                        |
+| Emulator integration suite + path gates   | 216/216 passed; all gates passed                                                                                        |
+| Documentation link check                  | Passed; 92 Markdown/MDX files scanned                                                                                   |
+| Website build                             | Passed; 49 pages built (same missing-404-entry warning)                                                                 |
+| Workflow validation                       | `actionlint` passed; exact-tag accepted; prerelease and mismatch simulations rejected                                   |
+| Release bump rehearsal                    | Passed; selected `3.0.0`                                                                                                |
+| Threshold issue audit                     | #42 open with `bug`, `parity`, and `v3.x` labels                                                                        |
+| Temporary result-collision type probe     | **Compiled unsafely**: colliding `name` assignable to both `string` and `number`; colliding `id` assignable to `number` |
+| Temporary result-collision emulator probe | Ordinary `name` collision returned a number; reserved `id` collision returned the string document ID                    |
+| Temporary native-leaf type probe          | Confirmed projected `Timestamp.toMillis()` loses its callable type under `DeepPartial`                                  |
+
+The temporary probes were removed after execution. The only other uncommitted workspace change is
+the user's existing `.gitignore` edit, which this review leaves untouched.
+
+### Revised acceptance order after round 3
+
+Before publishing v3:
+
+1. Reject the reserved `id` distance-result name and make ordinary distance-field collisions replace
+   the prior property in the result type instead of intersecting to `never`.
+2. Preserve native Firestore leaf/scalar APIs through `DeepPartial` and add focused type coverage.
+3. Replace the remaining stale `Partial<T>` source/doc references and curate the generated changelog
+   wording.
+4. Rerun the full release gate, all three packed Admin consumers, collision/leaf regressions,
+   workflow validation, and the release rehearsal from the final commit.
+
+After those changes, I would consider the round-1 through round-3 implementation and release
+engineering findings closed. The intentionally deferred server-side parity work remains properly
+tracked as v3.x scope.

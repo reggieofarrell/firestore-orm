@@ -41,9 +41,6 @@ type Leaf =
   | readonly unknown[]
   | ((...args: any[]) => any);
 
-/** `true` when `V` is a terminal leaf type (wrapped in a tuple to avoid union distribution). */
-type IsLeaf<V> = [V] extends [Leaf] ? true : false;
-
 /** `true` for the `string`/`number` index-signature key, `false` for a literal key. */
 type IsIndexKey<K extends PropertyKey> = string extends K ? true : number extends K ? true : false;
 
@@ -80,8 +77,12 @@ export type FieldPaths<T, D extends number = 6> = [D] extends [never]
       ? {
           [K in LiteralKeys<T>]:
             | K
-            | (NonNullable<T[K]> extends infer V
-                ? IsLeaf<V> extends true
+            // Recurse only into the MAP members of the field: drop every leaf member first
+            // (`Exclude<…, Leaf>`) so a union like `Timestamp | { legacy }` contributes
+            // `${K}.legacy` but never a class method such as `${K}.toMillis`. A field with no map
+            // member (all leaves) contributes no dotted child paths.
+            | (Exclude<NonNullable<T[K]>, Leaf> extends infer V
+                ? [V] extends [never]
                   ? never
                   : V extends object
                     ? `${K}.${FieldPaths<V, Decr[D]>}`
@@ -125,11 +126,24 @@ export type NumericFieldPaths<T> = {
  * makes nested map properties optional, so a dotted projection such as `select('address.city')` does
  * not leave the unselected sibling `address.zip` statically required once `address` is guarded.
  *
- * Only plain (map) objects recurse. Every {@link Leaf} type is preserved whole so a selected value
- * keeps its real API after the parent is guarded — scalars, `Date`, Firestore value classes
- * (`Timestamp`, `GeoPoint`, `DocumentReference`, `FieldValue`, structural vector values), byte values
- * (`Uint8Array`/`Buffer`), functions, and **arrays** (a Firestore field mask never projects into
- * array elements, so the array is returned whole rather than element-partialized).
+ * The leaf test is **distributive**: each member of a union is judged individually, so a field typed
+ * `Timestamp | { legacy: string }` preserves the `Timestamp` member whole and recurses only into the
+ * map member. Every {@link Leaf} type is preserved so a selected value keeps its real API after the
+ * parent is guarded — scalars, `Date`, Firestore value classes (`Timestamp`, `GeoPoint`,
+ * `DocumentReference`, `FieldValue`, structural vector values), byte values (`Uint8Array`/`Buffer`),
+ * functions, and **arrays** (a Firestore field mask never projects into array elements, so the array
+ * is returned whole rather than element-partialized).
+ *
+ * Limitation: any object type NOT enumerated as a `Leaf` recurses. In particular, an arbitrary class
+ * instance produced by a `readConverter` as a *field value* has its methods typed optional after a
+ * projection (conservative — a `?.` guard restores them, but the runtime value is complete).
+ * Structural typing cannot distinguish such a class from a plain map that happens to have a method
+ * without reintroducing the dotted-sibling unsoundness this type exists to prevent, so if you rely on
+ * a class-instance field's methods after `select(...)`, treat that field as atomic or map it at the
+ * top level with the repository `readConverter` (which already may not compose with a projection).
  */
-export type DeepPartial<T> =
-  IsLeaf<T> extends true ? T : T extends object ? { [K in keyof T]?: DeepPartial<T[K]> } : T;
+export type DeepPartial<T> = T extends Leaf
+  ? T
+  : T extends object
+    ? { [K in keyof T]?: DeepPartial<T[K]> }
+    : T;

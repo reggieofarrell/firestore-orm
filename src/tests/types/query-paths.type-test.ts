@@ -204,3 +204,34 @@ export function deepPartialPreservesLeafApis(row: DeepPartial<LeafyDoc>) {
   // Arrays are preserved whole (not element-partialized), so element access is fully typed.
   if (row.tags) row.tags[0]?.toUpperCase();
 }
+
+// The leaf test is distributive per union member: a field typed `<leaf> | <map>` preserves the leaf
+// member whole and makes the map member's properties optional (rather than partializing the leaf).
+type MixedDoc = {
+  id: string;
+  ts: Timestamp | { legacy: string };
+  when: Date | { iso: string };
+  bytes: Uint8Array | { raw: string };
+};
+
+export function deepPartialDistributesOverUnions(row: DeepPartial<MixedDoc>) {
+  if (row.ts && 'toMillis' in row.ts) {
+    row.ts.toMillis().toFixed(); // Timestamp member preserved whole (callable)
+  }
+  if (row.ts && 'legacy' in row.ts) {
+    row.ts.legacy?.toUpperCase(); // map member's property is optional
+  }
+  if (row.when && 'getTime' in row.when) row.when.getTime().toFixed();
+  if (row.bytes && 'byteLength' in row.bytes) row.bytes.byteLength.toFixed();
+}
+
+// `FieldPaths` recurses only into the MAP members of a mixed union — it must expose the map's nested
+// field but never a leaf member's class method.
+const mixedPaths: FieldPaths<MixedDoc>[] = ['id', 'ts', 'ts.legacy', 'when', 'when.iso', 'bytes'];
+export const _mixedPaths = mixedPaths;
+
+export function fieldPathsExcludesClassMethods() {
+  // @ts-expect-error `toMillis` is a Timestamp method, not a queryable nested Firestore field path
+  const bad: FieldPaths<MixedDoc> = 'ts.toMillis';
+  return bad;
+}

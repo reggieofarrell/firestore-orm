@@ -56,7 +56,9 @@ export type FindNearestOptions<
 export type VectorSearchResult<T, DistanceField extends string | undefined = undefined> = (T & {
   id: ID;
 }) &
-  (DistanceField extends string ? Record<DistanceField, number> : Record<string, never>);
+  // When a distance field is configured, add it as a numeric property; otherwise add nothing
+  // (`& unknown` is a no-op, so a non-configured field is genuinely absent from the type).
+  (DistanceField extends string ? Record<DistanceField, number> : unknown);
 
 const VECTOR_DISTANCE_MEASURES = new Set<string>(Object.values(VectorDistanceMeasure));
 
@@ -101,7 +103,7 @@ export function validateFindNearestOptions(
     throw new Error('findNearest() requires an options object.');
   }
 
-  if (!options.vectorField || typeof options.vectorField !== 'string') {
+  if (typeof options.vectorField !== 'string' || options.vectorField.trim() === '') {
     throw new Error('findNearest() requires a non-empty string vectorField.');
   }
 
@@ -109,7 +111,8 @@ export function validateFindNearestOptions(
     throw new Error('findNearest() requires queryVector to be a non-empty number array.');
   }
 
-  if (options.queryVector.some(value => typeof value !== 'number' || Number.isNaN(value))) {
+  if (options.queryVector.some(value => typeof value !== 'number' || !Number.isFinite(value))) {
+    // Number.isFinite rejects NaN AND +/-Infinity (Number.isNaN would let infinities through).
     throw new Error('findNearest() requires queryVector to contain only finite numbers.');
   }
 
@@ -135,15 +138,16 @@ export function validateFindNearestOptions(
 
   if (
     options.distanceResultField !== undefined &&
-    typeof options.distanceResultField !== 'string'
+    (typeof options.distanceResultField !== 'string' || options.distanceResultField.trim() === '')
   ) {
-    throw new Error('findNearest() distanceResultField must be a string when provided.');
+    throw new Error('findNearest() distanceResultField must be a non-empty string when provided.');
   }
 
   if (
     options.distanceThreshold !== undefined &&
-    (typeof options.distanceThreshold !== 'number' || Number.isNaN(options.distanceThreshold))
+    (typeof options.distanceThreshold !== 'number' || !Number.isFinite(options.distanceThreshold))
   ) {
+    // Number.isFinite rejects NaN AND +/-Infinity.
     throw new Error('findNearest() distanceThreshold must be a finite number when provided.');
   }
 }

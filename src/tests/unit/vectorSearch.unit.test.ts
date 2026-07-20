@@ -144,13 +144,20 @@ describe('VectorSearch utilities', () => {
     ).toThrow(/distanceMeasure must be one of/i);
   });
 
-  it('should reject invalid distanceResultField types', () => {
+  it('should reject invalid or empty distanceResultField values', () => {
     expect(() =>
       validateFindNearestOptions({
         ...validOptions,
         distanceResultField: 42 as never,
       }),
-    ).toThrow(/distanceResultField must be a string/i);
+    ).toThrow(/distanceResultField must be a non-empty string/i);
+
+    expect(() =>
+      validateFindNearestOptions({
+        ...validOptions,
+        distanceResultField: '   ',
+      }),
+    ).toThrow(/distanceResultField must be a non-empty string/i);
   });
 
   it('should reject invalid distanceThreshold values', () => {

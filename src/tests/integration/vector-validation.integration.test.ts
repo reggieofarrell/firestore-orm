@@ -42,16 +42,23 @@ describe('Vector validation integration', () => {
       expect(() => validateFindNearestOptions(undefined as never)).toThrow(/options object/i);
     });
 
-    it('should reject invalid vectorField values', () => {
+    it('should reject empty or whitespace-only vectorField values', () => {
       expect(() =>
         validateFindNearestOptions({
           ...findNearestBase,
           vectorField: '' as 'embedding',
         }),
       ).toThrow(/vectorField/i);
+
+      expect(() =>
+        validateFindNearestOptions({
+          ...findNearestBase,
+          vectorField: '   ' as 'embedding',
+        }),
+      ).toThrow(/vectorField/i);
     });
 
-    it('should reject empty or invalid queryVector values', () => {
+    it('should reject empty, NaN, or infinite queryVector values', () => {
       expect(() =>
         validateFindNearestOptions({
           ...findNearestBase,
@@ -63,6 +70,14 @@ describe('Vector validation integration', () => {
         validateFindNearestOptions({
           ...findNearestBase,
           queryVector: [1, Number.NaN],
+        }),
+      ).toThrow(/finite numbers/i);
+
+      // Number.isFinite (not Number.isNaN) also rejects +/-Infinity.
+      expect(() =>
+        validateFindNearestOptions({
+          ...findNearestBase,
+          queryVector: [1, Number.POSITIVE_INFINITY],
         }),
       ).toThrow(/finite numbers/i);
     });
@@ -103,12 +118,28 @@ describe('Vector validation integration', () => {
           ...findNearestBase,
           distanceResultField: 42 as never,
         }),
-      ).toThrow(/distanceResultField must be a string/i);
+      ).toThrow(/distanceResultField must be a non-empty string/i);
+
+      // Empty / whitespace-only distance-result field names are rejected.
+      expect(() =>
+        validateFindNearestOptions({
+          ...findNearestBase,
+          distanceResultField: '   ',
+        }),
+      ).toThrow(/distanceResultField must be a non-empty string/i);
 
       expect(() =>
         validateFindNearestOptions({
           ...findNearestBase,
           distanceThreshold: Number.NaN,
+        }),
+      ).toThrow(/distanceThreshold must be a finite number/i);
+
+      // Number.isFinite also rejects +/-Infinity thresholds.
+      expect(() =>
+        validateFindNearestOptions({
+          ...findNearestBase,
+          distanceThreshold: Number.POSITIVE_INFINITY,
         }),
       ).toThrow(/distanceThreshold must be a finite number/i);
     });
@@ -143,6 +174,15 @@ describe('Vector validation integration', () => {
       expect(schema.safeParse(FieldValue.vector([1, 2, 3])).success).toBe(true);
       expect(schema.safeParse([1, 2]).success).toBe(false);
       expect(schema.safeParse([1, Number.NaN, 3]).success).toBe(false);
+      // Number.isFinite (not Number.isNaN) also rejects +/-Infinity components.
+      expect(schema.safeParse([1, Number.POSITIVE_INFINITY, 3]).success).toBe(false);
+    });
+
+    it('should reject an invalid dimensions argument', () => {
+      expect(() => vectorEmbeddingSchema(0)).toThrow(/positive integer/i);
+      expect(() => vectorEmbeddingSchema(-1)).toThrow(/positive integer/i);
+      expect(() => vectorEmbeddingSchema(2.5)).toThrow(/positive integer/i);
+      expect(() => vectorEmbeddingSchema(10_000)).toThrow(/positive integer/i);
     });
 
     it('should validate schemas without fixed dimensions', () => {

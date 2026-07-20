@@ -7,6 +7,7 @@ import {
   assertVectorSearchSupported,
   FindNearestOptions,
   validateFindNearestOptions,
+  VectorSearchResult,
 } from './VectorSearch.js';
 
 /**
@@ -77,7 +78,9 @@ export class VectorQueryBuilder<T extends { id?: string }, R = T & { id: ID }> {
   /**
    * Configure a Firestore nearest-neighbor vector search.
    */
-  findNearest<K extends Extract<keyof T, string>>(options: FindNearestOptions<T, K>): this {
+  findNearest<K extends Extract<keyof T, string>, DF extends string | undefined = undefined>(
+    options: FindNearestOptions<T, K> & { distanceResultField?: DF },
+  ): VectorQueryBuilder<T, VectorSearchResult<T, DF>> {
     if (this.vectorQuery) {
       throw new Error('findNearest() can only be called once per query.');
     }
@@ -103,7 +106,9 @@ export class VectorQueryBuilder<T extends { id?: string }, R = T & { id: ID }> {
         : {}),
     }) as FirestoreVectorQuery<T>;
 
-    return this;
+    // Runtime is unchanged; the return type carries the configured distanceResultField (when a
+    // literal is provided) into the result shape via VectorSearchResult<T, DF>.
+    return this as unknown as VectorQueryBuilder<T, VectorSearchResult<T, DF>>;
   }
 
   /**

@@ -5,6 +5,7 @@ import { DeepPartial, FieldPaths } from '../utils/pathTypes.js';
 import { FieldPath, QueryDocumentSnapshot, WhereFilterOp } from 'firebase-admin/firestore';
 import {
   assertVectorSearchSupported,
+  DistanceFieldResult,
   FindNearestOptions,
   validateFindNearestOptions,
 } from './VectorSearch.js';
@@ -100,7 +101,7 @@ export class VectorQueryBuilder<T extends { id?: string }, R = T & { id: ID }> {
    */
   findNearest<K extends Extract<keyof T, string>, DF extends string | undefined = undefined>(
     options: FindNearestOptions<T, K> & { distanceResultField?: DF },
-  ): VectorQueryBuilder<T, DF extends string ? Omit<R, DF> & Record<DF, number> : R> {
+  ): VectorQueryBuilder<T, DF extends string ? DistanceFieldResult<R, DF> : R> {
     if (this.vectorQuery) {
       throw new Error('findNearest() can only be called once per query.');
     }
@@ -139,14 +140,13 @@ export class VectorQueryBuilder<T extends { id?: string }, R = T & { id: ID }> {
         : {}),
     }) as FirestoreVectorQuery<T>;
 
-    // Runtime is unchanged; the return type carries the configured distanceResultField (when a
-    // literal is provided) into the CURRENT result shape `R` — so a prior select() projection is
-    // preserved (DeepPartial<T> & { id } & { [DF]: number }) instead of being reset to the full
-    // model. The distance field REPLACES any colliding key (Omit<R, DF> & Record<DF, number>) rather
-    // than intersecting to `never`, matching Firestore's runtime behavior of overwriting the field.
+    // Runtime is unchanged; the return type carries the configured distanceResultField into the
+    // CURRENT result shape `R` (so a prior select() projection is preserved) via DistanceFieldResult:
+    // a literal field REPLACES any colliding key with the numeric distance; reserved 'id' resolves to
+    // never; a broad `string` degrades to a conservative shape (see DistanceFieldResult).
     return this as unknown as VectorQueryBuilder<
       T,
-      DF extends string ? Omit<R, DF> & Record<DF, number> : R
+      DF extends string ? DistanceFieldResult<R, DF> : R
     >;
   }
 

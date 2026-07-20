@@ -52,19 +52,34 @@ export type FindNearestOptions<
 }>;
 
 /**
- * Document shape returned from vector search, optionally including a computed distance field.
+ * Result shape when a computed distance field named `DF` is added to a base result `R`.
  *
- * When a distance field is configured, it is added as a numeric property that **replaces** any
- * colliding key (`Omit<…, DistanceField> & Record<DistanceField, number>`) — matching Firestore's
- * runtime behavior of overwriting the stored field with the computed distance — rather than
- * intersecting (which would collapse a collision to `never`). A non-configured field is genuinely
- * absent from the type.
+ * - **Literal `DF`** (e.g. `'score'`): the distance **replaces** any colliding key
+ *   (`Omit<R, DF> & Record<DF, number>`) — matching Firestore's runtime overwrite — rather than
+ *   intersecting (which would collapse a collision to `never`).
+ * - **Literal `'id'`** (reserved; rejected at runtime): resolves to `never` so the type cannot
+ *   describe a result the runtime validator forbids.
+ * - **Broad `string`** (a non-literal field name, e.g. from a variable): conservative — `id` keeps
+ *   its ID type (a successful call can never use the rejected `'id'`), every other known field is
+ *   `R[K] | number` (the runtime name may collide with any one), and arbitrary keys are `unknown`.
+ *   It never promises that all known fields became numbers. Pass a string **literal** for precise
+ *   per-field typing.
+ */
+export type DistanceFieldResult<R, DF extends string> = string extends DF
+  ? { [K in keyof R]: K extends 'id' ? R[K] : R[K] | number } & Record<string, unknown>
+  : 'id' extends DF
+    ? never
+    : Omit<R, DF> & Record<DF, number>;
+
+/**
+ * Document shape returned from vector search, optionally including a computed distance field. See
+ * {@link DistanceFieldResult} for the collision/reserved-`id`/broad-`string` rules.
  */
 export type VectorSearchResult<
   T,
   DistanceField extends string | undefined = undefined,
 > = DistanceField extends string
-  ? Omit<T & { id: ID }, DistanceField> & Record<DistanceField, number>
+  ? DistanceFieldResult<T & { id: ID }, DistanceField>
   : T & { id: ID };
 
 const VECTOR_DISTANCE_MEASURES = new Set<string>(Object.values(VectorDistanceMeasure));

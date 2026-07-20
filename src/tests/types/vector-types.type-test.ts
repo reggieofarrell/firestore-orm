@@ -6,6 +6,7 @@
 import { z } from 'zod';
 import { FirestoreRepository } from '../../index.js';
 import { withVectorSearch } from '../../vector/index.js';
+import type { VectorSearchResult } from '../../vector/index.js';
 
 declare const db: FirebaseFirestore.Firestore;
 
@@ -160,4 +161,84 @@ export async function distanceFieldDottedName() {
 
   const distance: number = rows[0]['metrics.distance'];
   return distance;
+}
+
+// Regression: a NON-literal (broad `string`) distanceResultField must NOT type every field as number.
+// The conservative shape keeps `id` as its string type, types other known fields as `T | number`, and
+// exposes arbitrary keys as `unknown` — so unsound numeric assumptions are compile errors.
+export async function dynamicDistanceFieldIsConservative(distanceField: string) {
+  const rows = await vectorRepo
+    .query()
+    .findNearest({
+      vectorField: 'embedding',
+      queryVector: [0.1, 0.2, 0.3],
+      limit: 1,
+      distanceMeasure: 'COSINE',
+      distanceResultField: distanceField,
+    })
+    .get();
+
+  rows[0].id.toUpperCase(); // id stays a string
+  // @ts-expect-error id is not a number under a broad distance-field name
+  rows[0].id.toFixed();
+  // @ts-expect-error a known field may still be its original type (string) — not unconditionally number
+  const n: number = rows[0].name;
+  const either: string | number = rows[0].name; // it is string | number
+  const dynamic: unknown = rows[0][distanceField]; // arbitrary key is unknown, not number
+  return { n, either, dynamic };
+}
+
+// A `string | undefined` field name behaves like the broad case (conservative), not the empty case.
+export async function optionalStringDistanceField(distanceField: string | undefined) {
+  const rows = await vectorRepo
+    .query()
+    .findNearest({
+      vectorField: 'embedding',
+      queryVector: [0.1, 0.2, 0.3],
+      limit: 1,
+      distanceMeasure: 'COSINE',
+      distanceResultField: distanceField,
+    })
+    .get();
+  rows[0].id.toUpperCase();
+  return rows;
+}
+
+// A union of literal names uses the precise (replacement) branch, distributed per member — NOT the
+// broad conservative shape. So the untouched model field keeps its exact type (string), proving we
+// did not fall into the `string`-widened branch (where it would be `string | number`).
+export async function unionLiteralDistanceField(useScore: boolean) {
+  const rows = await vectorRepo
+    .query()
+    .findNearest({
+      vectorField: 'embedding',
+      queryVector: [0.1, 0.2, 0.3],
+      limit: 1,
+      distanceMeasure: 'COSINE',
+      distanceResultField: useScore ? ('score' as const) : ('dist' as const),
+    })
+    .get();
+  const name: string = rows[0].name; // exact string (literal branch), not string | number
+  // @ts-expect-error the field name is one of the union members; `score` is not guaranteed present
+  const maybeScore: number = rows[0].score;
+  return { name, maybeScore };
+}
+
+// The exported VectorSearchResult type follows the same rules for a broad string vs a literal.
+type Model = { id: string; name: string; embedding: number[] };
+export function vectorSearchResultTyping(
+  broad: VectorSearchResult<Model, string>,
+  literal: VectorSearchResult<Model, 'score'>,
+) {
+  broad.id.toUpperCase(); // id preserved
+  // @ts-expect-error broad result never promises a known field is numeric
+  const bn: number = broad.name;
+  const score: number = literal.score; // literal adds a numeric distance field
+  literal.name.toUpperCase(); // untouched model field
+  return { bn, score };
+}
+
+// The exported type resolves a reserved literal `id` distance field to `never` (rejected at runtime).
+export function vectorSearchResultReservedId(): never {
+  return undefined as unknown as VectorSearchResult<Model, 'id'>;
 }

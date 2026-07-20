@@ -114,3 +114,44 @@ describe('FirestoreRepository bulkCreate return + hook contracts', () => {
     }
   });
 });
+
+describe('FirestoreRepository bulk duplicate-id rejection', () => {
+  const harness = createUserRepoHarness('test_users_bulk_dupes');
+  const { userRepo, trackUser, cleanupTrackedUsers, cleanupCollection } = harness;
+
+  afterEach(async () => {
+    await cleanupTrackedUsers();
+  });
+
+  afterAll(async () => {
+    await cleanupCollection();
+  });
+
+  it('bulkUpdate rejects duplicate ids', async () => {
+    const user = await userRepo.create(createTestUserInput({ name: 'Dup Update' }));
+    trackUser(user.id);
+    await expect(
+      userRepo.bulkUpdate([
+        { id: user.id, data: { name: 'A' } },
+        { id: user.id, data: { name: 'B' } },
+      ]),
+    ).rejects.toThrow(/duplicate document id/i);
+  });
+
+  it('bulkPatch rejects duplicate ids', async () => {
+    const user = await userRepo.create(createTestUserInput({ name: 'Dup Patch' }));
+    trackUser(user.id);
+    await expect(
+      userRepo.bulkPatch([
+        { id: user.id, data: { name: 'A' } as any },
+        { id: user.id, data: { name: 'B' } as any },
+      ]),
+    ).rejects.toThrow(/duplicate document id/i);
+  });
+
+  it('bulkDelete rejects duplicate ids', async () => {
+    const user = await userRepo.create(createTestUserInput({ name: 'Dup Delete' }));
+    trackUser(user.id);
+    await expect(userRepo.bulkDelete([user.id, user.id])).rejects.toThrow(/duplicate document id/i);
+  });
+});

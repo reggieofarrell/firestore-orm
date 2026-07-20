@@ -543,6 +543,29 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
   }
 
   /**
+   * Rejects duplicate document ids in a bulk operation. Two actions targeting the same document in
+   * one batch are ambiguous (for updates, which payload wins?) and inflate result counts, so require
+   * the caller to deduplicate first rather than guessing intent.
+   */
+  private assertNoDuplicateIds(ids: ID[], operation: string): void {
+    const seen = new Set<ID>();
+    const duplicates = new Set<ID>();
+    for (const id of ids) {
+      if (seen.has(id)) {
+        duplicates.add(id);
+      }
+      seen.add(id);
+    }
+    if (duplicates.size > 0) {
+      throw new Error(
+        `${operation}() received duplicate document id(s): ${[...duplicates].join(', ')}. ` +
+          'Deduplicate ids before calling — multiple actions on the same document in one bulk ' +
+          'operation are ambiguous.',
+      );
+    }
+  }
+
+  /**
    * Normalize update payloads into dot-notation form for merge-style updates.
    * This keeps nested-object updates explicit at field-path level while allowing
    * callers to mix regular nested objects and pre-defined dot-notation keys.
@@ -1117,6 +1140,10 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
     updates: { id: ID; data: UpdateInput<W> }[],
     merge: boolean,
   ): Promise<{ id: ID }[]> {
+    this.assertNoDuplicateIds(
+      updates.map(u => u.id),
+      merge ? 'bulkPatch' : 'bulkUpdate',
+    );
     try {
       await this.runHooks('beforeBulkUpdate', updates);
       const actions: ((batch: FirebaseFirestore.WriteBatch) => void)[] = [];
@@ -1306,6 +1333,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * await userRepo.bulkDelete(testUserIds);
    */
   async bulkDelete(ids: ID[]): Promise<number> {
+    this.assertNoDuplicateIds(ids, 'bulkDelete');
     try {
       const snapshots = await Promise.all(ids.map(id => this.readCol().doc(id).get()));
 
@@ -1553,6 +1581,15 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
     );
   }
 
+  /**
+   * Commits write actions in sequential chunks of 500 (the Firestore batch limit).
+   *
+   * IMPORTANT — non-atomic above 500 operations: each 500-op chunk commits independently, so an
+   * operation set larger than 500 writes is NOT globally atomic. If a later chunk fails, earlier
+   * chunks remain committed and the operation's after-hook does not run. Bulk operations at or below
+   * 500 writes commit as a single atomic batch. Use a transaction if you need all-or-nothing
+   * semantics across more than 500 documents.
+   */
   private async commitInChunks(
     actions: ((batch: FirebaseFirestore.WriteBatch) => void)[],
   ): Promise<void> {

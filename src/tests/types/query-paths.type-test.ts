@@ -51,6 +51,38 @@ export function queryFieldPathNegatives() {
   repo.query().select('nope');
 }
 
+// `select(...)` narrows the terminal-read result shape to `Partial<T> & { id }`, so a field that
+// was projected away becomes possibly-undefined and unsafe to access without a guard.
+export async function projectionNarrowsResultType() {
+  // Full read: every field is present with its exact type.
+  const full = await repo.query().get();
+  full[0].createdAt.getTime();
+  full[0].name.toUpperCase();
+
+  // Projected read: result narrows to Partial<Doc> & { id }.
+  const projected = await repo.query().select('name').get();
+  projected[0].id.toUpperCase(); // id is always present
+  // @ts-expect-error a projected-away field is not guaranteed present after select()
+  projected[0].createdAt.getTime();
+
+  // getOne on a projection returns the narrowed shape (or null).
+  const one = await repo.query().select('name').getOne();
+  if (one) {
+    one.id.toUpperCase();
+    // @ts-expect-error projected result: this field may be absent
+    one.createdAt.getTime();
+  }
+
+  // stream / paginate / offsetPaginate carry the projection too.
+  for await (const doc of repo.query().select('name').stream()) {
+    // @ts-expect-error streamed projected doc: field may be absent
+    doc.createdAt.getTime();
+  }
+  const page = await repo.query().select('name').orderBy('name').paginate(10);
+  // @ts-expect-error paginated projected item: field may be absent
+  page.items[0].createdAt.getTime();
+}
+
 // `PathValue` resolves the read-model type at a (possibly dotted) path.
 const city: PathValue<Doc, 'address.city'> = 'x'; // string
 const email: PathValue<Doc, 'settings.notifications.email'> = true; // boolean

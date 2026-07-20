@@ -23,7 +23,7 @@ type FirestoreVectorQuery<T> = {
  * Wraps the core {@link FirestoreQueryBuilder} and delegates standard filters
  * until `findNearest()` transitions the query into vector mode.
  */
-export class VectorQueryBuilder<T extends { id?: string }> {
+export class VectorQueryBuilder<T extends { id?: string }, R = T & { id: ID }> {
   private vectorQuery: FirestoreVectorQuery<T> | null = null;
 
   // Accepts a core builder with any write model `W`; vector queries do not expose update().
@@ -64,12 +64,14 @@ export class VectorQueryBuilder<T extends { id?: string }> {
    * Select specific fields before findNearest().
    * When using distanceResultField, include that field name in select().
    */
-  select(...fields: (FieldPaths<T> | FieldPath)[]): this {
+  select(...fields: (FieldPaths<T> | FieldPath)[]): VectorQueryBuilder<T, Partial<T> & { id: ID }> {
     if (this.vectorQuery) {
       throw new Error('select() cannot be called after findNearest().');
     }
     this.coreBuilder.select(...fields);
-    return this;
+    // Runtime is unchanged; the return type narrows the result shape (fields projected away become
+    // compile errors when accessed).
+    return this as unknown as VectorQueryBuilder<T, Partial<T> & { id: ID }>;
   }
 
   /**
@@ -107,7 +109,7 @@ export class VectorQueryBuilder<T extends { id?: string }> {
   /**
    * Execute the vector query and return all matching documents.
    */
-  async get(): Promise<(T & { id: ID })[]> {
+  async get(): Promise<R[]> {
     if (!this.vectorQuery) {
       throw new Error('get() on a vector query requires findNearest() to be called first.');
     }
@@ -117,7 +119,7 @@ export class VectorQueryBuilder<T extends { id?: string }> {
       return snapshot.docs.map((doc: QueryDocumentSnapshot<T>) => ({
         ...(doc.data() as T),
         id: doc.id,
-      }));
+      })) as unknown as R[];
     } catch (error: unknown) {
       throw parseFirestoreError(error);
     }
@@ -126,7 +128,7 @@ export class VectorQueryBuilder<T extends { id?: string }> {
   /**
    * Return the single nearest document or null when no matches exist.
    */
-  async getOne(): Promise<(T & { id: ID }) | null> {
+  async getOne(): Promise<R | null> {
     const results = await this.get();
     return results[0] ?? null;
   }

@@ -27,7 +27,14 @@ export type PaginatedResult<T extends { id?: string }> = {
   hasMore: boolean;
 };
 
-export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
+/**
+ * @template T - The document (read model) type
+ * @template W - The write model type (for `update`)
+ * @template R - The current result shape of terminal reads. Defaults to the full `T & { id }`;
+ *   `select(...)` narrows it to `Partial<T> & { id }` so fields projected away become compile
+ *   errors when accessed (Firestore returns only the selected fields at runtime).
+ */
+export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { id: ID }> {
   private query: Query<any>;
   private hasOrderBy = false;
 
@@ -149,9 +156,13 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
    *
    * @returns The query builder instance
    */
-  select(...fields: (FieldPaths<T> | FieldPath)[]): this {
+  select(
+    ...fields: (FieldPaths<T> | FieldPath)[]
+  ): FirestoreQueryBuilder<T, W, Partial<T> & { id: ID }> {
     this.query = this.query.select(...(fields as (string | FieldPath)[]));
-    return this;
+    // Runtime is unchanged (same builder instance); the return type narrows the result shape so
+    // callers must null-check fields that were projected away.
+    return this as unknown as FirestoreQueryBuilder<T, W, Partial<T> & { id: ID }>;
   }
 
   /**
@@ -394,7 +405,10 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
    *   .orderBy('price', 'desc')
    *   .paginate(20, firstPage.nextCursor);
    */
-  async paginate(pageSize: number, cursor?: string | null): Promise<PaginatedResult<T>> {
+  async paginate(
+    pageSize: number,
+    cursor?: string | null,
+  ): Promise<{ items: R[]; nextCursor: string | null; hasMore: boolean }> {
     try {
       if (pageSize <= 0) {
         throw new Error('pageSize must be a positive number');
@@ -419,7 +433,10 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
       const snapshot: QuerySnapshot = await finalQuery.get();
       const hasMore = snapshot.docs.length > pageSize;
       const pageDocs = hasMore ? snapshot.docs.slice(0, pageSize) : snapshot.docs;
-      const items = pageDocs.map(doc => ({ ...(doc.data() as T), id: doc.id }));
+      const items = pageDocs.map(doc => ({
+        ...(doc.data() as T),
+        id: doc.id,
+      })) as unknown as R[];
 
       const last = pageDocs[pageDocs.length - 1];
       const nextCursor = hasMore && last ? this.encodeCursor(last) : null;
@@ -452,7 +469,7 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
     page: number,
     pageSize: number,
   ): Promise<{
-    items: (T & { id: ID })[];
+    items: R[];
     page: number;
     pageSize: number;
     total: number;
@@ -466,7 +483,10 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
       finalQuery = finalQuery.offset(offset).limit(pageSize);
 
       const snapshot = await finalQuery.get();
-      const items = snapshot.docs.map(doc => ({ ...(doc.data() as T), id: doc.id }));
+      const items = snapshot.docs.map(doc => ({
+        ...(doc.data() as T),
+        id: doc.id,
+      })) as unknown as R[];
 
       return {
         items,
@@ -499,7 +519,7 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
    *   .orderBy('price', 'asc')
    *   .getOne();
    */
-  async getOne(): Promise<(T & { id: ID }) | null> {
+  async getOne(): Promise<R | null> {
     const results = await this.limit(1).get();
     return results[0] || null;
   }
@@ -631,10 +651,12 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
    *   csvStream.write(`${user.name},${user.email}\n`);
    * }
    */
-  async *stream(): AsyncGenerator<T & { id: ID }> {
+  async *stream(): AsyncGenerator<R> {
     try {
       const snapshot = await this.query.get();
-      for (const doc of snapshot.docs) yield { ...(doc.data() as T), id: doc.id };
+      for (const doc of snapshot.docs) {
+        yield { ...(doc.data() as T), id: doc.id } as unknown as R;
+      }
     } catch (error: any) {
       throw parseFirestoreError(error);
     }
@@ -664,7 +686,7 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
    * unsubscribe();
    */
   async onSnapshot(
-    callback: (items: (T & { id: ID })[]) => void,
+    callback: (items: R[]) => void,
     onError?: (error: Error) => void,
   ): Promise<() => void> {
     try {
@@ -673,7 +695,7 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
           const items = snapshot.docs.map(doc => ({
             ...(doc.data() as T),
             id: doc.id,
-          }));
+          })) as unknown as R[];
           callback(items);
         },
         error => {
@@ -704,7 +726,7 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
   async paginateWithCount(
     pageSize: number,
     cursor?: string | null,
-  ): Promise<PaginatedResult<T> & { total: number }> {
+  ): Promise<{ items: R[]; nextCursor: string | null; hasMore: boolean; total: number }> {
     try {
       const total = await this.count();
       const result = await this.paginate(pageSize, cursor);
@@ -744,10 +766,10 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
    *   .limit(50)
    *   .get();
    */
-  async get(): Promise<(T & { id: ID })[]> {
+  async get(): Promise<R[]> {
     try {
       const snapshot: QuerySnapshot = await this.query.get();
-      return snapshot.docs.map(doc => ({ ...(doc.data() as T), id: doc.id }));
+      return snapshot.docs.map(doc => ({ ...(doc.data() as T), id: doc.id })) as unknown as R[];
     } catch (error: any) {
       throw parseFirestoreError(error);
     }

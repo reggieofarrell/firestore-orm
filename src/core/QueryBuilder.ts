@@ -653,8 +653,12 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { i
    */
   async *stream(): AsyncGenerator<R> {
     try {
-      const snapshot = await this.query.get();
-      for (const doc of snapshot.docs) {
+      // Use the Admin SDK's native query stream so documents are yielded incrementally as they
+      // arrive, rather than buffering the entire result set via get(). Node readable streams are
+      // async-iterable, so `for await` drives them directly; per-document conversion and error
+      // semantics are preserved.
+      const source = this.query.stream() as AsyncIterable<QueryDocumentSnapshot<any>>;
+      for await (const doc of source) {
         yield { ...(doc.data() as T), id: doc.id } as unknown as R;
       }
     } catch (error: any) {

@@ -51,9 +51,11 @@ const result = await repo.runInTransaction(async (tx, repo) => {
 await sendEmail(result.email);
 ```
 
-> Note: `query().update()` and `query().delete()` never run hooks either — hooks only run through
-> the repository's own write methods (and, for `before*`, the tx-scoped helpers above). See
-> [Lifecycle hooks](./lifecycle-hooks/) and [Transactions](./transactions/).
+> Note: `query().update()` and `query().delete()` **do** run the bulk hooks
+> (`beforeBulkUpdate`/`afterBulkUpdate`, `beforeBulkDelete`/`afterBulkDelete`) — they do not run the
+> per-document `before/afterUpdate` / `before/afterDelete` hooks. Inside transactions, only
+> `before*` hooks run (via the tx-scoped helpers above). See [Lifecycle hooks](./lifecycle-hooks/)
+> and [Transactions](./transactions/).
 
 ## 3. "in" Query Limit (30 values)
 

@@ -167,8 +167,8 @@ export const userRepo = FirestoreRepository.withSchema(db, 'users', userSchema);
 ### 4. Start Building
 
 ```typescript
-// Create a user
-const user = await userRepo.create({
+// Create a user (returns { id } by default; pass { returnDoc: true } for the full read model)
+const { id: userId } = await userRepo.create({
   name: 'John Doe',
   email: 'john@example.com',
   age: 30,
@@ -187,13 +187,13 @@ const activeUsers = await userRepo
   .get();
 
 // Update a user (returns { id } by default)
-const { id: updatedUserId } = await userRepo.update(user.id, {
+const { id: updatedUserId } = await userRepo.update(userId, {
   status: 'inactive',
   updatedAt: new Date().toISOString(),
 });
 
 // Delete user
-await userRepo.delete(user.id);
+await userRepo.delete(userId);
 ```
 
 ## Documentation

@@ -147,15 +147,19 @@ const userEmails = await userRepo
 
 ## Bulk query operations
 
-`query().update(data)` and `query().delete()` apply to every document matching the query and each
-return the **matched count**.
+`query().update(data)` updates every document matching the query and returns the number of documents
+**written**; `query().delete()` deletes every matching document and returns the **matched (deleted)
+count**.
 
-> **Note:** Lifecycle hooks do **not** run for `query().update()` or `query().delete()`. If you need
-> per-document hooks (see [Lifecycle hooks](./lifecycle-hooks/)), iterate and call the
-> single-document methods instead.
+> **Note:** `query().update()` runs the **bulk** lifecycle hooks `beforeBulkUpdate` (which may
+> mutate the update payload before validation) and `afterBulkUpdate` (receiving `{ ids }` of the
+> written documents); `query().delete()` runs `beforeBulkDelete` and `afterBulkDelete` (receiving
+> `{ ids, documents }`). The per-document `before/afterUpdate` and `before/afterDelete` hooks do not
+> run here — use the single-document methods if you need those. See
+> [Lifecycle hooks](./lifecycle-hooks/).
 
 ```typescript
-// Update all matching documents; returns the number of documents matched
+// Update all matching documents; returns the number of documents written
 const updatedCount = await orderRepo
   .query()
   .where('status', '==', 'pending')

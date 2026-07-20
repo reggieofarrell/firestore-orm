@@ -91,15 +91,20 @@ In the last example, `query().delete()` is a query-level bulk write that does **
 hooks (see below) — which is exactly what you want here, since it avoids re-triggering cleanup logic
 recursively.
 
+## Query-level writes run the bulk hooks
+
+`query().update(data)` runs `beforeBulkUpdate` and `afterBulkUpdate`; `query().delete()` runs
+`beforeBulkDelete` and `afterBulkDelete`. `beforeBulkUpdate` may mutate the update payload before it
+is validated and written, `afterBulkUpdate` receives `{ ids }` for the written documents, and the
+bulk-delete hooks receive `{ ids, documents }`. The per-document `before/afterUpdate` and
+`before/afterDelete` hooks do **not** run on query-level writes — use the single-document methods
+when you need those. See [Queries](./queries/).
+
 ## When hooks do not run
 
-Hooks are wired into the per-document and bulk methods on the repository. Two paths differ from that
+Hooks are wired into the per-document and bulk methods on the repository. One path differs from that
 standard flow:
 
-- **Query-level writes.** `query().update(data)` and `query().delete()` operate directly on the
-  matched documents and do **not** run any hooks (including the `beforeBulk*` / `afterBulk*`
-  events). If you need hook behavior, read the ids and route through `bulkUpdate` / `bulkDelete`
-  instead. See [Queries](./queries/).
 - **Transactions — `before*` only.** Inside `runInTransaction((tx, repo) => { ... })`, the
   transaction-scoped `repo`'s write helpers (`createInTransaction`, `updateInTransaction`,
   `patchInTransaction`, `deleteInTransaction`) **do** run their `before*` hooks (before validation

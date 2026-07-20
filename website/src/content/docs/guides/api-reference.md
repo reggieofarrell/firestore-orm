@@ -174,9 +174,10 @@ Register a lifecycle hook. Supported events:
 Payload notes: `beforeUpdate` receives `data & { id }`; `afterUpdate` receives `{ id }`;
 `afterBulkUpdate` receives `{ ids }`; `beforeBulkDelete` / `afterBulkDelete` receive
 `{ ids, documents }`; single-delete hooks receive the full persisted document `{ ...data, id }` at
-runtime. Hooks do **not** run inside `query().update()` / `query().delete()`; inside transactions
-they run only via the transaction-scoped repo passed to `runInTransaction`. See
-[Lifecycle hooks](./lifecycle-hooks/#lifecycle-hooks) for full detail.
+runtime. `query().update()` / `query().delete()` run the **bulk** hooks
+(`beforeBulkUpdate`/`afterBulkUpdate`, `beforeBulkDelete`/`afterBulkDelete`), not the per-document
+hooks; inside transactions only `before*` hooks run, via the transaction-scoped repo passed to
+`runInTransaction`. See [Lifecycle hooks](./lifecycle-hooks/#lifecycle-hooks) for full detail.
 
 **`subcollection<RS extends ZodObject, WS extends ZodObject = RS>(parentId: ID, subcollectionName: string, readSchema: RS, options?: { writeSchema?: WS; readConverter?: ReadConverter<z.infer<RS>>; sentinelPolicy?: SentinelPolicy }): FirestoreRepository<z.infer<RS>, z.infer<WS>>`**
 
@@ -308,13 +309,14 @@ Subscribe to real-time updates for the query. Resolves to an unsubscribe functio
 
 **`update(data: UpdateInput<W>): Promise<number>`**
 
-Update all matching documents; returns the matched (updated) count. Supports dot notation. Lifecycle
-hooks do **not** run for this method.
+Update all matching documents; returns the number of documents written. Supports dot notation. Runs
+the bulk hooks `beforeBulkUpdate` (may mutate the payload) and `afterBulkUpdate` (`{ ids }`). An
+empty patch is rejected with a `ValidationError`.
 
 **`delete(): Promise<number>`**
 
-Delete all matching documents; returns the matched (deleted) count. Lifecycle hooks do **not** run
-for this method.
+Delete all matching documents; returns the matched (deleted) count. Runs the bulk hooks
+`beforeBulkDelete` and `afterBulkDelete` (`{ ids, documents }`).
 
 ## Exported Types
 

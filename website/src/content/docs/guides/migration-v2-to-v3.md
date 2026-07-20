@@ -16,7 +16,9 @@ upgrade.
 
 ## Breaking changes
 
-v3 has **three** breaking contracts. Everything else in this guide is optional cleanup.
+v3 tightens several public contracts. Review each section below; everything under
+[Migration steps](#migration-steps) and [Recommended upgrades](#recommended-upgrades) is optional
+cleanup.
 
 ### 1. Value-inferred `withSchema` / `subcollection`
 
@@ -79,6 +81,76 @@ New type helpers `FieldPaths<T>` and `PathValue<T, P>` are exported from the pac
 The `zod` peer range is now `^4.0.0` (was `^3.25.0 || ^4.0.0`). If you are still on zod 3, upgrade
 to zod 4 — see the [zod v4 migration guide](https://zod.dev/v4/changelog). No firestore-orm API
 changes accompany this bump; the validator internals now target the v4 schema shapes only.
+
+### 5. `create` / `bulkCreate` / `createInTransaction` return `{ id }` by default
+
+These methods previously returned the created document cast to the read type, but never actually
+read it back — so with a divergent read/write schema or a `readConverter`, the runtime value did not
+match the promised read model. They now return only `{ id }` (or `{ id }[]`); pass
+`{ returnDoc: true }` to `create`/`bulkCreate` to read the document back through the `readConverter`
+and get the converted read model (matching `update`/`upsert`). `createInTransaction` returns
+`{ id }` only (a transaction cannot read a document back after writing it).
+
+```typescript
+// v2: const user = await repo.create(input); user.name // full doc
+// v3:
+const { id } = await repo.create(input); // default: id only
+const user = await repo.create(input, { returnDoc: true }); // converted read model
+```
+
+The repository also now rejects a read schema whose `id` field is optional, nullable, or transformed
+to a non-string, since reads always overlay a concrete string id.
+
+### 6. `sentinelPolicy` defaults to `'strict'`
+
+The default flips from `'permissive'` to `'strict'`. Under permissive, a `FieldValue` sentinel on a
+field whose schema did not explicitly allow it silently caused the **entire raw payload** to be
+written, discarding every Zod coercion, default, and transform elsewhere. Under strict, only
+sentinels a field's schema permits pass (declare them with the write combinators `zNumberWrite` /
+`zArrayWrite` / `zDateWrite` / `withDelete` / `zSentinel`), and the parsed Zod output is always
+returned. Pass `{ sentinelPolicy: 'permissive' }` to `withSchema`/`subcollection` to keep the old
+behavior as a migration shim. See [Field-value sentinels](./field-value-sentinels/).
+
+### 7. Empty update payloads are rejected
+
+An update whose payload is empty after validation (e.g. every value `undefined`) previously skipped
+the write and reported success — so a missing document looked "updated". `update`, `patch`,
+`bulkUpdate`, `bulkPatch`, `updateInTransaction`, and `query().update()` now throw a
+`ValidationError` for an empty patch. Provide at least one field, or use `delete()` to remove a
+document. (A mixed payload still filters `undefined` leaves and writes the rest.)
+
+### 8. `errorHandler` moved to the `firestore-orm/express` subpath
+
+The Express middleware is no longer exported from the package root; import it from the optional
+`@reggieofarrell/firestore-orm/express` subpath and install `express` (now an optional peer). This
+keeps `express` out of the core type graph so consumers who never use the adapter can type-check
+without `@types/express`. The `FirestoreIndexError` response is now `503` (was `404`).
+
+```typescript
+// v2: import { errorHandler } from '@reggieofarrell/firestore-orm';
+// v3:
+import { errorHandler } from '@reggieofarrell/firestore-orm/express';
+```
+
+### 9. Node 22+ and Firebase Admin 14
+
+The engine floor is now Node.js **22** (18/20 are end-of-life). The `firebase-admin` peer range adds
+`^14.0.0` (12/13 remain supported), and the TypeScript floor is **5.5** (required by zod 4). v3 also
+ships a dual **ESM + CommonJS** build — CommonJS consumers can now `require()` the package (this is
+additive; existing ESM `import`s are unchanged).
+
+### 10. Type-only tightening (projection, aggregation)
+
+These change only compile-time types (no runtime behavior):
+
+- After `select(...)`, query reads return `Partial<T> & { id }`, so a field you projected away is a
+  compile error to access without a guard.
+- `sum()` / `average()` accept only numeric field paths (including nested/dotted); `findByField` and
+  its `getOneByField*` siblings accept typed dotted field paths.
+
+Smaller hardening you are unlikely to hit: pagination inputs must be positive finite integers, bulk
+operations reject duplicate ids, cursors are bound to their collection, and vector validation
+rejects non-finite values.
 
 ### Behavior fix: Zod defaults are no longer injected on a partial `update()`
 

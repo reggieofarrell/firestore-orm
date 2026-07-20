@@ -51,7 +51,7 @@ export function queryFieldPathNegatives() {
   repo.query().select('nope');
 }
 
-// `select(...)` narrows the terminal-read result shape to `Partial<T> & { id }`, so a field that
+// `select(...)` narrows the terminal-read result shape to `DeepPartial<T> & { id }`, so a field that
 // was projected away becomes possibly-undefined and unsafe to access without a guard.
 export async function projectionNarrowsResultType() {
   // Full read: every field is present with its exact type.
@@ -97,6 +97,35 @@ export async function selectIsImmutableForAliases() {
   const rows = await projected.get();
   // @ts-expect-error projected-away field is not guaranteed present on the narrowed builder
   rows[0].createdAt.getTime();
+}
+
+// Dotted/deep projections must be sound too: DeepPartial makes NESTED map properties optional, so an
+// unselected sibling of a selected nested field is a compile error (a shallow Partial<T> left it
+// statically required — "typed present, runtime absent").
+export async function dottedProjectionIsSound() {
+  // Select a nested field; the parent map is present with only that field at runtime.
+  const rows = await repo.query().select('address.zip').get();
+  if (rows[0].address) {
+    rows[0].address.zip?.toUpperCase(); // selected nested field (optional under DeepPartial)
+    // @ts-expect-error unselected sibling `city` is not guaranteed present (DeepPartial), even though
+    // it is required in the full model
+    rows[0].address.city.toUpperCase();
+  }
+
+  // Deep path guard chain compiles (each level is optional under DeepPartial).
+  const deep = await repo.query().select('settings.notifications.email').get();
+  deep[0].settings?.notifications?.email?.valueOf();
+
+  // Multiple paths and parent+child combinations narrow to the same DeepPartial shape.
+  await repo.query().select('name', 'address.city').get();
+  await repo.query().select('address', 'address.city').get();
+
+  // A dynamic FieldPath projection also yields the conservative DeepPartial shape.
+  const dyn = await repo.query().select(new FieldPath('address', 'city')).get();
+  if (dyn[0].address) {
+    // @ts-expect-error a dynamic FieldPath projection cannot prove any field is present
+    dyn[0].address.city.toUpperCase();
+  }
 }
 
 // sum()/average() accept only numeric field paths (including nested/dotted), not any keyof T;

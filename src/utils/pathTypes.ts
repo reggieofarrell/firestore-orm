@@ -117,3 +117,22 @@ export type PathValue<T, P extends string> = P extends `${infer Head}.${infer Re
 export type NumericFieldPaths<T> = {
   [P in FieldPaths<T>]: NonNullable<PathValue<T, P>> extends number ? P : never;
 }[FieldPaths<T>];
+
+/**
+ * Recursively-optional version of `T` — the conservative result shape after a projection
+ * (`select(...)`). Unlike `Partial<T>`, which makes only the ROOT properties optional, this also
+ * makes nested map properties optional, so a dotted projection such as `select('address.city')` does
+ * not leave the unselected sibling `address.zip` statically required once `address` is guarded.
+ *
+ * Arrays and `Date` are preserved: a Firestore field mask does not project into array elements, and a
+ * selected `Date` field is returned whole. (Raw Firestore value classes like `Timestamp`/`GeoPoint`
+ * left in a read model would recurse; read models normally expose converted primitives, so this is a
+ * rare, non-unsound over-approximation.)
+ */
+export type DeepPartial<T> = T extends (infer U)[]
+  ? DeepPartial<U>[]
+  : T extends Date
+    ? T
+    : T extends object
+      ? { [K in keyof T]?: DeepPartial<T[K]> }
+      : T;

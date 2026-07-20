@@ -52,7 +52,7 @@ export {
   getDotNotationDepth,
 } from './utils/dotNotation.js';
 
-export type { FieldPaths, PathValue } from './utils/pathTypes.js';
+export type { FieldPaths, PathValue, DeepPartial } from './utils/pathTypes.js';
 
 export {
   convertTimestampToMillis,

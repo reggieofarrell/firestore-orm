@@ -2,7 +2,7 @@ import { parseFirestoreError } from './ErrorParser.js';
 import { HookEvent, ID } from './FirestoreRepository.js';
 import { ValidationError } from './Errors.js';
 import { UpdateInput } from './Validation.js';
-import { FieldPaths, NumericFieldPaths } from '../utils/pathTypes.js';
+import { DeepPartial, FieldPaths, NumericFieldPaths } from '../utils/pathTypes.js';
 import {
   AggregateField,
   CollectionReference,
@@ -214,12 +214,12 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { i
    */
   select(
     ...fields: (FieldPaths<T> | FieldPath)[]
-  ): FirestoreQueryBuilder<T, W, Partial<T> & { id: ID }> {
+  ): FirestoreQueryBuilder<T, W, DeepPartial<T> & { id: ID }> {
     // Return a NEW builder rather than mutating and re-casting `this`. Mutating in place left any
     // pre-select alias of this builder statically typed for the full model while its shared runtime
     // query had a projection applied — an unsound gap. A fresh builder narrows the result type at
     // exactly the reference the projection applies to; the original builder is untouched.
-    const next = new FirestoreQueryBuilder<T, W, Partial<T> & { id: ID }>(
+    const next = new FirestoreQueryBuilder<T, W, DeepPartial<T> & { id: ID }>(
       this.baseQuery,
       this.collectionRef,
       this.db,

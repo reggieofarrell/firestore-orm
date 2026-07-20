@@ -12,6 +12,9 @@ import type { Timestamp, GeoPoint, DocumentReference } from 'firebase-admin/fire
 import { z } from 'zod';
 import { FirestoreRepository } from '../../index.js';
 import type { DeepPartial, FieldPaths, PathValue } from '../../index.js';
+// `NumericFieldPaths` is internal (it constrains `sum`/`average`); import it directly to assert the
+// derived numeric-path set, in addition to exercising it through the public builder below.
+import type { NumericFieldPaths } from '../../utils/pathTypes.js';
 
 declare const db: FirebaseFirestore.Firestore;
 
@@ -176,9 +179,10 @@ const validPaths: FieldPaths<Doc>[] = [
 ];
 export const _fieldPaths = validPaths;
 
-// `DeepPartial` only recurses into plain (map) objects. Every leaf value — scalars, `Date`,
-// Firestore value classes, byte values, functions, and arrays — is preserved WHOLE, so a selected
-// value keeps its real API after the parent is guarded (it does not become a partialized object).
+// `DeepPartial` recurses into every object NOT assignable to the leaf set (there is no plain-map
+// predicate). Every leaf value — scalars, `Date`, Firestore value classes, byte values, functions,
+// and arrays — is preserved WHOLE, so a selected value keeps its real API after the parent is
+// guarded (it does not become a partialized object).
 type LeafyDoc = {
   id: string;
   meta: { note: string }; // plain map — recurses
@@ -234,4 +238,74 @@ export function fieldPathsExcludesClassMethods() {
   // @ts-expect-error `toMillis` is a Timestamp method, not a queryable nested Firestore field path
   const bad: FieldPaths<MixedDoc> = 'ts.toMillis';
   return bad;
+}
+
+// `PathValue` must distribute over unions so it AGREES with `FieldPaths` (which already distributes).
+// A branch-specific key resolves against the member that has it, rather than collapsing to `never`
+// because `keyof` of the whole union only exposes keys common to every member. Regressions cover a
+// top-level union, a leaf-or-map union, branch-specific numeric/string keys, a same-key mixed-value
+// path, and optional/null members.
+type UnionDoc = {
+  id: string;
+  ts: Timestamp | { legacy: string }; // leaf-or-map union: only the map member has `legacy`
+  metric: { count: number } | { label: string }; // branch-specific numeric vs string keys
+  mixed: { v: number } | { v: string }; // same key, different value type per branch
+  maybe?: { n: number } | null; // optional/null members
+};
+
+// Leaf-or-map branch key resolves to the map member's value (was `never` before the fix); the
+// Timestamp branch contributes nothing rather than poisoning the result.
+const legacyVal: PathValue<UnionDoc, 'ts.legacy'> = 'x'; // string
+// @ts-expect-error resolves to `string`, not a number (proves it is NOT `never`/`any`)
+const legacyBad: PathValue<UnionDoc, 'ts.legacy'> = 123;
+// Branch-specific keys each resolve to their own branch's value.
+const countVal: PathValue<UnionDoc, 'metric.count'> = 1; // number
+const labelVal: PathValue<UnionDoc, 'metric.label'> = 'x'; // string
+// A key present in both branches with different value types resolves to the union of both.
+const mixedVal: PathValue<UnionDoc, 'mixed.v'> = 1 as number | string; // number | string
+// Optional/null members: `NonNullable` strips null/undefined before recursing.
+const maybeVal: PathValue<UnionDoc, 'maybe.n'> = 1; // number
+export const _unionPathValues = { legacyVal, legacyBad, countVal, labelVal, mixedVal, maybeVal };
+
+// Top-level union document: a key present in only one member still resolves to that member's value.
+type TopUnion = { a: number } | { b: string };
+const topA: PathValue<TopUnion, 'a'> = 1; // number
+const topB: PathValue<TopUnion, 'b'> = 'x'; // string
+export const _topUnion = { topA, topB };
+
+// `NumericFieldPaths` must agree with the fixed `PathValue`: only genuinely-numeric branch paths
+// qualify. A branch-string path and a mixed `number | string` path must NOT (previously they leaked
+// in because an unresolved `PathValue` was `never`, and `never extends number` is vacuously true).
+const numericUnionPaths: NumericFieldPaths<UnionDoc>[] = ['metric.count', 'maybe.n'];
+export const _numericUnionPaths = numericUnionPaths;
+
+export function numericFieldPathsExcludesUnionStringPaths() {
+  // @ts-expect-error 'metric.label' resolves to string in its branch — not numeric
+  const a: NumericFieldPaths<UnionDoc> = 'metric.label';
+  // @ts-expect-error 'mixed.v' resolves to number | string (mixed) — not numeric
+  const b: NumericFieldPaths<UnionDoc> = 'mixed.v';
+  // @ts-expect-error 'ts.legacy' resolves to string — not numeric
+  const c: NumericFieldPaths<UnionDoc> = 'ts.legacy';
+  return [a, b, c];
+}
+
+// Exercise the public builder (not just the helper aliases): sum()/average() must reject a
+// string-valued union-branch path. This is the exact probe that failed before the fix — a branch key
+// resolved to `never`, which `never extends number` wrongly classified as numeric.
+const unionSchema = z.object({
+  id: z.string(),
+  metric: z.union([z.object({ count: z.number() }), z.object({ label: z.string() })]),
+  mixed: z.union([z.object({ v: z.number() }), z.object({ v: z.string() })]),
+});
+const unionRepo = FirestoreRepository.withSchema(db, 'union', unionSchema);
+
+export function numericAggregationUnionPaths() {
+  unionRepo.query().sum('metric.count'); // numeric branch path
+  unionRepo.query().average('metric.count');
+  // @ts-expect-error 'metric.label' is a string in its branch, not numeric
+  unionRepo.query().sum('metric.label');
+  // @ts-expect-error 'metric.label' is a string in its branch, not numeric
+  unionRepo.query().average('metric.label');
+  // @ts-expect-error 'mixed.v' is number | string (mixed), not numeric
+  unionRepo.query().sum('mixed.v');
 }

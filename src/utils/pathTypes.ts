@@ -96,28 +96,44 @@ export type FieldPaths<T, D extends number = 6> = [D] extends [never]
  * not exist. Exposed for consumers who want to type values against a path; the query builder itself
  * keeps `where` values loose because a `readConverter` can change a field's stored shape vs `T`.
  *
+ * The `T extends unknown` wrapper makes resolution **distributive** over unions, so it agrees with
+ * {@link FieldPaths}: a branch-specific key (e.g. `'legacy'` on `Timestamp | { legacy: string }`)
+ * resolves against the member that has it and yields that member's value, rather than collapsing to
+ * `never` because `keyof` of the whole union only exposes keys common to every member.
+ *
  * @example
  * type C = PathValue<{ address: { city: string } }, 'address.city'>; // => string
  */
-export type PathValue<T, P extends string> = P extends `${infer Head}.${infer Rest}`
-  ? Head extends keyof T
-    ? PathValue<NonNullable<T[Head]>, Rest>
-    : never
-  : P extends keyof T
-    ? T[P]
-    : never;
+export type PathValue<T, P extends string> = T extends unknown
+  ? P extends `${infer Head}.${infer Rest}`
+    ? Head extends keyof T
+      ? PathValue<NonNullable<T[Head]>, Rest>
+      : never
+    : P extends keyof T
+      ? T[P]
+      : never
+  : never;
 
 /**
  * The subset of {@link FieldPaths} whose resolved value is numeric (including optional numeric
  * fields and nested numeric paths). Used to constrain numeric aggregations (`sum`/`average`) to
  * actual number fields rather than any `keyof T`.
  *
+ * A path whose value cannot be resolved (`PathValue` is `never`) is explicitly excluded rather than
+ * relying on `never extends number` (which is vacuously true and would wrongly admit it). A path
+ * whose resolved value is a mixed `number | string` union is also excluded — that non-distributive
+ * check stays `false` because `number | string` is not assignable to `number`.
+ *
  * @example
  * type N = NumericFieldPaths<{ name: string; score: number; stats: { count: number } }>;
  * //   => 'score' | 'stats.count'
  */
 export type NumericFieldPaths<T> = {
-  [P in FieldPaths<T>]: NonNullable<PathValue<T, P>> extends number ? P : never;
+  [P in FieldPaths<T>]: [PathValue<T, P>] extends [never]
+    ? never
+    : NonNullable<PathValue<T, P>> extends number
+      ? P
+      : never;
 }[FieldPaths<T>];
 
 /**
@@ -134,13 +150,18 @@ export type NumericFieldPaths<T> = {
  * functions, and **arrays** (a Firestore field mask never projects into array elements, so the array
  * is returned whole rather than element-partialized).
  *
- * Limitation: any object type NOT enumerated as a `Leaf` recurses. In particular, an arbitrary class
- * instance produced by a `readConverter` as a *field value* has its methods typed optional after a
- * projection (conservative — a `?.` guard restores them, but the runtime value is complete).
- * Structural typing cannot distinguish such a class from a plain map that happens to have a method
- * without reintroducing the dotted-sibling unsoundness this type exists to prevent, so if you rely on
- * a class-instance field's methods after `select(...)`, treat that field as atomic or map it at the
- * top level with the repository `readConverter` (which already may not compose with a projection).
+ * Limitation: this recurses into **every object not assignable to the `Leaf` set** — there is no
+ * plain-map predicate. In particular, an arbitrary class instance produced by a `readConverter` as a
+ * *field value* is not a known `Leaf`, so it recurses and its methods type as optional after a
+ * projection (conservative: the runtime value is complete). Note that guarding only the field does
+ * NOT make such a method callable — `row.value?.method()` still errors because `method` itself is now
+ * optional; guard the method too (`row.value?.method?.()`) or, since `Leaf` is private, assert the
+ * field back to its class type after a null check (`(row.value as ClassType).method()`). Structural
+ * typing cannot distinguish such a class from a plain map that happens to have a method without
+ * reintroducing the dotted-sibling unsoundness this type exists to prevent, so if you rely on a
+ * class-instance field's methods after `select(...)`, prefer mapping it at the top level with the
+ * repository `readConverter` (which itself may not compose with a projection). A first-class opt-in
+ * atomic marker/escape hatch could be added in a later minor release.
  */
 export type DeepPartial<T> = T extends Leaf
   ? T

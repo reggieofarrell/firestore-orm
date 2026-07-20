@@ -37,6 +37,9 @@ export type PaginatedResult<T extends { id?: string }> = {
 export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { id: ID }> {
   private query: Query<any>;
   private hasOrderBy = false;
+  // True once select() has applied a field mask. A projected query cannot be used with onSnapshot()
+  // (Firestore rejects field-masked listeners), so this is used to guard that combination locally.
+  private hasSelect = false;
 
   constructor(
     private baseQuery: Query<any>,
@@ -212,10 +215,22 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { i
   select(
     ...fields: (FieldPaths<T> | FieldPath)[]
   ): FirestoreQueryBuilder<T, W, Partial<T> & { id: ID }> {
-    this.query = this.query.select(...(fields as (string | FieldPath)[]));
-    // Runtime is unchanged (same builder instance); the return type narrows the result shape so
-    // callers must null-check fields that were projected away.
-    return this as unknown as FirestoreQueryBuilder<T, W, Partial<T> & { id: ID }>;
+    // Return a NEW builder rather than mutating and re-casting `this`. Mutating in place left any
+    // pre-select alias of this builder statically typed for the full model while its shared runtime
+    // query had a projection applied — an unsound gap. A fresh builder narrows the result type at
+    // exactly the reference the projection applies to; the original builder is untouched.
+    const next = new FirestoreQueryBuilder<T, W, Partial<T> & { id: ID }>(
+      this.baseQuery,
+      this.collectionRef,
+      this.db,
+      this.commitInChunks,
+      this.runHooks,
+      this.validateUpdate,
+    );
+    next.query = this.query.select(...(fields as (string | FieldPath)[]));
+    next.hasOrderBy = this.hasOrderBy;
+    next.hasSelect = true;
+    return next;
   }
 
   /**
@@ -253,7 +268,16 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { i
     try {
       const snapshot = await this.query.get();
 
-      if (snapshot.empty) return 0;
+      if (snapshot.empty) {
+        // Honor the empty-update contract even with zero matches (ADR-0014): validate + sanitize the
+        // caller payload and reject if it reduces to nothing, so `{}`, all-`undefined`, and
+        // schema-stripped payloads throw regardless of whether any document matched. A valid,
+        // non-empty payload against a zero-match query still returns 0 (no rows to write).
+        const validData = this.validateUpdate ? this.validateUpdate(data) : data;
+        const sanitizedData = this.sanitizeUpdateData(validData);
+        this.assertNonEmptyUpdatePayload(sanitizedData as Record<string, any>);
+        return 0;
+      }
 
       const updates = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -752,6 +776,16 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { i
     callback: (items: R[]) => void,
     onError?: (error: Error) => void,
   ): Promise<() => void> {
+    // Firestore does not allow a real-time listener on a query with a field mask. Reject the
+    // combination locally with a clear error instead of deferring an opaque failure to the SDK.
+    if (this.hasSelect) {
+      throw new Error(
+        'onSnapshot() is not supported after select(): Firestore does not allow real-time ' +
+          'listeners on a projected (field-masked) query. Listen without select() and project ' +
+          'in your callback, or use get()/stream() for a one-time projected read.',
+      );
+    }
+
     try {
       return this.query.onSnapshot(
         snapshot => {

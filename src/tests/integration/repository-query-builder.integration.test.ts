@@ -232,6 +232,41 @@ describe('FirestoreRepository QueryBuilder', () => {
     expect(match).toEqual(expect.objectContaining({ name: 'Select User', id: expect.any(String) }));
   });
 
+  it('select() is immutable: the original builder alias still returns full documents', async () => {
+    await userRepo.create({
+      name: 'Alias User',
+      category: 'books',
+      sortKey: 42,
+      active: true,
+    } as any);
+
+    const builder = userRepo.query().where('name', '==', 'Alias User');
+    // Capturing the projection must not project the original builder.
+    const projected = builder.select('name');
+
+    const full = await builder.get();
+    const projectedRows = await projected.get();
+
+    // Original alias returns the full document (category/sortKey present at runtime).
+    expect(full[0]).toEqual(
+      expect.objectContaining({ name: 'Alias User', category: 'books', sortKey: 42 }),
+    );
+    // Projected builder returns only the selected field (+ id).
+    expect((projectedRows[0] as Record<string, unknown>).category).toBeUndefined();
+    expect(projectedRows[0]).toEqual(
+      expect.objectContaining({ name: 'Alias User', id: expect.any(String) }),
+    );
+  });
+
+  it('onSnapshot() after select() is rejected locally', async () => {
+    await expect(
+      userRepo
+        .query()
+        .select('name')
+        .onSnapshot(() => {}),
+    ).rejects.toThrow(/not supported after select/i);
+  });
+
   it('should filter with in and array-contains operators', async () => {
     await userRepo.bulkCreate([
       { name: 'In 1', category: 'books', sortKey: 1, active: true, tags: ['featured'] },

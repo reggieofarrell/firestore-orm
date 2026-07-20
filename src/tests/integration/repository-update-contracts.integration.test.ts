@@ -452,4 +452,31 @@ describe('FirestoreRepository empty-update policy (v3: reject empty patches)', (
         .update({ name: undefined } as any),
     ).rejects.toBeInstanceOf(ValidationError);
   });
+
+  // Regression: the empty-update contract must not be data-dependent. Previously query().update()
+  // returned 0 on a zero-match query BEFORE validating, so an empty payload silently "succeeded"
+  // when nothing matched but threw as soon as one document matched.
+  it('query().update() rejects an empty payload even when the query matches nothing', async () => {
+    await expect(
+      userRepo
+        .query()
+        .where('email', '==', 'no-such-user@example.com')
+        .update({} as any),
+    ).rejects.toBeInstanceOf(ValidationError);
+
+    await expect(
+      userRepo
+        .query()
+        .where('email', '==', 'no-such-user@example.com')
+        .update({ name: undefined } as any),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it('query().update() returns 0 for a valid non-empty payload against a zero-match query', async () => {
+    const count = await userRepo
+      .query()
+      .where('email', '==', 'no-such-user@example.com')
+      .update({ name: 'Nobody' });
+    expect(count).toBe(0);
+  });
 });

@@ -21,8 +21,11 @@ We will reject an empty update payload with a `ValidationError` at every update 
 `query().update()` — checked after sanitization via a shared per-class guard. This removes the
 silent no-op, so the documented "update throws for a missing document" contract always holds (empty
 → `ValidationError`; non-empty on a missing doc → `NotFoundError`) and every surface behaves
-identically. `query().update()` still returns `0` for a zero-match query (which never reaches
-validation).
+identically. The empty-payload check is **not** data-dependent: `query().update()` validates and
+rejects an empty payload even when the query matches zero documents (an earlier revision returned
+`0` on the empty-snapshot path before validating, so an empty payload was silently accepted when
+nothing matched). A **valid, non-empty** payload against a zero-match query still returns `0` —
+there are simply no rows to write.
 
 ## Consequences
 

@@ -7,7 +7,6 @@ import {
   assertVectorSearchSupported,
   FindNearestOptions,
   validateFindNearestOptions,
-  VectorSearchResult,
 } from './VectorSearch.js';
 
 /**
@@ -26,9 +25,13 @@ type FirestoreVectorQuery<T> = {
  */
 export class VectorQueryBuilder<T extends { id?: string }, R = T & { id: ID }> {
   private vectorQuery: FirestoreVectorQuery<T> | null = null;
+  // Fields passed to select(), retained so findNearest() can re-apply the mask including the
+  // computed distanceResultField (a field mask otherwise drops the computed distance).
+  private selectedFields: (FieldPaths<T> | FieldPath)[] = [];
 
-  // Accepts a core builder with any write model `W`; vector queries do not expose update().
-  constructor(private readonly coreBuilder: FirestoreQueryBuilder<T, any>) {}
+  // Accepts a core builder with any write model `W` / result shape `R`; vector queries do not expose
+  // update(). Non-readonly because select() reassigns it (core select() is immutable — see select()).
+  constructor(private coreBuilder: FirestoreQueryBuilder<T, any, any>) {}
 
   /**
    * Throws when vector mode is active and a standard query mutator is invoked.
@@ -62,16 +65,23 @@ export class VectorQueryBuilder<T extends { id?: string }, R = T & { id: ID }> {
   }
 
   /**
-   * Select specific fields before findNearest().
-   * When using distanceResultField, include that field name in select().
+   * Select specific fields before findNearest(). The projection narrows the result shape and
+   * composes through findNearest() (fields projected away become compile errors when accessed).
+   *
+   * Do NOT list `distanceResultField` here — it is a computed output field appended by
+   * findNearest(), not a stored document field, and it is added to the result type automatically
+   * when you configure it on findNearest().
    */
   select(...fields: (FieldPaths<T> | FieldPath)[]): VectorQueryBuilder<T, Partial<T> & { id: ID }> {
     if (this.vectorQuery) {
       throw new Error('select() cannot be called after findNearest().');
     }
-    this.coreBuilder.select(...fields);
-    // Runtime is unchanged; the return type narrows the result shape (fields projected away become
-    // compile errors when accessed).
+    // Core select() is immutable (returns a new builder), so capture it — otherwise the projection
+    // would be dropped when findNearest() reads the core query. The narrowed result shape composes
+    // through findNearest() (see its return type). Retain the fields so findNearest() can widen the
+    // mask to include the computed distance field.
+    this.selectedFields = fields;
+    this.coreBuilder = this.coreBuilder.select(...fields);
     return this as unknown as VectorQueryBuilder<T, Partial<T> & { id: ID }>;
   }
 
@@ -80,7 +90,7 @@ export class VectorQueryBuilder<T extends { id?: string }, R = T & { id: ID }> {
    */
   findNearest<K extends Extract<keyof T, string>, DF extends string | undefined = undefined>(
     options: FindNearestOptions<T, K> & { distanceResultField?: DF },
-  ): VectorQueryBuilder<T, VectorSearchResult<T, DF>> {
+  ): VectorQueryBuilder<T, R & (DF extends string ? Record<DF, number> : unknown)> {
     if (this.vectorQuery) {
       throw new Error('findNearest() can only be called once per query.');
     }
@@ -89,6 +99,17 @@ export class VectorQueryBuilder<T extends { id?: string }, R = T & { id: ID }> {
       ...options,
       vectorField: String(options.vectorField),
     });
+
+    // When a projection (select) is active and a computed distance field is configured, widen the
+    // field mask to include the distance field — Firestore drops the computed distance from a
+    // field-masked result unless the mask names it. Callers never name it in select() (it is not a
+    // stored/schema field); we add it here so it survives the projection and appears in the result.
+    if (options.distanceResultField !== undefined && this.selectedFields.length > 0) {
+      this.coreBuilder = this.coreBuilder.select(
+        ...this.selectedFields,
+        options.distanceResultField as unknown as FieldPaths<T>,
+      );
+    }
 
     const query = getQueryRef(this.coreBuilder);
     assertVectorSearchSupported(query);
@@ -107,8 +128,12 @@ export class VectorQueryBuilder<T extends { id?: string }, R = T & { id: ID }> {
     }) as FirestoreVectorQuery<T>;
 
     // Runtime is unchanged; the return type carries the configured distanceResultField (when a
-    // literal is provided) into the result shape via VectorSearchResult<T, DF>.
-    return this as unknown as VectorQueryBuilder<T, VectorSearchResult<T, DF>>;
+    // literal is provided) into the CURRENT result shape `R` — so a prior select() projection is
+    // preserved (Partial<T> & { id } & { [DF]: number }) instead of being reset to the full model.
+    return this as unknown as VectorQueryBuilder<
+      T,
+      R & (DF extends string ? Record<DF, number> : unknown)
+    >;
   }
 
   /**

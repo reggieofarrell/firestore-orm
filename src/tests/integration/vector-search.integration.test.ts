@@ -203,9 +203,11 @@ describe('Vector search extension', () => {
     await seedBasicVectors();
 
     const wrapped = withVectorSearch(vectorRepo);
+    // Select only stored fields — the computed distanceResultField is appended by findNearest() and
+    // must NOT be listed in select() (it is not a stored document field).
     const results = await wrapped
       .query()
-      .select('name', 'vectorDistance')
+      .select('name')
       .findNearest({
         vectorField: 'embedding',
         queryVector: [1, 0, 0],
@@ -217,6 +219,7 @@ describe('Vector search extension', () => {
 
     expect(results).toHaveLength(1);
     expect(results[0]).toHaveProperty('name');
+    // The distance field is present in the result even though it was not selected.
     expect(results[0]).toHaveProperty('vectorDistance');
   });
 

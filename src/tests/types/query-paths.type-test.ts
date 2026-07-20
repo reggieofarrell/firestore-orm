@@ -83,6 +83,22 @@ export async function projectionNarrowsResultType() {
   page.items[0].createdAt.getTime();
 }
 
+// Alias soundness: select() returns a NEW builder rather than mutating and re-casting `this`, so a
+// pre-select alias keeps the full model at BOTH the type level and runtime (they no longer disagree).
+export async function selectIsImmutableForAliases() {
+  const q = repo.query();
+  const projected = q.select('name'); // narrowed builder
+
+  // The original alias `q` is untouched: still the full model, so accessing any field is safe.
+  const full = await q.get();
+  full[0].createdAt.getTime();
+
+  // The returned builder carries the projection.
+  const rows = await projected.get();
+  // @ts-expect-error projected-away field is not guaranteed present on the narrowed builder
+  rows[0].createdAt.getTime();
+}
+
 // sum()/average() accept only numeric field paths (including nested/dotted), not any keyof T;
 // findByField accepts typed dotted paths.
 const numSchema = z.object({

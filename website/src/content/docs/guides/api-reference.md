@@ -229,8 +229,10 @@ Delete a document within a transaction.
 
 ## FirestoreQueryBuilder
 
-`class FirestoreQueryBuilder<T, W>` — obtained from `repo.query()`. Chainable clause methods return
-`this`.
+`class FirestoreQueryBuilder<T, W, R = T & { id }>` — obtained from `repo.query()`. `R` is the
+result shape of terminal reads (`get`, `getOne`, `stream`, `paginate`, …); it defaults to the full
+`T & { id }` and is narrowed by `select()`. Chainable clause methods (`where`, `orderBy`, `limit`)
+return `this`; `select()` returns a **new** builder (see below).
 
 **`where(field: FieldPaths<T> | FieldPath, op: WhereFilterOp, value: unknown): this`**
 
@@ -238,9 +240,14 @@ Add a where clause. `field` is a typed field path — a top-level key or a neste
 (`'address.city'`) derived from `T` — or a `FieldPath` for dynamic names. Operators: `==`, `!=`,
 `>`, `>=`, `<`, `<=`, `in`, `not-in`, `array-contains`, `array-contains-any`.
 
-**`select(...fields: (FieldPaths<T> | FieldPath)[]): this`**
+**`select(...fields: (FieldPaths<T> | FieldPath)[]): FirestoreQueryBuilder<T, W, Partial<T> & { id }>`**
 
-Project only the given fields. Accepts typed nested paths and `FieldPath`.
+Project only the given fields. Accepts typed nested paths and `FieldPath`. Returns a **new** builder
+(it does not mutate the original) whose terminal reads are typed `Partial<T> & { id }`, so a field
+you projected away is a compile error to access without a guard. A `readConverter` written for full
+documents may throw on a projected result. `select()` cannot be combined with `onSnapshot()` —
+Firestore does not allow a real-time listener on a field-masked query, so the builder rejects it
+locally.
 
 **`orderBy(field: FieldPaths<T> | FieldPath, direction?: 'asc' | 'desc'): this`**
 

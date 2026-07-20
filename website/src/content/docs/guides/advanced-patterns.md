@@ -216,8 +216,12 @@ export const cachedUserRepo = new CachedUserRepository();
 
 ## Full-Text Search
 
-Integrate with Algolia or Elasticsearch for full-text search. Firestore has no native full-text
-index, so mirror your documents into a search service and keep the two in sync with hooks.
+Integrate with Algolia or Elasticsearch for full-text search. For Standard-edition Firestore and
+Core operations there is no native full-text index, so mirror your documents into a search service
+and keep the two in sync with hooks. (Firestore Enterprise's pre-GA Pipeline query model adds a
+preview full-text search stage, but it requires the Enterprise edition and is not yet GA; an
+external search service remains the recommendation for production Core-operation workloads. This ORM
+wraps Core operations — see [Scope & capabilities](./scope-and-capabilities/).)
 
 ```typescript
 // services/search.service.ts

@@ -145,6 +145,11 @@ const userEmails = await userRepo
   .get();
 ```
 
+`select()` returns a **new** query builder (it does not mutate the one you called it on), and the
+result type narrows to `Partial<T> & { id }` — a field you projected away is a compile error to
+access without a guard. A `readConverter` written for full documents may throw on a projected
+result. Note that a projected query cannot be used with `onSnapshot()` (see below).
+
 ## Bulk query operations
 
 `query().update(data)` updates every document matching the query and returns the number of documents
@@ -202,6 +207,10 @@ document read. Use appropriate filters and limits.
 `onSnapshot(callback, onError?)` subscribes to live query results. It resolves to an unsubscribe
 function — call it to stop listening. The callback receives the current set of matching documents on
 every change.
+
+`onSnapshot()` cannot be combined with `select()`: Firestore does not allow a real-time listener on
+a field-masked query, so the builder throws locally with a clear error. Listen without `select()`
+and project inside your callback, or use `get()` / `stream()` for a one-time projected read.
 
 ```typescript
 // Subscribe to query results

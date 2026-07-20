@@ -154,13 +154,19 @@ return a `VectorQueryBuilder`.
 
 ### `VectorQueryBuilder`
 
-| Method                    | Description                                          |
-| ------------------------- | ---------------------------------------------------- |
-| `where(field, op, value)` | Pre-filter before vector search                      |
-| `select(...fields)`       | Field mask (include `distanceResultField` when used) |
-| `findNearest(options)`    | Configure KNN search (required before `get()`)       |
-| `get()`                   | Execute search and return documents                  |
-| `getOne()`                | Return the nearest single document or `null`         |
+| Method                    | Description                                    |
+| ------------------------- | ---------------------------------------------- |
+| `where(field, op, value)` | Pre-filter before vector search                |
+| `select(...fields)`       | Field mask (stored fields only — see note)     |
+| `findNearest(options)`    | Configure KNN search (required before `get()`) |
+| `get()`                   | Execute search and return documents            |
+| `getOne()`                | Return the nearest single document or `null`   |
+
+`select(...)` narrows the result type and that projection **composes through** `findNearest()`. Pass
+only stored document fields — do **not** list `distanceResultField`. It is a computed output field,
+not a stored one; `findNearest()` appends it to the result and, when you also use `select()`,
+automatically widens the field mask so the distance survives. It appears in the result type
+automatically (`Partial<T> & { id } & { [distanceResultField]: number }`).
 
 `findNearest(options)` takes
 `{ vectorField, queryVector, limit, distanceMeasure, distanceResultField?, distanceThreshold? }`. It

@@ -144,7 +144,8 @@ additive; existing ESM `import`s are unchanged).
 These change only compile-time types (no runtime behavior):
 
 - After `select(...)`, query reads return `Partial<T> & { id }`, so a field you projected away is a
-  compile error to access without a guard.
+  compile error to access without a guard. (`select()` also now returns a new builder — see
+  [Query-builder behavior refinements](#query-builder-behavior-refinements) below.)
 - `sum()` / `average()` accept only numeric field paths (including nested/dotted); `findByField` and
   its `getOneByField*` siblings accept typed dotted field paths.
 
@@ -168,6 +169,37 @@ In v3, a partial update writes only the keys you actually provide, at every nest
 `update(id, { config: {} })` writes `{}` rather than re-injecting a nested `count` default. Defaults
 still apply on `create`. No migration is needed — but if you were relying on a partial update to
 re-apply a default, set that value explicitly in the update payload.
+
+### Query-builder behavior refinements
+
+A few smaller behavior changes you are unlikely to hit unless you use these patterns:
+
+- **`select()` returns a new builder (immutable).** Fluent chains
+  (`repo.query().where(…).select(…).get()`) are unaffected. Only code that called `select()` for its
+  side effect on a **retained** builder reference must switch to the returned builder:
+
+  ```typescript
+  // Before: the original `q` was (unsoundly) projected in place.
+  const q = repo.query();
+  q.select('name');
+  const rows = await q.get(); // now returns FULL documents (q was never projected)
+
+  // After: use the builder select() returns.
+  const projected = repo.query().select('name');
+  const rows = await projected.get();
+  ```
+
+- **`select().onSnapshot()` now throws locally** — Firestore does not allow a real-time listener on
+  a field-masked query. Listen without `select()` and project in your callback, or use `get()` /
+  `stream()`.
+
+- **`query().update({})` on a zero-match query now throws `ValidationError`** (it previously
+  returned `0`). The empty-update contract is no longer data-dependent. A valid, non-empty payload
+  against a zero-match query still returns `0`.
+
+- **Vector `select()` + `distanceResultField`:** pass only stored fields to `select()`; do not list
+  the computed distance field. `findNearest()` appends it and widens the mask automatically, and it
+  appears in the result type.
 
 ## Migration steps
 

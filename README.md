@@ -113,7 +113,7 @@ pnpm add @reggieofarrell/firestore-orm firebase-admin zod
 
 ### Peer Dependencies
 
-- `firebase-admin`: ^12.0.0 || ^13.0.0 (vector extension: >= 12 basic, >= 13 recommended)
+- `firebase-admin`: ^12.0.0 || ^13.0.0 || ^14.0.0 (vector extension: >= 12 basic, >= 13 recommended)
 - `zod`: ^4.0.0
 
 > **2.0.0** is the first release version for this maintained package under

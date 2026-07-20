@@ -6,7 +6,7 @@ Designed to make backend Firestore development actually enjoyable.
 [![npm version](https://img.shields.io/npm/v/@reggieofarrell/firestore-orm.svg)](https://www.npmjs.com/package/@reggieofarrell/firestore-orm)
 [![Coverage](https://img.shields.io/badge/coverage-dual%20gated-brightgreen.svg)](#coverage-thresholds)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.5+-blue.svg)](https://www.typescriptlang.org/)
 
 ## Table of Contents
 

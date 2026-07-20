@@ -240,14 +240,14 @@ Add a where clause. `field` is a typed field path — a top-level key or a neste
 (`'address.city'`) derived from `T` — or a `FieldPath` for dynamic names. Operators: `==`, `!=`,
 `>`, `>=`, `<`, `<=`, `in`, `not-in`, `array-contains`, `array-contains-any`.
 
-**`select(...fields: (FieldPaths<T> | FieldPath)[]): FirestoreQueryBuilder<T, W, Partial<T> & { id }>`**
+**`select(...fields: (FieldPaths<T> | FieldPath)[]): FirestoreQueryBuilder<T, W, DeepPartial<T> & { id }>`**
 
 Project only the given fields. Accepts typed nested paths and `FieldPath`. Returns a **new** builder
-(it does not mutate the original) whose terminal reads are typed `Partial<T> & { id }`, so a field
-you projected away is a compile error to access without a guard. A `readConverter` written for full
-documents may throw on a projected result. `select()` cannot be combined with `onSnapshot()` —
-Firestore does not allow a real-time listener on a field-masked query, so the builder rejects it
-locally.
+(it does not mutate the original) whose terminal reads are typed `DeepPartial<T> & { id }` — every
+property, including nested map properties, is optional, so a field you projected away (at any depth)
+is a compile error to access without a guard. A `readConverter` written for full documents may throw
+on a projected result. `select()` cannot be combined with `onSnapshot()` — Firestore does not allow
+a real-time listener on a field-masked query, so the builder rejects it locally.
 
 **`orderBy(field: FieldPaths<T> | FieldPath, direction?: 'asc' | 'desc'): this`**
 
@@ -260,11 +260,12 @@ Limit the number of results.
 > There is no public `startAt` / `startAfter` / `endBefore` / `endAt` cursor-chaining method. Use
 > `paginate(pageSize, cursor?)` for cursor-based paging.
 
-**`get(): Promise<(T & { id: ID })[]>`**
+**`get(): Promise<R[]>`**
 
-Execute the query and return all matching documents.
+Execute the query and return all matching documents. `R` is `T & { id }` by default, or
+`DeepPartial<T> & { id }` after `select(...)`.
 
-**`getOne(): Promise<(T & { id: ID }) | null>`**
+**`getOne(): Promise<R | null>`**
 
 Return the first matching document, or `null`.
 
@@ -281,38 +282,42 @@ Count matching documents via a Firestore aggregation query.
 Count all documents in the base collection. Ignores any accumulated `where(...)` clauses on the
 query builder instance.
 
-**`sum<K extends keyof T>(field: K): Promise<number>`**
+**`sum(field: NumericFieldPaths<T> | FieldPath): Promise<number>`**
 
-Firestore-native sum aggregation over a numeric field.
+Firestore-native sum aggregation over a numeric field path (top-level or nested/dotted numeric
+fields only) or a `FieldPath`.
 
-**`average<K extends keyof T>(field: K): Promise<number>`**
+**`average(field: NumericFieldPaths<T> | FieldPath): Promise<number>`**
 
-Firestore-native average aggregation over a numeric field.
+Firestore-native average aggregation over a numeric field path (top-level or nested/dotted numeric
+fields only) or a `FieldPath`.
 
 **`distinctValues<K extends keyof T>(field: K): Promise<T[K][]>`**
 
 Return the distinct values observed for a field.
 
-**`paginate(pageSize: number, cursor?: string | null): Promise<{ items: (T & { id: ID })[]; nextCursor: string | null; hasMore: boolean }>`**
+**`paginate(pageSize: number, cursor?: string | null): Promise<{ items: R[]; nextCursor: string | null; hasMore: boolean }>`**
 
 Cursor-based pagination (recommended for large datasets). Requires at least one prior `orderBy(...)`
-call and throws if `pageSize <= 0`.
+call and throws unless `pageSize` is a positive integer.
 
-**`offsetPaginate(page: number, pageSize: number): Promise<{ items: (T & { id: ID })[]; page: number; pageSize: number; total: number; totalPages: number }>`**
+**`offsetPaginate(page: number, pageSize: number): Promise<{ items: R[]; page: number; pageSize: number; total: number; totalPages: number }>`**
 
-Offset-based pagination.
+Offset-based pagination. `page` and `pageSize` must be positive integers.
 
-**`paginateWithCount(pageSize: number, cursor?: string | null): Promise<{ items: (T & { id: ID })[]; nextCursor: string | null; hasMore: boolean; total: number }>`**
+**`paginateWithCount(pageSize: number, cursor?: string | null): Promise<{ items: R[]; nextCursor: string | null; hasMore: boolean; total: number }>`**
 
 Cursor pagination combined with a total count.
 
-**`stream(): AsyncGenerator<T & { id: ID }>`**
+**`stream(): AsyncGenerator<R>`**
 
-Stream matching documents as an async generator (for large datasets).
+Stream matching documents as an async generator (for large datasets), backed by the SDK's native
+`Query.stream()`.
 
-**`onSnapshot(callback: (items: (T & { id: ID })[]) => void, onError?: (error: Error) => void): Promise<() => void>`**
+**`onSnapshot(callback: (items: R[]) => void, onError?: (error: Error) => void): Promise<() => void>`**
 
-Subscribe to real-time updates for the query. Resolves to an unsubscribe function.
+Subscribe to real-time updates for the query. Resolves to an unsubscribe function. Throws if the
+query has a `select(...)` field mask (Firestore forbids listeners on projected queries).
 
 **`update(data: UpdateInput<W>): Promise<number>`**
 
@@ -337,6 +342,9 @@ Types re-exported from the package entry point (`@reggieofarrell/firestore-orm`)
 - **`SafeResult<T>`** — `{ success: true; data } | { success: false; error: ValidationError }`
   returned by `safeValidate`.
 - **`PaginatedResult<T>`** — `{ items; nextCursor; hasMore }` from cursor pagination.
+- **`DeepPartial<T>`** — recursively-optional `T` (nested map properties optional too); the terminal
+  result shape after `select(...)`. Arrays and `Date` are preserved.
+- **`FieldPaths<T>` / `PathValue<T, P>`** — typed field-path union and the value type at a path.
 - **`UpdateInput<T>`** — update payload type (Firestore `PartialWithFieldValue<T>`-style input).
 - **`CreateInput<T>`** — create payload type; permits an optional `id` that is discarded on write.
 - **`Validator<T>`** — validation contract produced by `makeValidator(...)`.

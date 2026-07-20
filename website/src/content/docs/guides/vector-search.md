@@ -166,7 +166,7 @@ return a `VectorQueryBuilder`.
 only stored document fields — do **not** list `distanceResultField`. It is a computed output field,
 not a stored one; `findNearest()` appends it to the result and, when you also use `select()`,
 automatically widens the field mask so the distance survives. It appears in the result type
-automatically (`Partial<T> & { id } & { [distanceResultField]: number }`).
+automatically (`DeepPartial<T> & { id } & { [distanceResultField]: number }`).
 
 `findNearest(options)` takes
 `{ vectorField, queryVector, limit, distanceMeasure, distanceResultField?, distanceThreshold? }`. It

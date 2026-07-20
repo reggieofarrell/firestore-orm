@@ -146,9 +146,10 @@ const userEmails = await userRepo
 ```
 
 `select()` returns a **new** query builder (it does not mutate the one you called it on), and the
-result type narrows to `Partial<T> & { id }` — a field you projected away is a compile error to
-access without a guard. A `readConverter` written for full documents may throw on a projected
-result. Note that a projected query cannot be used with `onSnapshot()` (see below).
+result type narrows to `DeepPartial<T> & { id }` — every property, including nested map properties,
+is optional, so a field you projected away (at any depth) is a compile error to access without a
+guard. A `readConverter` written for full documents may throw on a projected result. Note that a
+projected query cannot be used with `onSnapshot()` (see below).
 
 ## Bulk query operations
 

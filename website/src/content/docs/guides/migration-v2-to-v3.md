@@ -143,8 +143,10 @@ additive; existing ESM `import`s are unchanged).
 
 These change only compile-time types (no runtime behavior):
 
-- After `select(...)`, query reads return `Partial<T> & { id }`, so a field you projected away is a
-  compile error to access without a guard. (`select()` also now returns a new builder — see
+- After `select(...)`, query reads return `DeepPartial<T> & { id }` — every property, including
+  nested map properties, is optional, so a field you projected away (at any depth, e.g. an
+  unselected sibling of `select('address.city')`) is a compile error to access without a guard.
+  (`select()` also now returns a new builder — see
   [Query-builder behavior refinements](#query-builder-behavior-refinements) below.)
 - `sum()` / `average()` accept only numeric field paths (including nested/dotted); `findByField` and
   its `getOneByField*` siblings accept typed dotted field paths.

@@ -119,19 +119,22 @@ export type PathValue<T, P extends string> = T extends unknown
  * fields and nested numeric paths). Used to constrain numeric aggregations (`sum`/`average`) to
  * actual number fields rather than any `keyof T`.
  *
- * A path whose value cannot be resolved (`PathValue` is `never`) is explicitly excluded rather than
- * relying on `never extends number` (which is vacuously true and would wrongly admit it). A path
- * whose resolved value is a mixed `number | string` union is also excluded — that non-distributive
- * check stays `false` because `number | string` is not assignable to `number`.
+ * Both guards run on the **normalized** value `NonNullable<PathValue<T, P>>`. Normalizing first is
+ * essential: a field typed exactly `null` / `undefined` / `null | undefined` resolves to a nullish
+ * `PathValue` that only collapses to `never` AFTER `NonNullable`. Guarding the raw `PathValue`
+ * instead would let such a field slip past `[raw] extends [never]` (a nullish type is not `never`)
+ * and then be wrongly admitted by the vacuous `never extends number`. A path that cannot be resolved
+ * at all (raw `PathValue` is already `never`) is likewise excluded. The tuple around the number test
+ * keeps a mixed `number | string` value from distributing and admitting only its numeric half.
  *
  * @example
  * type N = NumericFieldPaths<{ name: string; score: number; stats: { count: number } }>;
  * //   => 'score' | 'stats.count'
  */
 export type NumericFieldPaths<T> = {
-  [P in FieldPaths<T>]: [PathValue<T, P>] extends [never]
+  [P in FieldPaths<T>]: [NonNullable<PathValue<T, P>>] extends [never]
     ? never
-    : NonNullable<PathValue<T, P>> extends number
+    : [NonNullable<PathValue<T, P>>] extends [number]
       ? P
       : never;
 }[FieldPaths<T>];

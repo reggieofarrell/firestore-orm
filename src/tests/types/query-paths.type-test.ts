@@ -309,3 +309,52 @@ export function numericAggregationUnionPaths() {
   // @ts-expect-error 'mixed.v' is number | string (mixed), not numeric
   unionRepo.query().sum('mixed.v');
 }
+
+// `NumericFieldPaths` must run its empty-value guard on the NORMALIZED (`NonNullable`) value: a field
+// typed exactly `null` / `undefined` / `null | undefined` resolves to a nullish `PathValue` that only
+// becomes `never` after `NonNullable`. Guarding the raw `PathValue` (round-6) let such a field slip
+// past `[raw] extends [never]` and then get admitted by the vacuous `never extends number`. A
+// nullable/optional NUMBER is still numeric (its non-null part is `number`); a nullable string is not.
+type NullishDoc = {
+  id: string;
+  nil: null; // resolves to null — never numeric
+  missing?: undefined; // resolves to undefined — never numeric
+  both: null | undefined; // never numeric
+  maybeNumber: number | null; // NonNullable => number — numeric
+  optNumber?: number; // NonNullable => number — numeric
+  maybeString: string | null; // NonNullable => string — not numeric
+};
+
+const numericNullishPaths: NumericFieldPaths<NullishDoc>[] = ['maybeNumber', 'optNumber'];
+export const _numericNullishPaths = numericNullishPaths;
+
+export function numericFieldPathsExcludesNullishFields() {
+  // @ts-expect-error a `null` field can never hold a number
+  const a: NumericFieldPaths<NullishDoc> = 'nil';
+  // @ts-expect-error an `undefined` field can never hold a number
+  const b: NumericFieldPaths<NullishDoc> = 'missing';
+  // @ts-expect-error a `null | undefined` field can never hold a number
+  const c: NumericFieldPaths<NullishDoc> = 'both';
+  // @ts-expect-error a nullable string is not numeric
+  const d: NumericFieldPaths<NullishDoc> = 'maybeString';
+  return [a, b, c, d];
+}
+
+// Public builder: the same leak reached sum()/average() with a Firestore-valid null field.
+const nullishSchema = z.object({
+  id: z.string(),
+  nil: z.null(),
+  maybeNumber: z.number().nullable(),
+  optNumber: z.number().optional(),
+  maybeString: z.string().nullable(),
+});
+const nullishRepo = FirestoreRepository.withSchema(db, 'nullish', nullishSchema);
+
+export function numericAggregationNullishPaths() {
+  nullishRepo.query().sum('maybeNumber'); // number | null -> numeric
+  nullishRepo.query().average('optNumber'); // number | undefined -> numeric
+  // @ts-expect-error a `z.null()` field can never contain a number
+  nullishRepo.query().sum('nil');
+  // @ts-expect-error a nullable string is not numeric
+  nullishRepo.query().average('maybeString');
+}

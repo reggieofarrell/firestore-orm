@@ -58,36 +58,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Lint
-        run: npm run lint
+      # release:verify runs docs:build (website build), which needs the website's own deps.
+      - name: Install website dependencies
+        run: npm --prefix website ci
 
-      - name: Type-check
-        run: npm run test:types
-
-      - name: Manifest / lockfile metadata agreement
-        run: npm run check:manifest
-
-      # Same dual-suite gate used as the local release confidence check:
-      # unit coverage + unit gate, then emulator integration coverage + integration gate.
-      # See docs/development/testing.md — merged LCOV is intentionally not a gate.
-      - name: Run tests with coverage gates
+      # Single canonical release gate — the SAME command PR CI is definitionally equivalent to
+      # (see tests.yml). Runs: lint, type tests, manifest/lockfile agreement, runtime-only audit,
+      # build, tarball allowlist + express-free root graph, packed ESM/CJS/express consumer
+      # (compile + runtime load), dual-suite coverage gates, doc-link check, and website build.
+      # See package.json `release:verify` and docs/development/testing.md.
+      - name: Release verify
         env:
           CI: true
-        run: npm run test:coverage:all
-
-      # Explicit build before publish so a compile failure fails the job before
-      # talking to the registry. prepublishOnly also builds; this makes the
-      # release path obvious in the Actions log.
-      - name: Build
-        run: npm run build
-
-      # Gate the exact artifact being published: tarball allowlist + express-free root graph, and a
-      # fresh ESM/CJS/express consumer compiled against the packed tarball.
-      - name: Verify package contents
-        run: npm run check:package
-
-      - name: Isolated packed-consumer compile
-        run: npm run check:consumer
+        run: npm run release:verify
 
       # No NODE_AUTH_TOKEN — the npm CLI detects the OIDC environment and
       # authenticates via Trusted Publishing. Provenance is attached automatically

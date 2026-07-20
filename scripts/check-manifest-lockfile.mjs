@@ -26,8 +26,29 @@ function compare(section) {
   }
 }
 
+/**
+ * Deep-compares a section whose values are objects (e.g. peerDependenciesMeta = { express: {
+ * optional: true } }). A shallow `!==` would always report a mismatch for object values, so compare
+ * by stable JSON. Guards that the optional-express peer flag cannot silently drift to mandatory.
+ */
+function compareDeep(section) {
+  const manifest = pkg[section] ?? {};
+  const locked = root[section] ?? {};
+  const keys = new Set([...Object.keys(manifest), ...Object.keys(locked)]);
+  for (const key of keys) {
+    const m = JSON.stringify(manifest[key] ?? null);
+    const l = JSON.stringify(locked[key] ?? null);
+    if (m !== l) {
+      violations.push(
+        `${section}.${key}: manifest=${manifest[key] ? m : '(absent)'} lockfile=${locked[key] ? l : '(absent)'}`,
+      );
+    }
+  }
+}
+
 compare('peerDependencies');
 compare('engines');
+compareDeep('peerDependenciesMeta');
 
 if (violations.length > 0) {
   console.error('✗ Manifest / lockfile root metadata drift detected:');
@@ -36,4 +57,6 @@ if (violations.length > 0) {
   process.exit(1);
 }
 
-console.log('✓ Manifest and lockfile root peerDependencies/engines agree.');
+console.log(
+  '✓ Manifest and lockfile root peerDependencies/engines/peerDependenciesMeta agree.',
+);

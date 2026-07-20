@@ -53,13 +53,19 @@ export type FindNearestOptions<
 
 /**
  * Document shape returned from vector search, optionally including a computed distance field.
+ *
+ * When a distance field is configured, it is added as a numeric property that **replaces** any
+ * colliding key (`Omit<…, DistanceField> & Record<DistanceField, number>`) — matching Firestore's
+ * runtime behavior of overwriting the stored field with the computed distance — rather than
+ * intersecting (which would collapse a collision to `never`). A non-configured field is genuinely
+ * absent from the type.
  */
-export type VectorSearchResult<T, DistanceField extends string | undefined = undefined> = (T & {
-  id: ID;
-}) &
-  // When a distance field is configured, add it as a numeric property; otherwise add nothing
-  // (`& unknown` is a no-op, so a non-configured field is genuinely absent from the type).
-  (DistanceField extends string ? Record<DistanceField, number> : unknown);
+export type VectorSearchResult<
+  T,
+  DistanceField extends string | undefined = undefined,
+> = DistanceField extends string
+  ? Omit<T & { id: ID }, DistanceField> & Record<DistanceField, number>
+  : T & { id: ID };
 
 const VECTOR_DISTANCE_MEASURES = new Set<string>(Object.values(VectorDistanceMeasure));
 
@@ -141,6 +147,16 @@ export function validateFindNearestOptions(
     (typeof options.distanceResultField !== 'string' || options.distanceResultField.trim() === '')
   ) {
     throw new Error('findNearest() distanceResultField must be a non-empty string when provided.');
+  }
+
+  // `id` is reserved: the repository overlays `{ id: doc.id }` on every result, which would overwrite
+  // the computed distance with the string document id (losing the distance entirely). Reject it so
+  // the promised numeric distance field cannot silently disappear.
+  if (options.distanceResultField?.trim() === 'id') {
+    throw new Error(
+      'findNearest() distanceResultField cannot be "id": the repository overlays the document id on ' +
+        'every result, which would overwrite the computed distance. Use a different field name.',
+    );
   }
 
   if (options.distanceThreshold !== undefined) {

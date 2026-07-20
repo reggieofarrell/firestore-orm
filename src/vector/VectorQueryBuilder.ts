@@ -100,7 +100,7 @@ export class VectorQueryBuilder<T extends { id?: string }, R = T & { id: ID }> {
    */
   findNearest<K extends Extract<keyof T, string>, DF extends string | undefined = undefined>(
     options: FindNearestOptions<T, K> & { distanceResultField?: DF },
-  ): VectorQueryBuilder<T, R & (DF extends string ? Record<DF, number> : unknown)> {
+  ): VectorQueryBuilder<T, DF extends string ? Omit<R, DF> & Record<DF, number> : R> {
     if (this.vectorQuery) {
       throw new Error('findNearest() can only be called once per query.');
     }
@@ -141,10 +141,12 @@ export class VectorQueryBuilder<T extends { id?: string }, R = T & { id: ID }> {
 
     // Runtime is unchanged; the return type carries the configured distanceResultField (when a
     // literal is provided) into the CURRENT result shape `R` — so a prior select() projection is
-    // preserved (Partial<T> & { id } & { [DF]: number }) instead of being reset to the full model.
+    // preserved (DeepPartial<T> & { id } & { [DF]: number }) instead of being reset to the full
+    // model. The distance field REPLACES any colliding key (Omit<R, DF> & Record<DF, number>) rather
+    // than intersecting to `never`, matching Firestore's runtime behavior of overwriting the field.
     return this as unknown as VectorQueryBuilder<
       T,
-      R & (DF extends string ? Record<DF, number> : unknown)
+      DF extends string ? Omit<R, DF> & Record<DF, number> : R
     >;
   }
 

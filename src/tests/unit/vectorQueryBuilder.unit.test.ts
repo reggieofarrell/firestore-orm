@@ -217,6 +217,15 @@ describe('VectorQueryBuilder', () => {
     ).toThrow(/distanceThreshold cannot be 0/i);
   });
 
+  it('should reject distanceResultField "id" (reserved; overlaid by the repository)', () => {
+    const { builder } = createMockCoreBuilder();
+    const vectorBuilder = new VectorQueryBuilder(builder);
+
+    expect(() =>
+      vectorBuilder.findNearest({ ...findNearestOptions, distanceResultField: 'id' }),
+    ).toThrow(/distanceResultField cannot be "id"/i);
+  });
+
   it('select() is an immutable transition: returns a new wrapper', () => {
     const { builder } = createMockCoreBuilder();
     const vectorBuilder = new VectorQueryBuilder(builder);

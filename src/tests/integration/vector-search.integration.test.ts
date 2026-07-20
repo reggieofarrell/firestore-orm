@@ -268,6 +268,41 @@ describe('Vector search extension', () => {
     expect(results[0]).toHaveProperty('embedding');
   });
 
+  it('a distanceResultField colliding with a model field replaces it with the numeric distance', async () => {
+    await seedBasicVectors();
+
+    // Firestore writes the computed distance under the configured field name, overwriting the stored
+    // value — so a collision with `name` (a string field) yields a number at runtime. The result type
+    // models this as replacement (number), not intersection.
+    const results = await withVectorSearch(vectorRepo)
+      .query()
+      .findNearest({
+        vectorField: 'embedding',
+        queryVector: [1, 0, 0],
+        limit: 1,
+        distanceMeasure: 'EUCLIDEAN',
+        distanceResultField: 'name',
+      })
+      .get();
+
+    expect(results).toHaveLength(1);
+    expect(typeof (results[0] as Record<string, unknown>).name).toBe('number');
+  });
+
+  it('rejects distanceResultField "id" before touching Firestore', () => {
+    expect(() =>
+      withVectorSearch(vectorRepo)
+        .query()
+        .findNearest({
+          vectorField: 'embedding',
+          queryVector: [1, 0, 0],
+          limit: 1,
+          distanceMeasure: 'EUCLIDEAN',
+          distanceResultField: 'id',
+        }),
+    ).toThrow(/distanceResultField cannot be "id"/i);
+  });
+
   it('should throw when orderBy() is called after findNearest()', () => {
     const wrapped = withVectorSearch(vectorRepo);
     const builder = wrapped.query().findNearest({

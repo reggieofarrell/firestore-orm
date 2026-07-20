@@ -123,3 +123,41 @@ export async function emptyVectorProjectionIncludesDistanceField() {
   rows[0].name.toUpperCase();
   return distance;
 }
+
+// Regression: a distanceResultField that collides with a model field REPLACES it with the numeric
+// distance (Omit<R, DF> & Record<DF, number>), matching Firestore's runtime overwrite — rather than
+// intersecting to `never` (which was assignable to both string and number, an unsound gap).
+export async function distanceFieldReplacesCollidingModelField() {
+  const rows = await vectorRepo
+    .query()
+    .findNearest({
+      vectorField: 'embedding',
+      queryVector: [0.1, 0.2, 0.3],
+      limit: 1,
+      distanceMeasure: 'COSINE',
+      distanceResultField: 'name', // collides with the model's `name: string`
+    })
+    .get();
+
+  const distance: number = rows[0].name; // `name` is now the computed distance (number)
+  // @ts-expect-error the colliding field is typed number now, not its original string type
+  const original: string = rows[0].name;
+  return { distance, original };
+}
+
+// A dotted / computed distance-field name is a fresh key (not part of T), added as-is.
+export async function distanceFieldDottedName() {
+  const rows = await vectorRepo
+    .query()
+    .findNearest({
+      vectorField: 'embedding',
+      queryVector: [0.1, 0.2, 0.3],
+      limit: 1,
+      distanceMeasure: 'COSINE',
+      distanceResultField: 'metrics.distance',
+    })
+    .get();
+
+  const distance: number = rows[0]['metrics.distance'];
+  return distance;
+}

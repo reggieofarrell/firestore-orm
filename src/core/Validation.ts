@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { FieldValue, UpdateData, WithFieldValue } from 'firebase-admin/firestore';
 import { isDotNotation, validateDotNotationPath } from '../utils/dotNotation.js';
+import { hasFiniteVectorValues } from '../utils/vectorValue.js';
 
 export type RepositorySchemaSet = Readonly<{
   read: z.ZodObject<any>;
@@ -71,16 +72,10 @@ type Path = PathSegment[];
  * on the happy path; under `sentinelPolicy: 'strict'` the escape hatch never runs at all.
  */
 function isVectorWriteValue(value: unknown): boolean {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-
-  const vectorValue = value as { _values?: unknown };
-  return (
-    Array.isArray(vectorValue._values) &&
-    vectorValue._values.length > 0 &&
-    vectorValue._values.every(entry => typeof entry === 'number' && !Number.isNaN(entry))
-  );
+  // Delegates to the shared recognizer so the core validator and the vector extension
+  // (src/vector/VectorSearch.ts) apply one definition of a valid vector sentinel — finite
+  // components only (Number.isFinite rejects NaN AND ±Infinity).
+  return hasFiniteVectorValues(value);
 }
 
 /**

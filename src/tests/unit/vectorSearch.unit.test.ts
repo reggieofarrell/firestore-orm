@@ -191,6 +191,15 @@ describe('VectorSearch utilities', () => {
       expect(isVectorFieldValue({ _values: ['a'] })).toBe(false);
     });
 
+    it('should reject vectors containing non-finite components (Infinity / -Infinity)', () => {
+      // A _values-shaped value is judged solely on finiteness — a shaped-but-infinite vector must
+      // NOT fall through to the looser instanceof/toString heuristics and be wrongly accepted.
+      expect(isVectorFieldValue(FieldValue.vector([Infinity]))).toBe(false);
+      expect(isVectorFieldValue(FieldValue.vector([1, -Infinity, 3]))).toBe(false);
+      expect(isVectorFieldValue({ _values: [Infinity] })).toBe(false);
+      expect(isVectorFieldValue({ _values: [1, Number.POSITIVE_INFINITY] })).toBe(false);
+    });
+
     it('should reject primitives and plain objects', () => {
       expect(isVectorFieldValue(null)).toBe(false);
       expect(isVectorFieldValue(undefined)).toBe(false);
@@ -235,6 +244,15 @@ describe('VectorSearch utilities', () => {
       expect(schema.safeParse([]).success).toBe(false);
       expect(schema.safeParse([1, Number.NaN]).success).toBe(false);
       expect(schema.safeParse('not-an-array').success).toBe(false);
+    });
+
+    it('should reject non-finite values in both array and FieldValue.vector() sentinel forms', () => {
+      const schema = vectorEmbeddingSchema();
+      expect(schema.safeParse([1, Infinity, 3]).success).toBe(false);
+      expect(schema.safeParse([1, -Infinity]).success).toBe(false);
+      // Regression: the sentinel path must not short-circuit to success before the finite check.
+      expect(schema.safeParse(FieldValue.vector([Infinity])).success).toBe(false);
+      expect(schema.safeParse(FieldValue.vector([1, -Infinity])).success).toBe(false);
     });
 
     it('should use dimension-specific error messages', () => {

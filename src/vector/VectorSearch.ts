@@ -1,5 +1,6 @@
 import { FieldValue, Query } from 'firebase-admin/firestore';
 import { ID } from '../core/FirestoreRepository.js';
+import { hasFiniteVectorValues, hasVectorValuesShape } from '../utils/vectorValue.js';
 
 /**
  * Supported Firestore vector distance measures for KNN similarity search.
@@ -70,13 +71,12 @@ export function isVectorFieldValue(value: unknown): boolean {
     return false;
   }
 
-  const vectorValue = value as { _values?: unknown };
-  if (
-    Array.isArray(vectorValue._values) &&
-    vectorValue._values.length > 0 &&
-    vectorValue._values.every(entry => typeof entry === 'number' && !Number.isNaN(entry))
-  ) {
-    return true;
+  // A value carrying a `VectorValue`-shaped `_values` array is judged SOLELY on that array: it is a
+  // valid vector sentinel only when every component is a finite number. This is terminal — a
+  // shaped-but-invalid vector (e.g. containing Infinity) must be rejected here, not fall through to
+  // the looser `instanceof FieldValue` / `toString` heuristics below (which would wrongly accept it).
+  if (hasVectorValuesShape(value)) {
+    return hasFiniteVectorValues(value);
   }
 
   if (value instanceof FieldValue) {

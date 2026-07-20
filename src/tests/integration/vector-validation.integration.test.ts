@@ -158,6 +158,13 @@ describe('Vector validation integration', () => {
       expect(isVectorFieldValue({ foo: 'bar' })).toBe(false);
     });
 
+    it('should reject vector sentinels with non-finite components', () => {
+      // The sentinel path (not just plain arrays) must reject +/-Infinity.
+      expect(isVectorFieldValue(FieldValue.vector([Infinity]))).toBe(false);
+      expect(isVectorFieldValue(FieldValue.vector([1, -Infinity, 3]))).toBe(false);
+      expect(isVectorFieldValue({ _values: [Number.POSITIVE_INFINITY] })).toBe(false);
+    });
+
     it('should accept sentinel-like objects that stringify to vector', () => {
       const sentinelLike = {
         isEqual: () => true,
@@ -176,6 +183,8 @@ describe('Vector validation integration', () => {
       expect(schema.safeParse([1, Number.NaN, 3]).success).toBe(false);
       // Number.isFinite (not Number.isNaN) also rejects +/-Infinity components.
       expect(schema.safeParse([1, Number.POSITIVE_INFINITY, 3]).success).toBe(false);
+      // The FieldValue.vector() sentinel path must reject infinities too (not short-circuit).
+      expect(schema.safeParse(FieldValue.vector([1, Infinity, 3])).success).toBe(false);
     });
 
     it('should reject an invalid dimensions argument', () => {

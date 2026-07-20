@@ -27,6 +27,13 @@ describe('Validation utilities', () => {
       expect(isFieldValueSentinel(FieldValue.vector([1, 2, 3]))).toBe(true);
     });
 
+    it('should not treat a non-finite vector as a valid vector sentinel', () => {
+      // Shared finite-value recognizer: an infinite VectorValue is not a valid vector sentinel, so
+      // it is validated against the schema (which rejects it) rather than bypassed.
+      expect(isFieldValueSentinel(FieldValue.vector([Infinity]))).toBe(false);
+      expect(isFieldValueSentinel(FieldValue.vector([1, -Infinity, 3]))).toBe(false);
+    });
+
     it('should return false for plain objects and primitives', () => {
       expect(isFieldValueSentinel({ foo: 'bar' })).toBe(false);
       expect(isFieldValueSentinel('text')).toBe(false);
@@ -56,6 +63,10 @@ describe('Validation utilities', () => {
       expect(whichFieldValue(null)).toBe('unknown');
       expect(whichFieldValue(Timestamp.now())).toBe('unknown');
       expect(whichFieldValue(new GeoPoint(1, 2))).toBe('unknown');
+    });
+
+    it('does not classify a non-finite vector as a vector sentinel', () => {
+      expect(whichFieldValue(FieldValue.vector([Infinity]))).toBe('unknown');
     });
   });
 

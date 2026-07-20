@@ -1,10 +1,17 @@
 /**
- * Strategy: emulator integration tests for bulk update return contracts.
- * Verifies bulkUpdate and bulkPatch return id-only payloads.
+ * Strategy: emulator integration tests for bulk write return + hook contracts.
+ * Verifies bulkUpdate/bulkPatch return id-only payloads, and that bulkCreate returns { id }[] by
+ * default (read models via returnDoc) while never leaking Zod-stripped keys into results or the
+ * afterBulkCreate hook payload (regression guard for the historic Object.assign-onto-raw bug).
  */
 import { createTestUserInput } from '../shared/factories/user.factory.js';
 import { resetTestFactoryCounters } from '../shared/factories/counters.js';
-import { createUserRepoHarness } from './helpers/firestoreIntegrationHarness.js';
+import {
+  cleanupValidatedRepo,
+  createUserRepoHarness,
+  createValidatedRepo,
+  getIntegrationDb,
+} from './helpers/firestoreIntegrationHarness.js';
 
 describe('FirestoreRepository bulk update return contracts', () => {
   const harness = createUserRepoHarness('test_users_bulk_returns');
@@ -53,5 +60,98 @@ describe('FirestoreRepository bulk update return contracts', () => {
 
     const updated = await userRepo.getById(user.id);
     expect(updated?.profile?.verified).toBe(true);
+  });
+});
+
+describe('FirestoreRepository bulkCreate return + hook contracts', () => {
+  it('returns { id }[] by default and drops Zod-stripped keys from results and afterBulkCreate', async () => {
+    const repo = createValidatedRepo(getIntegrationDb());
+    try {
+      const hookPayload: Array<Record<string, unknown>> = [];
+      repo.on('afterBulkCreate', docs => {
+        hookPayload.push(...(docs as Array<Record<string, unknown>>));
+      });
+
+      const result = await repo.bulkCreate([
+        { name: 'Bulk C1', score: 1, createdAt: new Date().toISOString(), extra: 'not persisted' },
+        { name: 'Bulk C2', score: 2, createdAt: new Date().toISOString(), extra: 'not persisted' },
+      ] as any[]);
+
+      // Default contract: id-only results (no fields, no leaked keys).
+      expect(result).toHaveLength(2);
+      for (const entry of result) {
+        expect(Object.keys(entry)).toEqual(['id']);
+        expect(typeof entry.id).toBe('string');
+      }
+
+      // afterBulkCreate receives the VALIDATED write model + id — the stripped `extra` is absent.
+      expect(hookPayload).toHaveLength(2);
+      for (const payload of hookPayload) {
+        expect(payload.extra).toBeUndefined();
+        expect(typeof payload.id).toBe('string');
+        expect(String(payload.name)).toMatch(/^Bulk C/);
+      }
+
+      // Stored documents never contain the stripped key either.
+      const stored = await repo.getById(result[0].id);
+      expect((stored as Record<string, unknown>).extra).toBeUndefined();
+    } finally {
+      await cleanupValidatedRepo(repo);
+    }
+  });
+
+  it('bulkCreate(returnDoc) returns converted read models without stripped keys', async () => {
+    const repo = createValidatedRepo(getIntegrationDb());
+    try {
+      const created = await repo.bulkCreate(
+        [{ name: 'RD1', score: 3, createdAt: new Date().toISOString(), extra: 'x' }] as any[],
+        { returnDoc: true },
+      );
+      expect(created[0].name).toBe('RD1');
+      expect((created[0] as Record<string, unknown>).extra).toBeUndefined();
+    } finally {
+      await cleanupValidatedRepo(repo);
+    }
+  });
+});
+
+describe('FirestoreRepository bulk duplicate-id rejection', () => {
+  const harness = createUserRepoHarness('test_users_bulk_dupes');
+  const { userRepo, trackUser, cleanupTrackedUsers, cleanupCollection } = harness;
+
+  afterEach(async () => {
+    await cleanupTrackedUsers();
+  });
+
+  afterAll(async () => {
+    await cleanupCollection();
+  });
+
+  it('bulkUpdate rejects duplicate ids', async () => {
+    const user = await userRepo.create(createTestUserInput({ name: 'Dup Update' }));
+    trackUser(user.id);
+    await expect(
+      userRepo.bulkUpdate([
+        { id: user.id, data: { name: 'A' } },
+        { id: user.id, data: { name: 'B' } },
+      ]),
+    ).rejects.toThrow(/duplicate document id/i);
+  });
+
+  it('bulkPatch rejects duplicate ids', async () => {
+    const user = await userRepo.create(createTestUserInput({ name: 'Dup Patch' }));
+    trackUser(user.id);
+    await expect(
+      userRepo.bulkPatch([
+        { id: user.id, data: { name: 'A' } as any },
+        { id: user.id, data: { name: 'B' } as any },
+      ]),
+    ).rejects.toThrow(/duplicate document id/i);
+  });
+
+  it('bulkDelete rejects duplicate ids', async () => {
+    const user = await userRepo.create(createTestUserInput({ name: 'Dup Delete' }));
+    trackUser(user.id);
+    await expect(userRepo.bulkDelete([user.id, user.id])).rejects.toThrow(/duplicate document id/i);
   });
 });

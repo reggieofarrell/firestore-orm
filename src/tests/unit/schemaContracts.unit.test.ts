@@ -48,6 +48,37 @@ describe('repository schema contracts', () => {
     );
   });
 
+  describe('id-schema validation (withSchema)', () => {
+    const db = { collection: jest.fn() } as any;
+
+    it('accepts a plain required string id', () => {
+      expect(() =>
+        FirestoreRepository.withSchema(db, 'users', z.object({ id: z.string(), name: z.string() })),
+      ).not.toThrow();
+    });
+
+    it('rejects an optional id', () => {
+      const schema = z.object({ id: z.string().optional(), name: z.string() });
+      expect(() => FirestoreRepository.withSchema(db, 'users', schema as any)).toThrow(/required/i);
+    });
+
+    it('rejects a nullable id', () => {
+      const schema = z.object({ id: z.string().nullable(), name: z.string() });
+      expect(() => FirestoreRepository.withSchema(db, 'users', schema as any)).toThrow(
+        /non-nullable/i,
+      );
+    });
+
+    it('rejects an id whose transform changes the parsed output type', () => {
+      // z.string().transform(v => v.length) accepts a string but yields a number — this would
+      // break the repository's `T & { id: string }` contract.
+      const schema = z.object({ id: z.string().transform(v => v.length), name: z.string() });
+      expect(() => FirestoreRepository.withSchema(db, 'users', schema as any)).toThrow(
+        /accept and preserve string values/i,
+      );
+    });
+  });
+
   it('exposes read/create/update schemas and keeps them aligned with validator behavior', () => {
     const { repo, userSchema } = createSchemaRepoHarness();
 

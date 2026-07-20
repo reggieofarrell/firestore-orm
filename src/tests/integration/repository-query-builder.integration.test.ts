@@ -31,12 +31,15 @@ describe('FirestoreRepository QueryBuilder', () => {
   });
 
   async function seedCatalog(): Promise<CatalogUser[]> {
-    const items = await userRepo.bulkCreate([
-      { name: 'A', category: 'books', sortKey: 1, active: true },
-      { name: 'B', category: 'books', sortKey: 2, active: true },
-      { name: 'C', category: 'games', sortKey: 3, active: false },
-      { name: 'D', category: 'games', sortKey: 4, active: true },
-    ] as any[]);
+    const items = await userRepo.bulkCreate(
+      [
+        { name: 'A', category: 'books', sortKey: 1, active: true },
+        { name: 'B', category: 'books', sortKey: 2, active: true },
+        { name: 'C', category: 'games', sortKey: 3, active: false },
+        { name: 'D', category: 'games', sortKey: 4, active: true },
+      ] as any[],
+      { returnDoc: true },
+    );
     items.forEach(item => trackUser(item.id));
     return items as CatalogUser[];
   }
@@ -165,12 +168,26 @@ describe('FirestoreRepository QueryBuilder', () => {
     await expect(userRepo.query().paginate(2)).rejects.toThrow('orderBy');
   });
 
-  it('should reject paginate with non-positive page size', async () => {
+  it('should reject paginate/offsetPaginate with non-positive, non-integer, or non-finite inputs', async () => {
     await expect(userRepo.query().orderBy('sortKey').paginate(0)).rejects.toThrow('pageSize');
+    await expect(userRepo.query().orderBy('sortKey').paginate(-1)).rejects.toThrow('pageSize');
+    await expect(userRepo.query().orderBy('sortKey').paginate(1.5)).rejects.toThrow('pageSize');
+    await expect(userRepo.query().orderBy('sortKey').paginate(Number.NaN)).rejects.toThrow(
+      'pageSize',
+    );
+    await expect(
+      userRepo.query().orderBy('sortKey').paginate(Number.POSITIVE_INFINITY),
+    ).rejects.toThrow('pageSize');
+
+    // offsetPaginate previously performed no validation at all.
+    await expect(userRepo.query().offsetPaginate(0, 10)).rejects.toThrow('page');
+    await expect(userRepo.query().offsetPaginate(1, 0)).rejects.toThrow('pageSize');
+    await expect(userRepo.query().offsetPaginate(-2, 10)).rejects.toThrow('page');
+    await expect(userRepo.query().offsetPaginate(1.5, 10)).rejects.toThrow('page');
   });
 
   it('should reject paginate when cursor document was deleted', async () => {
-    const items = await seedCatalog();
+    await seedCatalog();
     const firstPage = await userRepo.query().orderBy('sortKey', 'asc').paginate(1);
     const cursorDocId = firstPage.items[0].id;
 
@@ -178,7 +195,26 @@ describe('FirestoreRepository QueryBuilder', () => {
 
     await expect(
       userRepo.query().orderBy('sortKey', 'asc').paginate(1, firstPage.nextCursor),
-    ).rejects.toThrow('Cursor document');
+    ).rejects.toThrow(/cursor no longer points/i);
+  });
+
+  it('should reject a cursor bound to a different collection', async () => {
+    await seedCatalog();
+    // Forge a cursor whose document path points at another collection.
+    const foreignCursor = Buffer.from(
+      JSON.stringify({ path: 'some_other_collection/forged-doc' }),
+    ).toString('base64url');
+
+    await expect(
+      userRepo.query().orderBy('sortKey', 'asc').paginate(1, foreignCursor),
+    ).rejects.toThrow(/cursor for this collection/i);
+  });
+
+  it('should reject a malformed cursor without echoing its contents', async () => {
+    await seedCatalog();
+    await expect(
+      userRepo.query().orderBy('sortKey', 'asc').paginate(1, 'not-a-valid-cursor'),
+    ).rejects.toThrow(/invalid pagination cursor/i);
   });
 
   it('should select a subset of fields in query results', async () => {
@@ -194,6 +230,41 @@ describe('FirestoreRepository QueryBuilder', () => {
 
     expect(match).toBeDefined();
     expect(match).toEqual(expect.objectContaining({ name: 'Select User', id: expect.any(String) }));
+  });
+
+  it('select() is immutable: the original builder alias still returns full documents', async () => {
+    await userRepo.create({
+      name: 'Alias User',
+      category: 'books',
+      sortKey: 42,
+      active: true,
+    } as any);
+
+    const builder = userRepo.query().where('name', '==', 'Alias User');
+    // Capturing the projection must not project the original builder.
+    const projected = builder.select('name');
+
+    const full = await builder.get();
+    const projectedRows = await projected.get();
+
+    // Original alias returns the full document (category/sortKey present at runtime).
+    expect(full[0]).toEqual(
+      expect.objectContaining({ name: 'Alias User', category: 'books', sortKey: 42 }),
+    );
+    // Projected builder returns only the selected field (+ id).
+    expect((projectedRows[0] as Record<string, unknown>).category).toBeUndefined();
+    expect(projectedRows[0]).toEqual(
+      expect.objectContaining({ name: 'Alias User', id: expect.any(String) }),
+    );
+  });
+
+  it('onSnapshot() after select() is rejected locally', async () => {
+    await expect(
+      userRepo
+        .query()
+        .select('name')
+        .onSnapshot(() => {}),
+    ).rejects.toThrow(/not supported after select/i);
   });
 
   it('should filter with in and array-contains operators', async () => {

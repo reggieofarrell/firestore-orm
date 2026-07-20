@@ -13,8 +13,8 @@ Firestore id on `create`/`bulkCreate`, or from the `id` argument you pass to `up
 `upsert`, and `delete`.
 
 ```typescript
-// CREATE — returns the created document as `T & { id }`
-const user = await userRepo.create({
+// CREATE — returns { id } by default; pass { returnDoc: true } for the created read model
+const { id: newUserId } = await userRepo.create({
   name: 'Alice',
   email: 'alice@example.com',
 });
@@ -92,8 +92,8 @@ Bulk operations use Firestore batch writes and commit in batches of 500 operatio
 automatically chunks operations if you exceed this limit, so you can pass arrays of any size.
 
 ```typescript
-// Bulk create — returns the created documents as `(T & { id })[]`
-const users = await userRepo.bulkCreate([
+// Bulk create — returns [{ id }, ...] by default; pass { returnDoc: true } for read models
+const created = await userRepo.bulkCreate([
   { name: 'Alice', email: 'alice@example.com' },
   { name: 'Bob', email: 'bob@example.com' },
   { name: 'Charlie', email: 'charlie@example.com' },
@@ -126,6 +126,7 @@ const orders = await orderRepo.query().where('status', '==', 'pending').get();
 await orderRepo.bulkUpdate(orders.map(o => ({ id: o.id, data: { status: 'shipped' } })));
 ```
 
-Note that `query().update()` and `query().delete()` do **not** run
-[lifecycle hooks](./lifecycle-hooks/); use the per-document or bulk repository methods when you need
-hook side effects.
+Note that `query().update()` and `query().delete()` run the **bulk** lifecycle hooks
+(`beforeBulkUpdate`/`afterBulkUpdate` and `beforeBulkDelete`/`afterBulkDelete` respectively), not
+the per-document `before/afterUpdate` / `before/afterDelete` hooks. Use the single-document methods
+if you need per-document hooks. See [lifecycle hooks](./lifecycle-hooks/).

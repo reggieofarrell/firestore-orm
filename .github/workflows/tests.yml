@@ -110,3 +110,136 @@ jobs:
       # cannot verify because ts-jest runs with isolatedModules. See docs/development/testing.md.
       - name: Type-check
         run: npm run test:types
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+
+  # NOTE: the union of the PR jobs below is kept definitionally equivalent to `npm run release:verify`
+  # (which the publish workflow runs as one command) — lint, types, manifest, audit, build, package,
+  # consumer (ESM/CJS/express, compile + runtime), coverage gates, doc links, and website build. If
+  # you change release:verify, mirror it here (and vice versa).
+
+  # Exercises the exact artifact users install: builds, asserts the tarball allowlist + that the root
+  # declaration graph is express-free, and checks manifest/lockfile metadata agreement. The isolated
+  # packed-consumer compile/runtime check runs per Admin major in the `admin-compat` job below.
+  package:
+    name: Package (allowlist + manifest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Manifest / lockfile metadata agreement
+        run: npm run check:manifest
+      - name: Build
+        run: npm run build
+      - name: Tarball allowlist + express-graph check
+        run: npm run check:package
+
+  # Compiles AND runtime-loads a fresh ESM + CJS + /express consumer against the packed tarball, once
+  # per DECLARED firebase-admin peer major — so the ^12 || ^13 || ^14 range is tested honestly rather
+  # than only against the dev version. check:consumer reads FIRESTORE_ORM_ADMIN_VERSION.
+  admin-compat:
+    name: Consumer (firebase-admin ${{ matrix.admin }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        admin: ['^12.0.0', '^13.0.0', '^14.0.0']
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Isolated packed-consumer compile + runtime load
+        env:
+          FIRESTORE_ORM_ADMIN_VERSION: ${{ matrix.admin }}
+        run: npm run check:consumer
+
+  # Runtime-only dependency audit (the shipped package declares no runtime deps, so this stays clean;
+  # dev-toolchain advisories are informational and excluded via --omit=dev).
+  audit:
+    name: Audit (runtime deps)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Runtime dependency audit
+        run: npm run check:audit
+
+  # Builds the Starlight docs site (release:verify runs this too). Catches broken MDX/links/config
+  # that the doc-link checker alone does not.
+  docs-build:
+    name: Website build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install website dependencies
+        run: npm --prefix website ci
+      - name: Build website
+        run: npm run docs:build
+
+  # Verify build + unit tests on the v3 Node floor (22) in addition to the pinned Node (24) used by
+  # the coverage jobs above.
+  node22:
+    name: Node 22 (build + unit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Unit tests
+        run: npm run test:unit

@@ -2,7 +2,7 @@ import { parseFirestoreError } from './ErrorParser.js';
 import { HookEvent, ID } from './FirestoreRepository.js';
 import { ValidationError } from './Errors.js';
 import { UpdateInput } from './Validation.js';
-import { FieldPaths } from '../utils/pathTypes.js';
+import { DeepPartial, FieldPaths, NumericFieldPaths } from '../utils/pathTypes.js';
 import {
   AggregateField,
   CollectionReference,
@@ -27,9 +27,20 @@ export type PaginatedResult<T extends { id?: string }> = {
   hasMore: boolean;
 };
 
-export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
+/**
+ * @template T - The document (read model) type
+ * @template W - The write model type (for `update`)
+ * @template R - The current result shape of terminal reads. Defaults to the full `T & { id }`;
+ *   `select(...)` narrows it to `DeepPartial<T> & { id }` (nested map properties optional too) so
+ *   fields projected away — at any depth — become compile errors when accessed (Firestore returns
+ *   only the selected fields at runtime).
+ */
+export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { id: ID }> {
   private query: Query<any>;
   private hasOrderBy = false;
+  // True once select() has applied a field mask. A projected query cannot be used with onSnapshot()
+  // (Firestore rejects field-masked listeners), so this is used to guard that combination locally.
+  private hasSelect = false;
 
   constructor(
     private baseQuery: Query<any>,
@@ -64,13 +75,31 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
    * @returns Document snapshot represented by the cursor
    */
   private async decodeCursor(cursor: string): Promise<QueryDocumentSnapshot<any>> {
-    const json = Buffer.from(cursor, 'base64url').toString('utf8');
-    const payload = JSON.parse(json) as { path: string };
-    const snapshot = await this.db.doc(payload.path).get();
+    let docRef: FirebaseFirestore.DocumentReference;
+    try {
+      const json = Buffer.from(cursor, 'base64url').toString('utf8');
+      const payload = JSON.parse(json) as { path?: unknown };
+      if (typeof payload.path !== 'string' || payload.path === '') {
+        throw new Error('missing path');
+      }
+      docRef = this.db.doc(payload.path);
+    } catch {
+      // Never echo the decoded path — it is caller-supplied and untrusted.
+      throw new Error('Invalid pagination cursor.');
+    }
 
+    // Bind the cursor to THIS collection: a forged/foreign cursor pointing at a document in another
+    // collection must not be dereferenced (which would let pagination probe arbitrary documents in
+    // the same database, disclosing their existence via timing/error behavior).
+    if (docRef.parent.path !== this.collectionRef.path) {
+      throw new Error('Invalid pagination cursor for this collection.');
+    }
+
+    const snapshot = await docRef.get();
     if (!snapshot.exists) {
       throw new Error(
-        `Cursor document at path "${payload.path}" no longer exists. This can happen if the document was deleted between page requests.`,
+        'Pagination cursor no longer points to an existing document (it may have been deleted ' +
+          'between page requests).',
       );
     }
 
@@ -89,12 +118,47 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
   }
 
   /**
+   * Rejects an empty update payload, matching the repository update surfaces so every update path
+   * shares one policy.
+   */
+  private assertNonEmptyUpdatePayload(payload: Record<string, any>): void {
+    if (Object.keys(payload).length === 0) {
+      throw new ValidationError([
+        {
+          code: 'custom',
+          path: [],
+          message:
+            'Update payload is empty — no fields to write after validation. Provide at least one ' +
+            'field to update (use delete() to remove a document).',
+        } as z.core.$ZodIssue,
+      ]);
+    }
+  }
+
+  /**
+   * Validates a pagination input is a positive, finite integer, rejecting `0`, negatives,
+   * non-integers, `NaN`, and `Infinity` up front (which would otherwise produce nonsensical offsets
+   * / page counts or fail later in less predictable ways).
+   */
+  private assertPositiveInt(name: string, value: number): void {
+    if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+      throw new Error(`${name} must be a positive integer (received ${String(value)}).`);
+    }
+  }
+
+  /**
    * Add a where clause to filter documents.
    * Supports various operators based on field type.
    *
-   * @param field - The field to filter on
+   * The `field` is a schema-aware field path (typo-checked), but `value` is intentionally typed as
+   * `unknown` rather than the field's type: a `readConverter` can make the application model (`T`)
+   * differ from the value actually stored in Firestore, so the stored comparison value cannot be
+   * derived from `T` in general. Callers are responsible for passing a value matching the STORED
+   * representation.
+   *
+   * @param field - The field path to filter on (typed) or a `FieldPath`
    * @param op - The comparison operator
-   * @param value - The value to compare against
+   * @param value - The value to compare against (matches the stored representation)
    *
    * @example
    * // Basic equality
@@ -149,9 +213,25 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
    *
    * @returns The query builder instance
    */
-  select(...fields: (FieldPaths<T> | FieldPath)[]): this {
-    this.query = this.query.select(...(fields as (string | FieldPath)[]));
-    return this;
+  select(
+    ...fields: (FieldPaths<T> | FieldPath)[]
+  ): FirestoreQueryBuilder<T, W, DeepPartial<T> & { id: ID }> {
+    // Return a NEW builder rather than mutating and re-casting `this`. Mutating in place left any
+    // pre-select alias of this builder statically typed for the full model while its shared runtime
+    // query had a projection applied — an unsound gap. A fresh builder narrows the result type at
+    // exactly the reference the projection applies to; the original builder is untouched.
+    const next = new FirestoreQueryBuilder<T, W, DeepPartial<T> & { id: ID }>(
+      this.baseQuery,
+      this.collectionRef,
+      this.db,
+      this.commitInChunks,
+      this.runHooks,
+      this.validateUpdate,
+    );
+    next.query = this.query.select(...(fields as (string | FieldPath)[]));
+    next.hasOrderBy = this.hasOrderBy;
+    next.hasSelect = true;
+    return next;
   }
 
   /**
@@ -189,7 +269,16 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
     try {
       const snapshot = await this.query.get();
 
-      if (snapshot.empty) return 0;
+      if (snapshot.empty) {
+        // Honor the empty-update contract even with zero matches (ADR-0014): validate + sanitize the
+        // caller payload and reject if it reduces to nothing, so `{}`, all-`undefined`, and
+        // schema-stripped payloads throw regardless of whether any document matched. A valid,
+        // non-empty payload against a zero-match query still returns 0 (no rows to write).
+        const validData = this.validateUpdate ? this.validateUpdate(data) : data;
+        const sanitizedData = this.sanitizeUpdateData(validData);
+        this.assertNonEmptyUpdatePayload(sanitizedData as Record<string, any>);
+        return 0;
+      }
 
       const updates = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -207,15 +296,14 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
 
         const validData = this.validateUpdate ? this.validateUpdate(updateData) : updateData;
         const sanitizedData = this.sanitizeUpdateData(validData);
-        if (Object.keys(sanitizedData as Record<string, any>).length > 0) {
-          actions.push(batch => batch.update(doc.ref, sanitizedData as any));
-          writtenIds.push(doc.id);
-        }
+        // Reject an empty patch (consistent with the repository update surfaces). Because the same
+        // data is applied to every matched doc, this is uniform across the result set.
+        this.assertNonEmptyUpdatePayload(sanitizedData as Record<string, any>);
+        actions.push(batch => batch.update(doc.ref, sanitizedData as any));
+        writtenIds.push(doc.id);
       }
 
       await this.commitInChunks(actions);
-      // Report only the documents actually written — a doc whose payload sanitized to empty (e.g.
-      // all-undefined values) produces no batch action. The hook ids and the return count agree.
       await this.runHooks('afterBulkUpdate', { ids: writtenIds });
       return writtenIds.length;
     } catch (error: any) {
@@ -394,11 +482,12 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
    *   .orderBy('price', 'desc')
    *   .paginate(20, firstPage.nextCursor);
    */
-  async paginate(pageSize: number, cursor?: string | null): Promise<PaginatedResult<T>> {
+  async paginate(
+    pageSize: number,
+    cursor?: string | null,
+  ): Promise<{ items: R[]; nextCursor: string | null; hasMore: boolean }> {
     try {
-      if (pageSize <= 0) {
-        throw new Error('pageSize must be a positive number');
-      }
+      this.assertPositiveInt('pageSize', pageSize);
 
       if (!this.hasOrderBy) {
         throw new Error(
@@ -419,7 +508,10 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
       const snapshot: QuerySnapshot = await finalQuery.get();
       const hasMore = snapshot.docs.length > pageSize;
       const pageDocs = hasMore ? snapshot.docs.slice(0, pageSize) : snapshot.docs;
-      const items = pageDocs.map(doc => ({ ...(doc.data() as T), id: doc.id }));
+      const items = pageDocs.map(doc => ({
+        ...(doc.data() as T),
+        id: doc.id,
+      })) as unknown as R[];
 
       const last = pageDocs[pageDocs.length - 1];
       const nextCursor = hasMore && last ? this.encodeCursor(last) : null;
@@ -452,13 +544,16 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
     page: number,
     pageSize: number,
   ): Promise<{
-    items: (T & { id: ID })[];
+    items: R[];
     page: number;
     pageSize: number;
     total: number;
     totalPages: number;
   }> {
     try {
+      this.assertPositiveInt('page', page);
+      this.assertPositiveInt('pageSize', pageSize);
+
       const total = await this.count();
       const offset = (page - 1) * pageSize;
 
@@ -466,7 +561,10 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
       finalQuery = finalQuery.offset(offset).limit(pageSize);
 
       const snapshot = await finalQuery.get();
-      const items = snapshot.docs.map(doc => ({ ...(doc.data() as T), id: doc.id }));
+      const items = snapshot.docs.map(doc => ({
+        ...(doc.data() as T),
+        id: doc.id,
+      })) as unknown as R[];
 
       return {
         items,
@@ -499,7 +597,7 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
    *   .orderBy('price', 'asc')
    *   .getOne();
    */
-  async getOne(): Promise<(T & { id: ID }) | null> {
+  async getOne(): Promise<R | null> {
     const results = await this.limit(1).get();
     return results[0] || null;
   }
@@ -540,10 +638,10 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
    *   .where('status', '==', 'completed')
    *   .sum('total');
    */
-  async sum<K extends keyof T>(field: K): Promise<number> {
+  async sum(field: NumericFieldPaths<T> | FieldPath): Promise<number> {
     try {
       const snapshot = await this.query
-        .aggregate({ sum: AggregateField.sum(field as string) })
+        .aggregate({ sum: AggregateField.sum(field as string | FieldPath) })
         .get();
 
       // Firestore can return null when no matching numeric values exist.
@@ -567,10 +665,10 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
    *   .where('productId', '==', productId)
    *   .average('rating');
    */
-  async average<K extends keyof T>(field: K): Promise<number> {
+  async average(field: NumericFieldPaths<T> | FieldPath): Promise<number> {
     try {
       const snapshot = await this.query
-        .aggregate({ average: AggregateField.average(field as string) })
+        .aggregate({ average: AggregateField.average(field as string | FieldPath) })
         .get();
 
       // Firestore can return null when no matching numeric values exist.
@@ -585,7 +683,13 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
    * Get all distinct values for a specific field.
    * Useful for generating filter options or analyzing data distribution.
    *
-   * @param field - The field to get distinct values from
+   * LIMITATION — scalar values only: distinctness is computed with a JavaScript `Set`, which uses
+   * reference identity for objects. Structured/reference Firestore values (maps, arrays,
+   * `Timestamp`, `GeoPoint`, `DocumentReference`) are therefore deduplicated by identity, not by
+   * semantic equality, so two equal-but-distinct-object values are reported as separate. Use this
+   * only for scalar fields (string/number/boolean), or dedupe structured values yourself.
+   *
+   * @param field - The (top-level) field to get distinct values from
    * @returns Array of unique values
    *
    * @example
@@ -631,10 +735,16 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
    *   csvStream.write(`${user.name},${user.email}\n`);
    * }
    */
-  async *stream(): AsyncGenerator<T & { id: ID }> {
+  async *stream(): AsyncGenerator<R> {
     try {
-      const snapshot = await this.query.get();
-      for (const doc of snapshot.docs) yield { ...(doc.data() as T), id: doc.id };
+      // Use the Admin SDK's native query stream so documents are yielded incrementally as they
+      // arrive, rather than buffering the entire result set via get(). Node readable streams are
+      // async-iterable, so `for await` drives them directly; per-document conversion and error
+      // semantics are preserved.
+      const source = this.query.stream() as AsyncIterable<QueryDocumentSnapshot<any>>;
+      for await (const doc of source) {
+        yield { ...(doc.data() as T), id: doc.id } as unknown as R;
+      }
     } catch (error: any) {
       throw parseFirestoreError(error);
     }
@@ -664,16 +774,26 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
    * unsubscribe();
    */
   async onSnapshot(
-    callback: (items: (T & { id: ID })[]) => void,
+    callback: (items: R[]) => void,
     onError?: (error: Error) => void,
   ): Promise<() => void> {
+    // Firestore does not allow a real-time listener on a query with a field mask. Reject the
+    // combination locally with a clear error instead of deferring an opaque failure to the SDK.
+    if (this.hasSelect) {
+      throw new Error(
+        'onSnapshot() is not supported after select(): Firestore does not allow real-time ' +
+          'listeners on a projected (field-masked) query. Listen without select() and project ' +
+          'in your callback, or use get()/stream() for a one-time projected read.',
+      );
+    }
+
     try {
       return this.query.onSnapshot(
         snapshot => {
           const items = snapshot.docs.map(doc => ({
             ...(doc.data() as T),
             id: doc.id,
-          }));
+          })) as unknown as R[];
           callback(items);
         },
         error => {
@@ -704,7 +824,7 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
   async paginateWithCount(
     pageSize: number,
     cursor?: string | null,
-  ): Promise<PaginatedResult<T> & { total: number }> {
+  ): Promise<{ items: R[]; nextCursor: string | null; hasMore: boolean; total: number }> {
     try {
       const total = await this.count();
       const result = await this.paginate(pageSize, cursor);
@@ -744,10 +864,10 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T> {
    *   .limit(50)
    *   .get();
    */
-  async get(): Promise<(T & { id: ID })[]> {
+  async get(): Promise<R[]> {
     try {
       const snapshot: QuerySnapshot = await this.query.get();
-      return snapshot.docs.map(doc => ({ ...(doc.data() as T), id: doc.id }));
+      return snapshot.docs.map(doc => ({ ...(doc.data() as T), id: doc.id })) as unknown as R[];
     } catch (error: any) {
       throw parseFirestoreError(error);
     }

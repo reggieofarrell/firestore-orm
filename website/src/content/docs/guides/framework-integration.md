@@ -121,7 +121,7 @@ Register the routes and mount `errorHandler` **last** so it can translate ORM er
 ```typescript
 // app.ts
 import express from 'express';
-import { errorHandler } from '@reggieofarrell/firestore-orm';
+import { errorHandler } from '@reggieofarrell/firestore-orm/express';
 import userRoutes from './routes/user.routes';
 
 const app = express();

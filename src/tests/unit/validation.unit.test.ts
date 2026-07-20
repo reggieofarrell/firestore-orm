@@ -27,6 +27,13 @@ describe('Validation utilities', () => {
       expect(isFieldValueSentinel(FieldValue.vector([1, 2, 3]))).toBe(true);
     });
 
+    it('should not treat a non-finite vector as a valid vector sentinel', () => {
+      // Shared finite-value recognizer: an infinite VectorValue is not a valid vector sentinel, so
+      // it is validated against the schema (which rejects it) rather than bypassed.
+      expect(isFieldValueSentinel(FieldValue.vector([Infinity]))).toBe(false);
+      expect(isFieldValueSentinel(FieldValue.vector([1, -Infinity, 3]))).toBe(false);
+    });
+
     it('should return false for plain objects and primitives', () => {
       expect(isFieldValueSentinel({ foo: 'bar' })).toBe(false);
       expect(isFieldValueSentinel('text')).toBe(false);
@@ -56,6 +63,10 @@ describe('Validation utilities', () => {
       expect(whichFieldValue(null)).toBe('unknown');
       expect(whichFieldValue(Timestamp.now())).toBe('unknown');
       expect(whichFieldValue(new GeoPoint(1, 2))).toBe('unknown');
+    });
+
+    it('does not classify a non-finite vector as a vector sentinel', () => {
+      expect(whichFieldValue(FieldValue.vector([Infinity]))).toBe('unknown');
     });
   });
 
@@ -158,8 +169,8 @@ describe('Validation utilities', () => {
       expect(parsed.name).toBe('Valid');
     });
 
-    it('should allow sentinel-only validation failures on create', () => {
-      const validator = makeValidator(userSchema);
+    it('permissive: allows sentinel-only validation failures on create (opt-in escape hatch)', () => {
+      const validator = makeValidator(userSchema, undefined, { sentinelPolicy: 'permissive' });
       const parsed = validator.parseCreate({
         name: 'Sentinel User',
         score: FieldValue.increment(1) as unknown as number,
@@ -194,13 +205,13 @@ describe('Validation utilities', () => {
       expect(validator.parseUpdate({ name: 'Allowed' })).toEqual({ name: 'Allowed' });
     });
 
-    it('should allow vector sentinel-only validation failures on update', () => {
+    it('permissive: allows vector sentinel-only validation failures on update (opt-in)', () => {
       const vectorSchema = z.object({
         id: z.string(),
         name: z.string().min(1),
         embedding: z.array(z.number()).min(3),
       });
-      const validator = makeValidator(vectorSchema);
+      const validator = makeValidator(vectorSchema, undefined, { sentinelPolicy: 'permissive' });
 
       const parsed = validator.parseUpdate({
         embedding: FieldValue.vector([1, 2, 3]) as unknown as number[],
@@ -233,19 +244,39 @@ describe('Validation utilities', () => {
       createdAt: z.string(),
     });
 
-    it('permissive (default) waives a wrong-kind sentinel on a plain field', () => {
+    it('strict is the default: rejects a wrong-kind sentinel on a plain field', () => {
+      // v3 flips the default to 'strict' — no policy argument means strict.
       const validator = makeValidator(schema);
+      expect(() =>
+        validator.parseUpdate({ createdAt: FieldValue.increment(5) as unknown as string }),
+      ).toThrow();
+    });
+
+    it('strict (default) preserves sibling Zod output alongside an approved sentinel', () => {
+      // Regression guard for the permissive escape hatch discarding valid Zod output: under the
+      // strict default, parsing succeeds normally, so coercions and defaults on OTHER fields apply.
+      const coercingSchema = z.object({
+        id: z.string(),
+        count: z.coerce.number(),
+        status: z.string().default('new'),
+        createdAt: zDateWrite(), // accepts Date | serverTimestamp
+      });
+      const validator = makeValidator(coercingSchema);
+      const parsed = validator.parseCreate({
+        count: '7' as unknown as number,
+        createdAt: FieldValue.serverTimestamp() as unknown as Date,
+      }) as { count: unknown; status: unknown };
+
+      expect(parsed.count).toBe(7); // coerced string -> number survived
+      expect(parsed.status).toBe('new'); // default applied
+    });
+
+    it('permissive (opt-in) waives a wrong-kind sentinel on a plain field', () => {
+      const validator = makeValidator(schema, undefined, { sentinelPolicy: 'permissive' });
       const parsed = validator.parseUpdate({
         createdAt: FieldValue.increment(5) as unknown as string,
       });
       expect((parsed as { createdAt?: unknown }).createdAt).toBeDefined();
-    });
-
-    it('strict rejects any sentinel on a plain (non-combinator) field', () => {
-      const validator = makeValidator(schema, undefined, { sentinelPolicy: 'strict' });
-      expect(() =>
-        validator.parseUpdate({ createdAt: FieldValue.increment(5) as unknown as string }),
-      ).toThrow();
     });
 
     it('strict enforces per-field sentinel approval via combinators', () => {
@@ -280,10 +311,11 @@ describe('Validation utilities', () => {
     });
   });
 
-  describe('sentinel path scoping (exact-leaf)', () => {
+  describe('sentinel path scoping (exact-leaf, permissive)', () => {
     it('does not let a nested sentinel excuse an ancestor type error', () => {
+      // Only meaningful under permissive, where the escape hatch could otherwise waive failures.
       const schema = z.object({ id: z.string(), profile: z.string() });
-      const validator = makeValidator(schema);
+      const validator = makeValidator(schema, undefined, { sentinelPolicy: 'permissive' });
       expect(() =>
         validator.parseUpdate({
           profile: { updatedAt: FieldValue.serverTimestamp() } as unknown as string,

@@ -1,5 +1,6 @@
 import { FieldValue, Query } from 'firebase-admin/firestore';
 import { ID } from '../core/FirestoreRepository.js';
+import { hasFiniteVectorValues, hasVectorValuesShape } from '../utils/vectorValue.js';
 
 /**
  * Supported Firestore vector distance measures for KNN similarity search.
@@ -41,6 +42,11 @@ export type FindNearestOptions<
   /**
    * Optional result field name where Firestore writes the computed distance per document.
    * Requires `@google-cloud/firestore` >= 7.10.0 (bundled with firebase-admin >= 13).
+   *
+   * Prefer a string **literal** for precise result typing (see {@link DistanceFieldResult}): a
+   * literal is added as a numeric property and replaces any colliding model field. `'id'` is
+   * rejected (the repository overlays the document id, which would overwrite the distance). A
+   * non-literal `string` yields a conservative result type rather than typing every field as number.
    */
   distanceResultField?: string;
   /**
@@ -51,12 +57,35 @@ export type FindNearestOptions<
 }>;
 
 /**
- * Document shape returned from vector search, optionally including a computed distance field.
+ * Result shape when a computed distance field named `DF` is added to a base result `R`.
+ *
+ * - **Literal `DF`** (e.g. `'score'`): the distance **replaces** any colliding key
+ *   (`Omit<R, DF> & Record<DF, number>`) — matching Firestore's runtime overwrite — rather than
+ *   intersecting (which would collapse a collision to `never`).
+ * - **Literal `'id'`** (reserved; rejected at runtime): resolves to `never` so the type cannot
+ *   describe a result the runtime validator forbids.
+ * - **Broad `string`** (a non-literal field name, e.g. from a variable): conservative — `id` keeps
+ *   its ID type (a successful call can never use the rejected `'id'`), every other known field is
+ *   `R[K] | number` (the runtime name may collide with any one), and arbitrary keys are `unknown`.
+ *   It never promises that all known fields became numbers. Pass a string **literal** for precise
+ *   per-field typing.
  */
-export type VectorSearchResult<T, DistanceField extends string | undefined = undefined> = (T & {
-  id: ID;
-}) &
-  (DistanceField extends string ? Record<DistanceField, number> : Record<string, never>);
+export type DistanceFieldResult<R, DF extends string> = string extends DF
+  ? { [K in keyof R]: K extends 'id' ? R[K] : R[K] | number } & Record<string, unknown>
+  : 'id' extends DF
+    ? never
+    : Omit<R, DF> & Record<DF, number>;
+
+/**
+ * Document shape returned from vector search, optionally including a computed distance field. See
+ * {@link DistanceFieldResult} for the collision/reserved-`id`/broad-`string` rules.
+ */
+export type VectorSearchResult<
+  T,
+  DistanceField extends string | undefined = undefined,
+> = DistanceField extends string
+  ? DistanceFieldResult<T & { id: ID }, DistanceField>
+  : T & { id: ID };
 
 const VECTOR_DISTANCE_MEASURES = new Set<string>(Object.values(VectorDistanceMeasure));
 
@@ -68,13 +97,12 @@ export function isVectorFieldValue(value: unknown): boolean {
     return false;
   }
 
-  const vectorValue = value as { _values?: unknown };
-  if (
-    Array.isArray(vectorValue._values) &&
-    vectorValue._values.length > 0 &&
-    vectorValue._values.every(entry => typeof entry === 'number' && !Number.isNaN(entry))
-  ) {
-    return true;
+  // A value carrying a `VectorValue`-shaped `_values` array is judged SOLELY on that array: it is a
+  // valid vector sentinel only when every component is a finite number. This is terminal — a
+  // shaped-but-invalid vector (e.g. containing Infinity) must be rejected here, not fall through to
+  // the looser `instanceof FieldValue` / `toString` heuristics below (which would wrongly accept it).
+  if (hasVectorValuesShape(value)) {
+    return hasFiniteVectorValues(value);
   }
 
   if (value instanceof FieldValue) {
@@ -101,7 +129,7 @@ export function validateFindNearestOptions(
     throw new Error('findNearest() requires an options object.');
   }
 
-  if (!options.vectorField || typeof options.vectorField !== 'string') {
+  if (typeof options.vectorField !== 'string' || options.vectorField.trim() === '') {
     throw new Error('findNearest() requires a non-empty string vectorField.');
   }
 
@@ -109,7 +137,8 @@ export function validateFindNearestOptions(
     throw new Error('findNearest() requires queryVector to be a non-empty number array.');
   }
 
-  if (options.queryVector.some(value => typeof value !== 'number' || Number.isNaN(value))) {
+  if (options.queryVector.some(value => typeof value !== 'number' || !Number.isFinite(value))) {
+    // Number.isFinite rejects NaN AND +/-Infinity (Number.isNaN would let infinities through).
     throw new Error('findNearest() requires queryVector to contain only finite numbers.');
   }
 
@@ -135,16 +164,55 @@ export function validateFindNearestOptions(
 
   if (
     options.distanceResultField !== undefined &&
-    typeof options.distanceResultField !== 'string'
+    (typeof options.distanceResultField !== 'string' || options.distanceResultField.trim() === '')
   ) {
-    throw new Error('findNearest() distanceResultField must be a string when provided.');
+    throw new Error('findNearest() distanceResultField must be a non-empty string when provided.');
   }
 
-  if (
-    options.distanceThreshold !== undefined &&
-    (typeof options.distanceThreshold !== 'number' || Number.isNaN(options.distanceThreshold))
-  ) {
-    throw new Error('findNearest() distanceThreshold must be a finite number when provided.');
+  // `id` is reserved: the repository overlays `{ id: doc.id }` on every result, which would overwrite
+  // the computed distance with the string document id (losing the distance entirely). Reject it so
+  // the promised numeric distance field cannot silently disappear.
+  if (options.distanceResultField?.trim() === 'id') {
+    throw new Error(
+      'findNearest() distanceResultField cannot be "id": the repository overlays the document id on ' +
+        'every result, which would overwrite the computed distance. Use a different field name.',
+    );
+  }
+
+  if (options.distanceThreshold !== undefined) {
+    if (
+      typeof options.distanceThreshold !== 'number' ||
+      !Number.isFinite(options.distanceThreshold)
+    ) {
+      // Number.isFinite rejects NaN AND +/-Infinity.
+      throw new Error('findNearest() distanceThreshold must be a finite number when provided.');
+    }
+
+    // Reject 0: the installed @google-cloud/firestore serializer drops a zero distanceThreshold via a
+    // truthiness check (`threshold ? { value } : undefined`), so it would be silently omitted from
+    // the query and broaden the result to all nearest neighbors instead of applying the bound. Fail
+    // loudly rather than change the query behind the caller's back.
+    if (options.distanceThreshold === 0) {
+      throw new Error(
+        'findNearest() distanceThreshold cannot be 0: the installed Firestore SDK serializer drops a ' +
+          'zero threshold, which would silently broaden the query to all nearest neighbors. Use a ' +
+          'small positive epsilon for a near-exact match, or omit distanceThreshold.',
+      );
+    }
+
+    // EUCLIDEAN and COSINE distances are non-negative, so a negative threshold is meaningless and
+    // would match nothing (or behave unpredictably). Negative thresholds are only meaningful for
+    // DOT_PRODUCT, where the similarity score can be negative.
+    if (
+      (options.distanceMeasure === VectorDistanceMeasure.EUCLIDEAN ||
+        options.distanceMeasure === VectorDistanceMeasure.COSINE) &&
+      options.distanceThreshold < 0
+    ) {
+      throw new Error(
+        `findNearest() distanceThreshold cannot be negative for ${options.distanceMeasure} ` +
+          '(distances are non-negative). Negative thresholds are only meaningful for DOT_PRODUCT.',
+      );
+    }
   }
 }
 

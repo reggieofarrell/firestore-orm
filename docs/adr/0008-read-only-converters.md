@@ -1,6 +1,6 @@
 # ADR-0008: Firestore converters are read-only (`readConverter`)
 
-- **Status:** Accepted (implemented on branch `feat/read-only-converters`; pending merge/release)
+- **Status:** Accepted (merged to main)
 - **Date:** 2026-07-18
 - **Deciders:** Reggie O'Farrell
 - **Related:** [issue #11](https://github.com/reggieofarrell/firestore-orm/issues/11); builds on

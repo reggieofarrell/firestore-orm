@@ -12,6 +12,7 @@
  */
 import { Timestamp } from 'firebase-admin/firestore';
 import type { FirestoreDataConverter } from 'firebase-admin/firestore';
+import { safeAssign } from './safeObject.js';
 
 /**
  * Structural (duck-typed) check for a Firestore `Timestamp`. We test for a callable `toMillis`
@@ -55,7 +56,9 @@ function convertValue(value: unknown): unknown {
   if (isPlainObject(value)) {
     const out: Record<string, unknown> = {};
     for (const [key, entry] of Object.entries(value)) {
-      out[key] = convertValue(entry);
+      // safeAssign: a caller-controlled `__proto__` key must become an own property, not mutate the
+      // output object's prototype (CWE-1321). See ./safeObject.ts.
+      safeAssign(out, key, convertValue(entry));
     }
     return out;
   }
@@ -120,7 +123,7 @@ export function createMillisTimestampConverter<T>(
     const out: Record<string, unknown> = { ...data };
     for (const field of fields) {
       if (Object.prototype.hasOwnProperty.call(out, field)) {
-        out[field] = convertTimestampsToMillis(out[field]);
+        safeAssign(out, field, convertTimestampsToMillis(out[field]));
       }
     }
     return out as T;

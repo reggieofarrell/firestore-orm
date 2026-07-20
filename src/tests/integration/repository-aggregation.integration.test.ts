@@ -26,11 +26,14 @@ describe('FirestoreRepository aggregation query behavior', () => {
     name: string,
     score: number,
   ) => {
-    return repo.create({
-      name,
-      score,
-      createdAt: new Date().toISOString(),
-    } as HookValidatedUser);
+    return repo.create(
+      {
+        name,
+        score,
+        createdAt: new Date().toISOString(),
+      } as HookValidatedUser,
+      { returnDoc: true },
+    );
   };
 
   it('should calculate sum and average using query filters', async () => {

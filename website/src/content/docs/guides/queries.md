@@ -145,17 +145,27 @@ const userEmails = await userRepo
   .get();
 ```
 
+`select()` returns a **new** query builder (it does not mutate the one you called it on), and the
+result type narrows to `DeepPartial<T> & { id }` — every property, including nested map properties,
+is optional, so a field you projected away (at any depth) is a compile error to access without a
+guard. A `readConverter` written for full documents may throw on a projected result. Note that a
+projected query cannot be used with `onSnapshot()` (see below).
+
 ## Bulk query operations
 
-`query().update(data)` and `query().delete()` apply to every document matching the query and each
-return the **matched count**.
+`query().update(data)` updates every document matching the query and returns the number of documents
+**written**; `query().delete()` deletes every matching document and returns the **matched (deleted)
+count**.
 
-> **Note:** Lifecycle hooks do **not** run for `query().update()` or `query().delete()`. If you need
-> per-document hooks (see [Lifecycle hooks](./lifecycle-hooks/)), iterate and call the
-> single-document methods instead.
+> **Note:** `query().update()` runs the **bulk** lifecycle hooks `beforeBulkUpdate` (which may
+> mutate the update payload before validation) and `afterBulkUpdate` (receiving `{ ids }` of the
+> written documents); `query().delete()` runs `beforeBulkDelete` and `afterBulkDelete` (receiving
+> `{ ids, documents }`). The per-document `before/afterUpdate` and `before/afterDelete` hooks do not
+> run here — use the single-document methods if you need those. See
+> [Lifecycle hooks](./lifecycle-hooks/).
 
 ```typescript
-// Update all matching documents; returns the number of documents matched
+// Update all matching documents; returns the number of documents written
 const updatedCount = await orderRepo
   .query()
   .where('status', '==', 'pending')
@@ -198,6 +208,10 @@ document read. Use appropriate filters and limits.
 `onSnapshot(callback, onError?)` subscribes to live query results. It resolves to an unsubscribe
 function — call it to stop listening. The callback receives the current set of matching documents on
 every change.
+
+`onSnapshot()` cannot be combined with `select()`: Firestore does not allow a real-time listener on
+a field-masked query, so the builder throws locally with a clear error. Listen without `select()`
+and project inside your callback, or use `get()` / `stream()` for a one-time projected read.
 
 ```typescript
 // Subscribe to query results

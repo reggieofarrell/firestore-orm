@@ -65,6 +65,7 @@ export default defineConfig({
           label: 'Reference',
           items: [
             { label: 'API Reference', slug: 'guides/api-reference' },
+            { label: 'Scope & Capabilities', slug: 'guides/scope-and-capabilities' },
             { label: 'Error Handling', slug: 'guides/error-handling' },
           ],
         },

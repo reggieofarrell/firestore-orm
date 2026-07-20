@@ -4,16 +4,20 @@ description:
   'Write combinators, sentinelPolicy strict mode, and sharing write types with the front end.'
 ---
 
-Opt into `sentinelPolicy: 'strict'` and per-field write combinators so each field accepts only its
-declared type or an explicitly approved `FieldValue` sentinel.
+Use per-field write combinators so each field accepts only its declared type or an explicitly
+approved `FieldValue` sentinel. As of v3 `sentinelPolicy: 'strict'` is the **default**.
 
 ## Why per-field approval
 
-By default, validation accepts **any** `FieldValue` sentinel on **any** field
-(`sentinelPolicy: 'permissive'`). That means a `FieldValue.increment()` written into a `z.string()`
-field passes validation. To tighten this so a write must be either the field's declared type **or**
-a specific approved sentinel, declare each field with a **write combinator** and opt into
-`sentinelPolicy: 'strict'`.
+As of v3, `sentinelPolicy` defaults to **`'strict'`**: a plain field accepts no `FieldValue`
+sentinel, and only sentinels a field's write combinator permits pass. Declare each writable-with-a-
+sentinel field with a **write combinator** so a write must be either the field's declared type
+**or** a specific approved sentinel.
+
+The pre-v3 default, `'permissive'`, accepted **any** sentinel on **any** field and — worse — wrote
+the **raw payload** verbatim when a sentinel-path parse failed, discarding Zod coercions/defaults
+elsewhere. It remains available as an explicit opt-in migration shim
+(`{ sentinelPolicy: 'permissive' }`), but strict + combinators is the recommended path.
 
 ## Write combinators
 
@@ -30,11 +34,11 @@ Each combinator accepts `{ allowDelete: true }` to additionally permit `FieldVal
 ## Enabling strict mode
 
 Declare a **read schema** with plain types and a **write overlay** (`writeSchema`) whose fields use
-the combinators, then pass `{ sentinelPolicy: 'strict' }`. Reads stay typed by the clean read schema
-while writes accept each field's declared type or its approved sentinel with **no cast**. A plain
-field (no combinator) accepts **no** sentinel under strict. The `readSchema` needs a required
-top-level `id: z.string()` — the factory throws at construction otherwise; the write overlay need
-not include `id`.
+the combinators. Strict is the default, so no `sentinelPolicy` argument is needed (it is shown
+explicitly below for clarity). Reads stay typed by the clean read schema while writes accept each
+field's declared type or its approved sentinel with **no cast**. A plain field (no combinator)
+accepts **no** sentinel under strict. The `readSchema` needs a required top-level `id: z.string()` —
+the factory throws at construction otherwise; the write overlay need not include `id`.
 
 ```typescript
 import {

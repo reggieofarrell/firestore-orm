@@ -1,4 +1,10 @@
-import { CollectionReference, Firestore, QueryDocumentSnapshot } from 'firebase-admin/firestore';
+import {
+  CollectionReference,
+  FieldPath,
+  Firestore,
+  QueryDocumentSnapshot,
+} from 'firebase-admin/firestore';
+import { FieldPaths } from '../utils/pathTypes.js';
 import {
   CreateInput,
   makeValidator,
@@ -132,15 +138,28 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
       );
     }
 
-    if (idSchema.isOptional()) {
+    // The id must be required (rejects `undefined`) and non-nullable (rejects `null`) so every read
+    // document carries a concrete string id. Probing via safeParse avoids Zod's deprecated
+    // `.isOptional()`/`.isNullable()` reflection and also covers wrappers like `.nullish()`.
+    if (idSchema.safeParse(undefined).success) {
       throw new Error(
         `${context} requires "id" to be required in the schema. Use "id: z.string()" instead of an optional id.`,
       );
     }
 
-    if (!idSchema.safeParse('firestoreorm-id').success) {
+    if (idSchema.safeParse(null).success) {
       throw new Error(
-        `${context} requires "id" to accept string values. Define the field as a string-compatible schema.`,
+        `${context} requires "id" to be non-nullable. Use "id: z.string()" instead of a nullable id.`,
+      );
+    }
+
+    // The id must accept a string AND its parsed output must remain a string — reject transforms
+    // that change the output type (e.g. `z.string().transform(v => v.length)` yields a number),
+    // which would break the repository's `T & { id: string }` contract.
+    const parsed = idSchema.safeParse('firestoreorm-id');
+    if (!parsed.success || typeof parsed.data !== 'string') {
+      throw new Error(
+        `${context} requires "id" to accept and preserve string values. Avoid transforms that change the id's type.`,
       );
     }
   }
@@ -197,8 +216,10 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    *   - `readConverter`: a read-only converter — the `fromFirestore(snapshot) => T` half only. The
    *     repository builds the full `FirestoreDataConverter` internally and applies it to reads, so
    *     `toFirestore` never runs. For write-time normalization use a `before*` hook.
-   *   - `sentinelPolicy`: `'strict'` disables the permissive sentinel escape hatch, so only sentinels
-   *     a field's schema explicitly permits pass. Defaults to `'permissive'`.
+   *   - `sentinelPolicy`: defaults to `'strict'` (v3), which only accepts sentinels a field's schema
+   *     explicitly permits and always returns the parsed Zod output. Set `'permissive'` to opt into
+   *     the pre-v3 escape hatch that writes the raw input verbatim when parsing fails only at
+   *     sentinel paths (discards sibling coercions/defaults/transforms).
    * @returns Repository instance with validation enabled
    *
    * @example
@@ -507,6 +528,50 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
   }
 
   /**
+   * Rejects an update whose write payload is empty after validation/sanitization. An empty patch
+   * previously skipped the Firestore write entirely, which meant a nonexistent document was reported
+   * as successfully updated (the missing-doc NotFoundError comes from Firestore's own update()).
+   * Rejecting keeps the documented "update throws for a missing document" contract intact and makes
+   * every update surface behave identically.
+   */
+  private assertNonEmptyUpdatePayload(payload: Record<string, any>): void {
+    if (Object.keys(payload).length === 0) {
+      throw new ValidationError([
+        {
+          code: 'custom',
+          path: [],
+          message:
+            'Update payload is empty — no fields to write after validation. Provide at least one ' +
+            'field to update (use delete() to remove a document).',
+        } as z.core.$ZodIssue,
+      ]);
+    }
+  }
+
+  /**
+   * Rejects duplicate document ids in a bulk operation. Two actions targeting the same document in
+   * one batch are ambiguous (for updates, which payload wins?) and inflate result counts, so require
+   * the caller to deduplicate first rather than guessing intent.
+   */
+  private assertNoDuplicateIds(ids: ID[], operation: string): void {
+    const seen = new Set<ID>();
+    const duplicates = new Set<ID>();
+    for (const id of ids) {
+      if (seen.has(id)) {
+        duplicates.add(id);
+      }
+      seen.add(id);
+    }
+    if (duplicates.size > 0) {
+      throw new Error(
+        `${operation}() received duplicate document id(s): ${[...duplicates].join(', ')}. ` +
+          'Deduplicate ids before calling — multiple actions on the same document in one bulk ' +
+          'operation are ambiguous.',
+      );
+    }
+  }
+
+  /**
    * Normalize update payloads into dot-notation form for merge-style updates.
    * This keeps nested-object updates explicit at field-path level while allowing
    * callers to mix regular nested objects and pre-defined dot-notation keys.
@@ -594,39 +659,49 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * Create a new document in the collection.
    * Runs validation if schema is configured.
    *
+   * By default returns only `{ id }` (the generated document id) — the write path validates the
+   * write model but does not read the document back, so it cannot honestly return the read model
+   * `T` (which may differ when a `writeSchema` overlay or `readConverter` is configured). Pass
+   * `{ returnDoc: true }` to read the created document back through the `readConverter` and return
+   * the converted read model. This mirrors the `update`/`upsert` return contract.
+   *
    * @param data - Document data (without ID)
-   * @returns Created document with generated ID
+   * @param options - `{ returnDoc: true }` to return the converted read model instead of `{ id }`
+   * @returns `{ id }` by default, or the created document (`T & { id }`) when `returnDoc` is true
    * @throws {ValidationError} If schema validation fails
    *
    * @example
-   * // Simple create
-   * const user = await userRepo.create({
-   *   name: 'John Doe',
-   *   email: 'john@example.com'
-   * });
-   * console.log(user.id); // Auto-generated ID
+   * // Default: returns { id }
+   * const { id } = await userRepo.create({ name: 'John Doe', email: 'john@example.com' });
    *
    * @example
-   * // With validation error handling
-   * try {
-   *   await userRepo.create({ name: '', email: 'invalid' });
-   * } catch (error) {
-   *   if (error instanceof ValidationError) {
-   *     console.log(error.issues); // Field-specific errors
-   *   }
-   * }
+   * // Return the converted read model
+   * const user = await userRepo.create(
+   *   { name: 'John Doe', email: 'john@example.com' },
+   *   { returnDoc: true },
+   * );
+   * console.log(user.name);
    */
-  async create(data: CreateInput<W>): Promise<T & { id: ID }> {
+  async create(data: CreateInput<W>, options: { returnDoc: true }): Promise<T & { id: ID }>;
+  async create(data: CreateInput<W>, options?: { returnDoc?: false }): Promise<{ id: ID }>;
+  async create(
+    data: CreateInput<W>,
+    options?: { returnDoc?: boolean },
+  ): Promise<{ id: ID } | (T & { id: ID })> {
     try {
       const docToCreate = { ...(data as Record<string, any>) } as Record<string, any>;
       await this.runHooks('beforeCreate', docToCreate);
       const validData = this.validateCreateData(docToCreate as CreateInput<W>);
 
       const docRef = await this.writeCol().add(validData as any);
-      const created = { ...(validData as Record<string, any>), id: docRef.id };
 
-      await this.runHooks('afterCreate', created);
-      return created as T & { id: ID };
+      // Hooks receive the validated write model plus the generated id.
+      await this.runHooks('afterCreate', { ...(validData as Record<string, any>), id: docRef.id });
+
+      if (options?.returnDoc === true) {
+        return await this.getByIdOrThrow(docRef.id);
+      }
+      return { id: docRef.id };
     } catch (err: any) {
       if (err instanceof z.ZodError) {
         throw new ValidationError(err.issues);
@@ -639,58 +714,77 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * Create multiple documents in a single batched operation.
    * More efficient than calling create() in a loop. Uses Firestore batches (500 ops per batch).
    *
+   * By default returns `{ id }[]` (one generated id per input, in order). Pass
+   * `{ returnDoc: true }` to read every created document back through the `readConverter` and return
+   * the converted read models — matching the single {@link create} contract.
+   *
    * @param dataArray - Array of documents to create
-   * @returns Array of created documents with generated IDs
+   * @param options - `{ returnDoc: true }` to return the converted read models instead of `{ id }[]`
+   * @returns `{ id }[]` by default, or the created documents (`(T & { id })[]`) when `returnDoc` is true
    * @throws {ValidationError} If any document fails validation
    *
    * @example
-   * // Bulk insert users
-   * const users = await userRepo.bulkCreate([
+   * // Default: returns [{ id }, ...]
+   * const ids = await userRepo.bulkCreate([
    *   { name: 'Alice', email: 'alice@example.com' },
    *   { name: 'Bob', email: 'bob@example.com' },
-   *   { name: 'Charlie', email: 'charlie@example.com' }
    * ]);
    *
    * @example
-   * // Import from CSV
-   * const products = csvData.map(row => ({
-   *   name: row.name,
-   *   price: parseFloat(row.price),
-   *   sku: row.sku
-   * }));
-   * await productRepo.bulkCreate(products);
+   * // Return the converted read models
+   * const users = await userRepo.bulkCreate(rows, { returnDoc: true });
    */
-  async bulkCreate(dataArray: CreateInput<W>[]): Promise<(T & { id: ID })[]> {
+  async bulkCreate(
+    dataArray: CreateInput<W>[],
+    options: { returnDoc: true },
+  ): Promise<(T & { id: ID })[]>;
+  async bulkCreate(
+    dataArray: CreateInput<W>[],
+    options?: { returnDoc?: false },
+  ): Promise<{ id: ID }[]>;
+  async bulkCreate(
+    dataArray: CreateInput<W>[],
+    options?: { returnDoc?: boolean },
+  ): Promise<{ id: ID }[] | (T & { id: ID })[]> {
     try {
       const colRef = this.writeCol();
-      const createdDocs: (T & { id: ID })[] = [];
 
-      for (const data of dataArray) {
+      // Draft docs: raw input + a pre-assigned id. This is what `beforeBulkCreate` sees and may
+      // mutate before validation.
+      const drafts: (CreateInput<W> & { id: ID })[] = dataArray.map(data => {
         const docRef = colRef.doc();
-        const docData = {
+        return {
           ...(data as Record<string, any>),
           id: docRef.id,
         } as unknown as CreateInput<W> & { id: ID };
+      });
 
-        createdDocs.push(docData as unknown as T & { id: ID });
-      }
+      await this.runHooks('beforeBulkCreate', drafts);
 
-      await this.runHooks('beforeBulkCreate', createdDocs);
       const actions: ((batch: FirebaseFirestore.WriteBatch) => void)[] = [];
+      // Result/hook payload is built from the VALIDATED data (never the raw draft), so any key Zod
+      // strips is absent from both the return value and the afterBulkCreate payload.
+      const validatedDocs: (CreateInput<W> & { id: ID })[] = [];
 
-      for (const createdDoc of createdDocs) {
-        const docRef = colRef.doc(createdDoc.id);
-        const draftDoc = createdDoc as Record<string, any>;
-        const validData = this.validateCreateData(draftDoc as CreateInput<W>);
-        const validatedDocData = { ...(validData as Record<string, any>) };
+      for (const draft of drafts) {
+        const { id } = draft;
+        const docRef = colRef.doc(id);
+        const validData = this.validateCreateData(draft as CreateInput<W>);
 
-        actions.push(batch => batch.set(docRef, validatedDocData as any));
-        Object.assign(createdDoc as Record<string, any>, validatedDocData);
+        actions.push(batch => batch.set(docRef, validData as any));
+        validatedDocs.push({
+          ...(validData as Record<string, any>),
+          id,
+        } as unknown as CreateInput<W> & { id: ID });
       }
 
       await this.commitInChunks(actions);
-      await this.runHooks('afterBulkCreate', createdDocs);
-      return createdDocs;
+      await this.runHooks('afterBulkCreate', validatedDocs);
+
+      if (options?.returnDoc === true) {
+        return await Promise.all(validatedDocs.map(doc => this.getByIdOrThrow(doc.id)));
+      }
+      return validatedDocs.map(doc => ({ id: doc.id }));
     } catch (error: any) {
       if (error instanceof z.ZodError) throw new ValidationError(error.issues);
       throw parseFirestoreError(error);
@@ -978,9 +1072,8 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
       const validData = this.validateUpdateData(normalizedData);
       const writePayload = this.sanitizeUpdateData(validData);
 
-      if (Object.keys(writePayload as Record<string, any>).length > 0) {
-        await docRef.update(writePayload as any);
-      }
+      this.assertNonEmptyUpdatePayload(writePayload as Record<string, any>);
+      await docRef.update(writePayload as any);
       await this.runHooks('afterUpdate', { id });
 
       // When returnDoc is enabled, we re-read the document after write completion.
@@ -1053,6 +1146,10 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
     updates: { id: ID; data: UpdateInput<W> }[],
     merge: boolean,
   ): Promise<{ id: ID }[]> {
+    this.assertNoDuplicateIds(
+      updates.map(u => u.id),
+      merge ? 'bulkPatch' : 'bulkUpdate',
+    );
     try {
       await this.runHooks('beforeBulkUpdate', updates);
       const actions: ((batch: FirebaseFirestore.WriteBatch) => void)[] = [];
@@ -1064,9 +1161,8 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
         const validData = this.validateUpdateData(normalizedData);
         const writePayload = this.sanitizeUpdateData(validData);
 
-        if (Object.keys(writePayload as Record<string, any>).length > 0) {
-          actions.push(batch => batch.update(docRef, writePayload as any));
-        }
+        this.assertNonEmptyUpdatePayload(writePayload as Record<string, any>);
+        actions.push(batch => batch.update(docRef, writePayload as any));
         ids.push(id);
       }
 
@@ -1243,6 +1339,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * await userRepo.bulkDelete(testUserIds);
    */
   async bulkDelete(ids: ID[]): Promise<number> {
+    this.assertNoDuplicateIds(ids, 'bulkDelete');
     try {
       const snapshots = await Promise.all(ids.map(id => this.readCol().doc(id).get()));
 
@@ -1293,10 +1390,10 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * // Find orders by status
    * const pendingOrders = await orderRepo.findByField('status', 'pending');
    */
-  async findByField<K extends keyof T>(field: K, value: T[K]): Promise<(T & { id: ID })[]> {
+  async findByField(field: FieldPaths<T> | FieldPath, value: unknown): Promise<(T & { id: ID })[]> {
     try {
       const snapshot = await this.readCol()
-        .where(field as string, '==', value)
+        .where(field as string | FieldPath, '==', value)
         .get();
       return snapshot.docs.map(doc => ({ ...(doc.data() as T), id: doc.id }));
     } catch (error: any) {
@@ -1328,12 +1425,15 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    *   console.log('No order found');
    * }
    */
-  async getOneByField<K extends keyof T>(field: K, value: T[K]): Promise<(T & { id: ID }) | null> {
+  async getOneByField(
+    field: FieldPaths<T> | FieldPath,
+    value: unknown,
+  ): Promise<(T & { id: ID }) | null> {
     try {
       // We add `limit(1)` so Firestore only returns one document even if multiple matches exist.
       // This keeps reads/costs low and makes the method intentionally "first-match" oriented.
       const snapshot = await this.readCol()
-        .where(field as string, '==', value)
+        .where(field as string | FieldPath, '==', value)
         .limit(1)
         .get();
 
@@ -1359,12 +1459,15 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * @throws {NotFoundError} If no document matches the provided field/value
    * @throws {ConflictError} If more than one document matches the provided field/value
    */
-  async getOneByFieldOrThrow<K extends keyof T>(field: K, value: T[K]): Promise<T & { id: ID }> {
+  async getOneByFieldOrThrow(
+    field: FieldPaths<T> | FieldPath,
+    value: unknown,
+  ): Promise<T & { id: ID }> {
     try {
       // We query with limit(2) so we can efficiently detect duplicate matches
       // without paying for an unbounded query read.
       const snapshot = await this.readCol()
-        .where(field as string, '==', value)
+        .where(field as string | FieldPath, '==', value)
         .limit(2)
         .get();
 
@@ -1490,6 +1593,15 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
     );
   }
 
+  /**
+   * Commits write actions in sequential chunks of 500 (the Firestore batch limit).
+   *
+   * IMPORTANT — non-atomic above 500 operations: each 500-op chunk commits independently, so an
+   * operation set larger than 500 writes is NOT globally atomic. If a later chunk fails, earlier
+   * chunks remain committed and the operation's after-hook does not run. Bulk operations at or below
+   * 500 writes commit as a single atomic batch. Use a transaction if you need all-or-nothing
+   * semantics across more than 500 documents.
+   */
   private async commitInChunks(
     actions: ((batch: FirebaseFirestore.WriteBatch) => void)[],
   ): Promise<void> {
@@ -1665,9 +1777,8 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
       const validData = this.validateUpdateData(normalizedData);
       const writePayload = this.sanitizeUpdateData(validData);
 
-      if (Object.keys(writePayload as Record<string, any>).length > 0) {
-        tx.update(docRef, writePayload as any);
-      }
+      this.assertNonEmptyUpdatePayload(writePayload as Record<string, any>);
+      tx.update(docRef, writePayload as any);
     } catch (error: any) {
       if (error instanceof z.ZodError) {
         throw new ValidationError(error.issues);
@@ -1692,25 +1803,30 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * Create a document within a transaction.
    * Must be used inside runInTransaction callback.
    *
+   * Returns only `{ id }`: a transaction cannot read a document back after writing it (Firestore
+   * requires all reads before writes and the write is not committed until the callback returns), so
+   * there is no `returnDoc` option here. Read the document after the transaction completes if the
+   * converted read model is needed.
+   *
    * @param tx - Firestore transaction object
    * @param data - Document data
-   * @returns Created document with ID
+   * @returns `{ id }` — the generated document id
    * @throws {ValidationError} If validation fails
    *
    * @example
    * await repo.runInTransaction(async (tx, repo) => {
-   *   const newOrder = await repo.createInTransaction(tx, {
+   *   const { id } = await repo.createInTransaction(tx, {
    *     userId: 'user-123',
    *     total: 99.99,
    *     status: 'pending'
    *   });
-   *   console.log('Order created:', newOrder.id);
+   *   console.log('Order created:', id);
    * });
    */
   async createInTransaction(
     tx: FirebaseFirestore.Transaction,
     data: CreateInput<W>,
-  ): Promise<T & { id: ID }> {
+  ): Promise<{ id: ID }> {
     try {
       const docRef = this.writeCol().doc();
       const docData = {
@@ -1720,10 +1836,11 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
 
       await this.runHooks('beforeCreate', docData);
       const validData = this.validateCreateData(docData as CreateInput<W>);
-      const validatedDocData = { ...(validData as Record<string, any>) };
 
-      tx.set(docRef, validatedDocData as any);
-      return { ...validatedDocData, id: docRef.id } as T & { id: ID };
+      // NOTE: after* hooks intentionally do not run inside a transaction (the write is not committed
+      // until the callback returns) — only beforeCreate fires, matching updateInTransaction.
+      tx.set(docRef, validData as any);
+      return { id: docRef.id };
     } catch (error: any) {
       if (error instanceof z.ZodError) {
         throw new ValidationError(error.issues);

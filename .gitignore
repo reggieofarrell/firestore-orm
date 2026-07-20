@@ -48,3 +48,8 @@ website/node_modules/
 .src/firebase-service-account.json
 test.ts
 
+# local ai review documents
+reviews/
+
+# npm pack tarballs (created by release verification scripts)
+*.tgz

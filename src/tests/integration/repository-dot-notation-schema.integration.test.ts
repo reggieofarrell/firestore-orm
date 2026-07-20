@@ -285,21 +285,23 @@ describe('dot-notation on a schema-validated repository (integration)', () => {
     expect((await getOrFail(member.id)).profile?.verified).toBe(false);
   });
 
-  it('query().update() returns 0 and writes nothing when the payload sanitizes to empty', async () => {
+  it('query().update() rejects a payload that sanitizes to empty (v3: empty patches are invalid)', async () => {
     const role = 'qtest_empty';
     const u1 = await repo.create({ name: 'Empty1', role, profile: { verified: true } });
     const u2 = await repo.create({ name: 'Empty2', role, profile: { verified: true } });
     track(u1.id);
     track(u2.id);
 
-    // An all-undefined payload matches 2 docs but produces no write on either — the count reflects
-    // documents actually written, not matched.
-    const count = await repo
-      .query()
-      .where('role', '==', role)
-      .update({ 'profile.verified': undefined } as any);
+    // An all-undefined payload sanitizes to empty. v3 rejects empty patches rather than silently
+    // no-op'ing (which previously mis-reported success on matched documents).
+    await expect(
+      repo
+        .query()
+        .where('role', '==', role)
+        .update({ 'profile.verified': undefined } as any),
+    ).rejects.toBeInstanceOf(ValidationError);
 
-    expect(count).toBe(0);
+    // Nothing was written.
     expect((await getOrFail(u1.id)).profile?.verified).toBe(true);
     expect((await getOrFail(u2.id)).profile?.verified).toBe(true);
   });

@@ -17,7 +17,9 @@ export {
 } from './core/Errors.js';
 
 export { parseFirestoreError } from './core/ErrorParser.js';
-export { errorHandler } from './core/ErrorHandler.js';
+// NOTE: `errorHandler` is intentionally NOT exported from the root — it lives in the optional
+// `@reggieofarrell/firestore-orm/express` subpath so `express` types stay out of the core type
+// graph. Import it as: `import { errorHandler } from '@reggieofarrell/firestore-orm/express'`.
 
 export {
   makeValidator,
@@ -50,7 +52,7 @@ export {
   getDotNotationDepth,
 } from './utils/dotNotation.js';
 
-export type { FieldPaths, PathValue } from './utils/pathTypes.js';
+export type { FieldPaths, PathValue, DeepPartial } from './utils/pathTypes.js';
 
 export {
   convertTimestampToMillis,

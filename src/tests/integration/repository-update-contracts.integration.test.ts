@@ -1,4 +1,4 @@
-import { ConflictError, NotFoundError } from '../../core/Errors.js';
+import { ConflictError, NotFoundError, ValidationError } from '../../core/Errors.js';
 import { createTestUserInput } from '../shared/factories/user.factory.js';
 import { createUserRepoHarness } from './helpers/firestoreIntegrationHarness.js';
 
@@ -255,8 +255,8 @@ describe('FirestoreRepository update return and hook contracts', () => {
   });
 
   it('should emit id-list payload for afterBulkUpdate from query().update()', async () => {
-    const user1 = await userRepo.create({ name: 'Query Hook 1' });
-    const user2 = await userRepo.create({ name: 'Query Hook 2' });
+    const user1 = await userRepo.create({ name: 'Query Hook 1' }, { returnDoc: true });
+    const user2 = await userRepo.create({ name: 'Query Hook 2' }, { returnDoc: true });
     trackUser(user1.id);
     trackUser(user2.id);
 
@@ -394,5 +394,89 @@ describe('FirestoreRepository update return and hook contracts', () => {
     await expect(userRepo.getOneByFieldOrThrow('name', duplicateName)).rejects.toBeInstanceOf(
       ConflictError,
     );
+  });
+});
+
+describe('FirestoreRepository empty-update policy (v3: reject empty patches)', () => {
+  const harness = createUserRepoHarness('test_users_empty_update');
+  const { userRepo, trackUser, cleanupTrackedUsers, cleanupCollection } = harness;
+
+  afterEach(async () => {
+    await cleanupTrackedUsers();
+  });
+
+  afterAll(async () => {
+    await cleanupCollection();
+  });
+
+  it('update() rejects an empty payload instead of falsely succeeding on a missing document', async () => {
+    // Previously an empty patch skipped the Firestore write, so a nonexistent doc was reported as
+    // updated. Now it throws before any write.
+    await expect(
+      userRepo.update('missing-empty-id', { name: undefined } as any),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it('update() still throws NotFoundError for a non-empty patch on a missing document', async () => {
+    await expect(userRepo.update('missing-id', { name: 'x' })).rejects.toBeInstanceOf(
+      NotFoundError,
+    );
+  });
+
+  it('bulkUpdate() rejects when any item sanitizes to an empty payload', async () => {
+    const user = await userRepo.create(createTestUserInput({ name: 'Bulk Empty' }));
+    trackUser(user.id);
+    await expect(
+      userRepo.bulkUpdate([{ id: user.id, data: { name: undefined } as any }]),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it('updateInTransaction() rejects an empty payload', async () => {
+    await expect(
+      userRepo.runInTransaction(async (tx, repo) => {
+        await repo.updateInTransaction(tx, 'missing-tx-id', { name: undefined } as any);
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it('query().update() rejects an empty payload on matched documents', async () => {
+    const user = await userRepo.create(
+      createTestUserInput({ name: 'Query Empty', email: 'query-empty@example.com' }),
+      { returnDoc: true },
+    );
+    trackUser(user.id);
+    await expect(
+      userRepo
+        .query()
+        .where('email', '==', 'query-empty@example.com')
+        .update({ name: undefined } as any),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  // Regression: the empty-update contract must not be data-dependent. Previously query().update()
+  // returned 0 on a zero-match query BEFORE validating, so an empty payload silently "succeeded"
+  // when nothing matched but threw as soon as one document matched.
+  it('query().update() rejects an empty payload even when the query matches nothing', async () => {
+    await expect(
+      userRepo
+        .query()
+        .where('email', '==', 'no-such-user@example.com')
+        .update({} as any),
+    ).rejects.toBeInstanceOf(ValidationError);
+
+    await expect(
+      userRepo
+        .query()
+        .where('email', '==', 'no-such-user@example.com')
+        .update({ name: undefined } as any),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it('query().update() returns 0 for a valid non-empty payload against a zero-match query', async () => {
+    const count = await userRepo
+      .query()
+      .where('email', '==', 'no-such-user@example.com')
+      .update({ name: 'Nobody' });
+    expect(count).toBe(0);
   });
 });

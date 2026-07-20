@@ -123,7 +123,7 @@ const UNIT_GATES = [
       [
         'src/core/Errors.ts',
         'src/core/ErrorParser.ts',
-        'src/core/ErrorHandler.ts',
+        'src/express/index.ts',
         'src/core/Validation.ts',
       ].includes(file),
     thresholds: { lines: 90, branches: 85, functions: 90 },

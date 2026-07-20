@@ -2,6 +2,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { ValidationError } from '../../core/Errors.js';
 import {
   cleanupValidatedRepo,
+  createPermissiveRepo,
   createStrictRepo,
   createUserRepoHarness,
   createValidatedRepo,
@@ -9,6 +10,8 @@ import {
   strictHookValidatedUserSchema,
 } from './helpers/firestoreIntegrationHarness.js';
 
+// This block exercises the pre-v3 permissive sentinel escape hatch (now opt-in) together with
+// hook-first ordering: bare sentinels on a plain schema are waived only under 'permissive'.
 describe('FirestoreRepository hook-first validation ordering', () => {
   const harness = createUserRepoHarness('test_users_hook_validation');
   const { db, cleanupCollection } = harness;
@@ -18,7 +21,7 @@ describe('FirestoreRepository hook-first validation ordering', () => {
   });
 
   it('should support serverTimestamp in create with schema validation enabled', async () => {
-    const repo = createValidatedRepo(db);
+    const repo = createPermissiveRepo(db);
 
     try {
       const created = await repo.create({
@@ -36,7 +39,7 @@ describe('FirestoreRepository hook-first validation ordering', () => {
   });
 
   it('should support increment updates and still validate non-sentinel fields', async () => {
-    const repo = createValidatedRepo(db);
+    const repo = createPermissiveRepo(db);
 
     try {
       const created = await repo.create({
@@ -65,7 +68,7 @@ describe('FirestoreRepository hook-first validation ordering', () => {
   });
 
   it('should support bulkUpdate with increment sentinels', async () => {
-    const repo = createValidatedRepo(db);
+    const repo = createPermissiveRepo(db);
 
     try {
       const user1 = await repo.create({
@@ -96,7 +99,7 @@ describe('FirestoreRepository hook-first validation ordering', () => {
   });
 
   it('should support bulkCreate with serverTimestamp sentinels', async () => {
-    const repo = createValidatedRepo(db);
+    const repo = createPermissiveRepo(db);
 
     try {
       const created = await repo.bulkCreate([
@@ -121,15 +124,18 @@ describe('FirestoreRepository hook-first validation ordering', () => {
   });
 
   it('should support query().update with arrayUnion sentinels', async () => {
-    const repo = createValidatedRepo(db);
+    const repo = createPermissiveRepo(db);
 
     try {
-      const user = await repo.create({
-        name: 'Sentinel Query Update',
-        score: 4,
-        tags: ['initial'],
-        createdAt: new Date().toISOString(),
-      } as HookValidatedUser);
+      const user = await repo.create(
+        {
+          name: 'Sentinel Query Update',
+          score: 4,
+          tags: ['initial'],
+          createdAt: new Date().toISOString(),
+        } as HookValidatedUser,
+        { returnDoc: true },
+      );
 
       await repo
         .query()
@@ -146,7 +152,7 @@ describe('FirestoreRepository hook-first validation ordering', () => {
   });
 
   it('should support arrayRemove and delete sentinels in updates', async () => {
-    const repo = createValidatedRepo(db);
+    const repo = createPermissiveRepo(db);
 
     try {
       const created = await repo.create({
@@ -172,7 +178,7 @@ describe('FirestoreRepository hook-first validation ordering', () => {
   });
 
   it('should support upsert create and update paths with sentinels', async () => {
-    const repo = createValidatedRepo(db);
+    const repo = createPermissiveRepo(db);
     const upsertId = `sentinel-upsert-${Date.now()}`;
 
     try {
@@ -198,7 +204,7 @@ describe('FirestoreRepository hook-first validation ordering', () => {
   });
 
   it('should allow beforeCreate to enrich payload before schema validation', async () => {
-    const repo = createValidatedRepo(db);
+    const repo = createPermissiveRepo(db);
 
     try {
       repo.on('beforeCreate', payload => {
@@ -219,7 +225,7 @@ describe('FirestoreRepository hook-first validation ordering', () => {
   });
 
   it('should allow beforeUpdate to normalize payload before validation', async () => {
-    const repo = createValidatedRepo(db);
+    const repo = createPermissiveRepo(db);
 
     try {
       repo.on('beforeCreate', payload => {
@@ -246,7 +252,7 @@ describe('FirestoreRepository hook-first validation ordering', () => {
   });
 
   it('should validate post-hook payloads for bulkUpdate', async () => {
-    const repo = createValidatedRepo(db);
+    const repo = createPermissiveRepo(db);
 
     try {
       repo.on('beforeCreate', payload => {
@@ -278,17 +284,20 @@ describe('FirestoreRepository hook-first validation ordering', () => {
   });
 
   it('should validate query().update payloads after beforeBulkUpdate mutations', async () => {
-    const repo = createValidatedRepo(db);
+    const repo = createPermissiveRepo(db);
 
     try {
       repo.on('beforeCreate', payload => {
         (payload as HookValidatedUser).createdAt = new Date().toISOString();
       });
 
-      const user = await repo.create({
-        name: 'Query Hook Validation',
-        score: 3,
-      } as HookValidatedUser);
+      const user = await repo.create(
+        {
+          name: 'Query Hook Validation',
+          score: 3,
+        } as HookValidatedUser,
+        { returnDoc: true },
+      );
 
       await expect(
         repo.query().where('name', '==', user.name).update({ score: -1 }),
@@ -312,7 +321,7 @@ describe('FirestoreRepository hook-first validation ordering', () => {
   });
 
   it('should apply hook-first validation inside createInTransaction and updateInTransaction', async () => {
-    const repo = createValidatedRepo(db);
+    const repo = createPermissiveRepo(db);
 
     try {
       repo.on('beforeCreate', payload => {
@@ -347,7 +356,7 @@ describe('FirestoreRepository hook-first validation ordering', () => {
   });
 
   it('should reject create payloads when sentinel fields pass but other fields fail validation', async () => {
-    const repo = createValidatedRepo(db);
+    const repo = createPermissiveRepo(db);
 
     try {
       await expect(
@@ -363,7 +372,7 @@ describe('FirestoreRepository hook-first validation ordering', () => {
   });
 
   it('should reject update payloads when sentinel fields pass but other fields fail validation', async () => {
-    const repo = createValidatedRepo(db);
+    const repo = createPermissiveRepo(db);
 
     try {
       const created = await repo.create({
@@ -512,12 +521,15 @@ describe('FirestoreRepository strict sentinelPolicy (per-field combinators)', ()
     const repo = createStrictRepo(db);
 
     try {
-      const user = await repo.create({
-        name: 'Strict Query',
-        score: 1,
-        loginCount: 1,
-        createdAt: new Date().toISOString(),
-      } as HookValidatedUser);
+      const user = await repo.create(
+        {
+          name: 'Strict Query',
+          score: 1,
+          loginCount: 1,
+          createdAt: new Date().toISOString(),
+        } as HookValidatedUser,
+        { returnDoc: true },
+      );
 
       // approved sentinel passes
       await repo
@@ -618,6 +630,32 @@ describe('FirestoreRepository strict sentinelPolicy (per-field combinators)', ()
           score: 1,
           loginCount: FieldValue.arrayUnion('x') as unknown as number,
           createdAt: new Date().toISOString(),
+        } as HookValidatedUser),
+      ).rejects.toBeInstanceOf(ValidationError);
+    } finally {
+      await cleanupValidatedRepo(repo);
+    }
+  });
+});
+
+describe('FirestoreRepository sentinel policy defaults to strict (v3)', () => {
+  const harness = createUserRepoHarness('test_users_default_strict');
+  const { db, cleanupCollection } = harness;
+
+  afterAll(async () => {
+    await cleanupCollection();
+  });
+
+  it('createValidatedRepo (no explicit policy) rejects a bare, unapproved sentinel', async () => {
+    // No sentinelPolicy argument => strict is the v3 default, so the escape hatch never runs and a
+    // serverTimestamp sentinel on the plain `createdAt` string field is rejected.
+    const repo = createValidatedRepo(db);
+    try {
+      await expect(
+        repo.create({
+          name: 'Default Strict',
+          score: 1,
+          createdAt: FieldValue.serverTimestamp() as unknown as string,
         } as HookValidatedUser),
       ).rejects.toBeInstanceOf(ValidationError);
     } finally {

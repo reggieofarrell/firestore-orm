@@ -98,9 +98,10 @@ const orders = await orderRepo
 await orderRepo.bulkUpdate(orders.map(o => ({ id: o.id, data: { status: 'expired' } })));
 ```
 
-**Note:** `query().update()` and `query().delete()` do **not** run lifecycle hooks — they issue
-batched writes directly. If you rely on `beforeUpdate`/`afterUpdate` side effects, fetch and use
-`bulkUpdate` (or per-document `update`) instead. See [Lifecycle hooks](./lifecycle-hooks/).
+**Note:** `query().update()` and `query().delete()` run the **bulk** lifecycle hooks
+(`beforeBulkUpdate`/`afterBulkUpdate`, `beforeBulkDelete`/`afterBulkDelete`), not the per-document
+`before/afterUpdate` hooks. If you rely on per-document `beforeUpdate`/`afterUpdate` side effects,
+use per-document `update` instead. See [Lifecycle hooks](./lifecycle-hooks/).
 
 ## 5. Add timestamps consistently
 

@@ -69,12 +69,13 @@ required top-level `id: z.string()`. The repository asserts this at construction
 - Write operations follow this sequence: `before*` hook -> validation -> Firestore write -> `after*`
   hook.
 - Validation errors are thrown after `before*` hooks run and before any Firestore write occurs.
-- Firestore `FieldValue` sentinels are supported in write payloads. By default
-  (`sentinelPolicy: 'permissive'`) any sentinel is accepted on any field — sentinel-valued paths are
-  skipped during schema validation while non-sentinel paths are still validated. To enforce which
-  sentinels a field may receive, declare them with the per-field combinators and opt into
-  `sentinelPolicy: 'strict'` (see
-  [Per-Field Sentinel Approval](./field-value-sentinels/#per-field-sentinel-approval)).
+- Firestore `FieldValue` sentinels are supported in write payloads. As of v3 the default is
+  `sentinelPolicy: 'strict'`: only sentinels a field's write combinator permits pass, and the parsed
+  Zod output (coercions/defaults/transforms) is always returned. Declare accepted sentinels with the
+  per-field combinators (see
+  [Per-Field Sentinel Approval](./field-value-sentinels/#per-field-sentinel-approval)). The pre-v3
+  `sentinelPolicy: 'permissive'` (any sentinel on any field; writes the raw payload when a
+  sentinel-path parse fails) is available as an explicit opt-in.
 
 > **Where `id` lives (and why a `writeSchema` overlay doesn't change it).** There are three separate
 > `id` contexts, and it's easy to conflate them:

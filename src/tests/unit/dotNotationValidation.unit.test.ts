@@ -80,7 +80,7 @@ describe('resolveSchemaAtPath', () => {
 });
 
 describe('parseUpdate — dot-notation awareness (permissive)', () => {
-  const validator = makeValidator(schema);
+  const validator = makeValidator(schema, undefined, { sentinelPolicy: 'permissive' });
 
   it('preserves and validates explicit dot-notation keys (no silent drop)', () => {
     expect(validator.parseUpdate({ 'address.city': 'LA' })).toEqual({ 'address.city': 'LA' });

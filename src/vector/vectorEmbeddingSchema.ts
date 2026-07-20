@@ -1,13 +1,23 @@
 import { z } from 'zod';
-import { isVectorFieldValue } from './VectorSearch.js';
+import { isVectorFieldValue, VECTOR_MAX_DIMENSIONS } from './VectorSearch.js';
 
 /**
  * Zod schema for a vector embedding field on create/update payloads.
  * Accepts plain number arrays (tests, pre-write transforms) and `FieldValue.vector()` sentinels.
  *
- * @param dimensions - When provided, plain arrays must match this exact length.
+ * @param dimensions - When provided, plain arrays must match this exact length. Must itself be a
+ *   positive integer no greater than Firestore's maximum embedding dimension.
  */
 export function vectorEmbeddingSchema(dimensions?: number) {
+  if (
+    dimensions !== undefined &&
+    (!Number.isInteger(dimensions) || dimensions <= 0 || dimensions > VECTOR_MAX_DIMENSIONS)
+  ) {
+    throw new Error(
+      `vectorEmbeddingSchema() dimensions must be a positive integer <= ${VECTOR_MAX_DIMENSIONS}.`,
+    );
+  }
+
   return z.custom<number[] | ReturnType<typeof Object>>(
     value => {
       if (isVectorFieldValue(value)) {
@@ -18,7 +28,8 @@ export function vectorEmbeddingSchema(dimensions?: number) {
         return false;
       }
 
-      if (value.some(entry => typeof entry !== 'number' || Number.isNaN(entry))) {
+      // Number.isFinite rejects NaN AND +/-Infinity (Number.isNaN would let infinities through).
+      if (value.some(entry => typeof entry !== 'number' || !Number.isFinite(entry))) {
         return false;
       }
 

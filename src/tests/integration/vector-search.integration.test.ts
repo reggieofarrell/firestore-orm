@@ -85,10 +85,13 @@ describe('Vector search extension', () => {
 
   it('should proxy repository write methods through withVectorSearch', async () => {
     const wrapped = withVectorSearch(vectorRepo);
-    const created = await wrapped.create({
-      name: 'proxied-create',
-      embedding: FieldValue.vector([0.5, 0.5, 0]),
-    } as VectorDoc);
+    const created = await wrapped.create(
+      {
+        name: 'proxied-create',
+        embedding: FieldValue.vector([0.5, 0.5, 0]),
+      } as VectorDoc,
+      { returnDoc: true },
+    );
 
     expect(created.name).toBe('proxied-create');
   });
@@ -200,9 +203,11 @@ describe('Vector search extension', () => {
     await seedBasicVectors();
 
     const wrapped = withVectorSearch(vectorRepo);
+    // Select only stored fields — the computed distanceResultField is appended by findNearest() and
+    // must NOT be listed in select() (it is not a stored document field).
     const results = await wrapped
       .query()
-      .select('name', 'vectorDistance')
+      .select('name')
       .findNearest({
         vectorField: 'embedding',
         queryVector: [1, 0, 0],
@@ -214,7 +219,88 @@ describe('Vector search extension', () => {
 
     expect(results).toHaveLength(1);
     expect(results[0]).toHaveProperty('name');
+    // The distance field is present in the result even though it was not selected.
     expect(results[0]).toHaveProperty('vectorDistance');
+  });
+
+  it('includes the distance field for an ID-only (empty) projection', async () => {
+    await seedBasicVectors();
+
+    // select() with no fields is a valid ID-only projection; the configured distanceResultField must
+    // still be returned (findNearest widens the mask to include it), not dropped.
+    const results = await withVectorSearch(vectorRepo)
+      .query()
+      .select()
+      .findNearest({
+        vectorField: 'embedding',
+        queryVector: [1, 0, 0],
+        limit: 1,
+        distanceMeasure: 'EUCLIDEAN',
+        distanceResultField: 'vectorDistance',
+      })
+      .get();
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toHaveProperty('vectorDistance');
+    expect(typeof (results[0] as Record<string, unknown>).vectorDistance).toBe('number');
+    // No stored fields were selected, so `name` is absent.
+    expect((results[0] as Record<string, unknown>).name).toBeUndefined();
+  });
+
+  it('select() is immutable: a pre-select vector alias returns the full model', async () => {
+    await seedBasicVectors();
+
+    const query = withVectorSearch(vectorRepo).query();
+    query.select('name'); // returned narrowed builder intentionally ignored
+
+    // The original alias was not projected, so findNearest on it returns full documents.
+    const results = await query
+      .findNearest({
+        vectorField: 'embedding',
+        queryVector: [1, 0, 0],
+        limit: 1,
+        distanceMeasure: 'EUCLIDEAN',
+      })
+      .get();
+
+    expect(results).toHaveLength(1);
+    // `embedding` (a non-selected field) is present because the alias was never projected.
+    expect(results[0]).toHaveProperty('embedding');
+  });
+
+  it('a distanceResultField colliding with a model field replaces it with the numeric distance', async () => {
+    await seedBasicVectors();
+
+    // Firestore writes the computed distance under the configured field name, overwriting the stored
+    // value — so a collision with `name` (a string field) yields a number at runtime. The result type
+    // models this as replacement (number), not intersection.
+    const results = await withVectorSearch(vectorRepo)
+      .query()
+      .findNearest({
+        vectorField: 'embedding',
+        queryVector: [1, 0, 0],
+        limit: 1,
+        distanceMeasure: 'EUCLIDEAN',
+        distanceResultField: 'name',
+      })
+      .get();
+
+    expect(results).toHaveLength(1);
+    expect(typeof (results[0] as Record<string, unknown>).name).toBe('number');
+  });
+
+  it('rejects distanceResultField "id" before touching Firestore', () => {
+    expect(() =>
+      withVectorSearch(vectorRepo)
+        .query()
+        .findNearest({
+          vectorField: 'embedding',
+          queryVector: [1, 0, 0],
+          limit: 1,
+          distanceMeasure: 'EUCLIDEAN',
+          distanceResultField: 'id',
+        }),
+    ).toThrow(/distanceResultField cannot be "id"/i);
   });
 
   it('should throw when orderBy() is called after findNearest()', () => {

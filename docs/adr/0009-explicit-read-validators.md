@@ -1,6 +1,6 @@
 # ADR-0009: Explicit `validate()` / `safeValidate()` read-boundary validators
 
-- **Status:** Accepted (implemented on branch; pending merge/release)
+- **Status:** Accepted (merged to main)
 - **Date:** 2026-07-18
 - **Deciders:** Reggie O'Farrell
 - **Related:** [issue #14](https://github.com/reggieofarrell/firestore-orm/issues/14);

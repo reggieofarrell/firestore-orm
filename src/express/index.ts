@@ -1,9 +1,18 @@
 import { Request, Response, NextFunction } from 'express';
-import { ConflictError, FirestoreIndexError, NotFoundError, ValidationError } from './Errors.js';
+import {
+  ConflictError,
+  FirestoreIndexError,
+  NotFoundError,
+  ValidationError,
+} from '../core/Errors.js';
 
 /**
  * Express middleware that maps repository errors to appropriate HTTP responses.
  * Automatically handles ValidationError, NotFoundError, ConflictError, and generic errors.
+ *
+ * Imported from the optional `@reggieofarrell/firestore-orm/express` subpath so `express` stays out
+ * of the core package's type graph. `express` is declared as an optional peer dependency — install
+ * it only if you use this adapter.
  *
  * @param err - Error object thrown by repository or application code
  * @param req - Express request object
@@ -12,7 +21,7 @@ import { ConflictError, FirestoreIndexError, NotFoundError, ValidationError } fr
  *
  * @example
  * // Register as global error handler in Express
- * import { errorHandler } from '@reggieofarrell/firestore-orm';
+ * import { errorHandler } from '@reggieofarrell/firestore-orm/express';
  *
  * app.use(errorHandler);
  *
@@ -67,8 +76,9 @@ export function errorHandler(err: any, req: Request, res: Response, _next: NextF
   }
 
   if (err instanceof FirestoreIndexError) {
-    return res.status(404).json({
-      error: 'Query needs to be index',
+    // A missing composite index is a server/configuration failure, not a client 4xx.
+    return res.status(503).json({
+      error: 'Query needs an index',
       message: err.message,
       url: err.indexUrl,
     });
@@ -81,7 +91,7 @@ export function errorHandler(err: any, req: Request, res: Response, _next: NextF
     });
   }
 
-  // Default: Internnal Server Error
+  // Default: Internal Server Error
   return res.status(500).json({
     error: 'InternalServerError',
     message: 'Something went wrong',

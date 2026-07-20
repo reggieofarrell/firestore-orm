@@ -10,7 +10,7 @@ import {
   NotFoundError,
   ValidationError,
 } from '../../core/Errors.js';
-import { errorHandler } from '../../core/ErrorHandler.js';
+import { errorHandler } from '../../express/index.js';
 
 function createMockResponse() {
   const res = {
@@ -53,7 +53,7 @@ describe('errorHandler', () => {
     });
   });
 
-  it('should return 404 with index URL for FirestoreIndexError', () => {
+  it('should return 503 with index URL for FirestoreIndexError', () => {
     const res = createMockResponse();
     const err = new FirestoreIndexError('https://console.firebase.google.com/index', [
       'status',
@@ -62,9 +62,10 @@ describe('errorHandler', () => {
 
     errorHandler(err, req, res, next);
 
-    expect(res.status).toHaveBeenCalledWith(404);
+    // A missing index is a server/config failure — 5xx, not a client 404.
+    expect(res.status).toHaveBeenCalledWith(503);
     expect(res.json).toHaveBeenCalledWith({
-      error: 'Query needs to be index',
+      error: 'Query needs an index',
       message: err.message,
       url: err.indexUrl,
     });

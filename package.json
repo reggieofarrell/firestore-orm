@@ -3,16 +3,39 @@
   "version": "2.2.1",
   "description": "Type-safe Firestore ORM with validation, lifecycle hooks, and a powerful query builder. Built for Firebase Admin SDK with full TypeScript support.",
   "type": "module",
-  "main": "./dist/index.js",
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      }
     },
     "./vector": {
-      "import": "./dist/vector/index.js",
-      "types": "./dist/vector/index.d.ts"
+      "import": {
+        "types": "./dist/vector/index.d.ts",
+        "default": "./dist/vector/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/vector/index.d.ts",
+        "default": "./dist/cjs/vector/index.js"
+      }
+    },
+    "./express": {
+      "import": {
+        "types": "./dist/express/index.d.ts",
+        "default": "./dist/express/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/express/index.d.ts",
+        "default": "./dist/cjs/express/index.js"
+      }
     }
   },
   "files": [
@@ -25,7 +48,7 @@
   "scripts": {
     "prepare": "husky",
     "clean": "rimraf dist .tsbuildinfo coverage",
-    "build": "rm -rf dist && tsc",
+    "build": "rimraf dist && tsc && tsc -p tsconfig.cjs.json && node scripts/finalize-dual-build.mjs",
     "prepublishOnly": "npm run build",
     "release:bump": "commit-and-tag-version --skip.tag",
     "release:bump:dry": "commit-and-tag-version --dry-run --skip.tag",
@@ -37,6 +60,11 @@
     "docs:dev": "npm --prefix website run dev",
     "docs:build": "npm --prefix website run build",
     "check:docs": "node scripts/check-doc-links.mjs",
+    "check:package": "node scripts/check-package-contents.mjs",
+    "check:manifest": "node scripts/check-manifest-lockfile.mjs",
+    "check:consumer": "node scripts/check-packed-consumer.mjs",
+    "check:audit": "npm audit --omit=dev --audit-level=high",
+    "release:verify": "npm run lint && npm run test:types && npm run check:manifest && npm run check:audit && npm run build && npm run check:package && npm run check:consumer && npm run test:coverage:all && npm run check:docs && npm run docs:build",
     "test:types": "tsc --noEmit -p tsconfig.typecheck.json",
     "test": "npm run test:unit && npm run test:integration:emulator",
     "test:unit": "jest --config jest.config.unit.js",
@@ -77,8 +105,8 @@
     "firebase-orm",
     "firestore-wrapper",
     "firestore-repository",
-    "fireorm-altenative",
-    "typesaurus-altenative",
+    "fireorm-alternative",
+    "typesaurus-alternative",
     "typeorm-alternative",
     "prisma-alternative"
   ],
@@ -97,11 +125,17 @@
   },
   "homepage": "https://reggieofarrell.github.io/firestore-orm/",
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   },
   "peerDependencies": {
-    "firebase-admin": "^12.0.0 || ^13.0.0",
+    "express": "^4.0.0 || ^5.0.0",
+    "firebase-admin": "^12.0.0 || ^13.0.0 || ^14.0.0",
     "zod": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "express": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@commitlint/cli": "^19.8.1",
@@ -113,12 +147,13 @@
     "eslint": "^10.0.1",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-import-x": "^4.17.1",
-    "firebase-admin": "^13.0.0",
-    "firebase-tools": "^14.27.0",
+    "firebase-admin": "^14.0.0",
+    "firebase-tools": "^15.0.0",
     "husky": "^9.1.7",
     "jest": "^30.2.0",
     "lint-staged": "^15.4.3",
     "prettier": "^3.8.1",
+    "rimraf": "^5.0.10",
     "ts-jest": "^29.4.5",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",

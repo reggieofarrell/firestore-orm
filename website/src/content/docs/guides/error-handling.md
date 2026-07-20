@@ -112,10 +112,12 @@ it directly — the errors you catch are already normalized. It maps:
 
 ## Express error handler
 
-The ORM includes a pre-built Express middleware for consistent error responses:
+The ORM includes a pre-built Express middleware for consistent error responses. It is published from
+the optional **`@reggieofarrell/firestore-orm/express`** subpath (not the package root), so
+`express` stays out of the core type graph — install `express` to use it:
 
 ```typescript
-import { errorHandler } from '@reggieofarrell/firestore-orm';
+import { errorHandler } from '@reggieofarrell/firestore-orm/express';
 import express from 'express';
 
 const app = express();
@@ -131,7 +133,8 @@ This automatically maps errors to HTTP status codes:
 - `ValidationError` → 400 Bad Request
 - `NotFoundError` → 404 Not Found
 - `ConflictError` → 409 Conflict
-- `FirestoreIndexError` → 404 Not Found (with index URL)
+- `FirestoreIndexError` → 503 Service Unavailable (a missing index is a server/config failure; the
+  response includes the index-creation URL)
 - Others → 500 Internal Server Error
 
 For a fuller Express integration walkthrough, see [Framework integration](./framework-integration/).
@@ -150,7 +153,7 @@ Maps errors to HTTP status codes and JSON bodies:
 | --------------------- | ------ | ------------------------------------------------------------------- |
 | `ValidationError`     | 400    | `{ error: 'ValidationError', details: issues }`                     |
 | `NotFoundError`       | 404    | `{ error: 'NotFoundError', message }`                               |
-| `FirestoreIndexError` | 404    | `{ error: 'Query needs to be index', message, url: indexUrl }`      |
+| `FirestoreIndexError` | 503    | `{ error: 'Query needs an index', message, url: indexUrl }`         |
 | `ConflictError`       | 409    | `{ error: 'ConflictError', message }`                               |
 | Anything else         | 500    | `{ error: 'InternalServerError', message: 'Something went wrong' }` |
 

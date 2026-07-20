@@ -6,7 +6,7 @@ Designed to make backend Firestore development actually enjoyable.
 [![npm version](https://img.shields.io/npm/v/@reggieofarrell/firestore-orm.svg)](https://www.npmjs.com/package/@reggieofarrell/firestore-orm)
 [![Coverage](https://img.shields.io/badge/coverage-dual%20gated-brightgreen.svg)](#coverage-thresholds)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.5+-blue.svg)](https://www.typescriptlang.org/)
 
 ## Table of Contents
 
@@ -113,7 +113,7 @@ pnpm add @reggieofarrell/firestore-orm firebase-admin zod
 
 ### Peer Dependencies
 
-- `firebase-admin`: ^12.0.0 || ^13.0.0 (vector extension: >= 12 basic, >= 13 recommended)
+- `firebase-admin`: ^12.0.0 || ^13.0.0 || ^14.0.0 (vector extension: >= 12 basic, >= 13 recommended)
 - `zod`: ^4.0.0
 
 > **2.0.0** is the first release version for this maintained package under
@@ -167,8 +167,8 @@ export const userRepo = FirestoreRepository.withSchema(db, 'users', userSchema);
 ### 4. Start Building
 
 ```typescript
-// Create a user
-const user = await userRepo.create({
+// Create a user (returns { id } by default; pass { returnDoc: true } for the full read model)
+const { id: userId } = await userRepo.create({
   name: 'John Doe',
   email: 'john@example.com',
   age: 30,
@@ -187,13 +187,13 @@ const activeUsers = await userRepo
   .get();
 
 // Update a user (returns { id } by default)
-const { id: updatedUserId } = await userRepo.update(user.id, {
+const { id: updatedUserId } = await userRepo.update(userId, {
   status: 'inactive',
   updatedAt: new Date().toISOString(),
 });
 
 // Delete user
-await userRepo.delete(user.id);
+await userRepo.delete(userId);
 ```
 
 ## Documentation

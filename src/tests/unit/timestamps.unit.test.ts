@@ -97,6 +97,40 @@ describe('timestamp converters', () => {
       expect(result.vector).toBe(vector);
       expect(result.at).toBe(MS);
     });
+
+    // convertTimestampsToMillis is a public root export documented as reusable in shared code, and it
+    // rebuilds plain objects by assigning arbitrary keys — so an own __proto__ key must not control
+    // the output object's prototype (CWE-1321). Firestore data can originate from less-trusted
+    // clients, and JSON.parse yields an OWN __proto__ key.
+    describe('output prototype pollution', () => {
+      afterEach(() => {
+        delete (Object.prototype as Record<string, unknown>).isAdmin;
+      });
+
+      it('does not let an own __proto__ key pollute Object.prototype or the output prototype', () => {
+        const input = JSON.parse('{"__proto__":{"isAdmin":true},"name":"Alice"}');
+
+        const out = convertTimestampsToMillis<Record<string, unknown>>(input);
+
+        // Global prototype untouched.
+        expect(({} as Record<string, unknown>).isAdmin).toBeUndefined();
+        // Output object's prototype is not attacker-controlled: an absent own field stays absent.
+        expect(Object.getPrototypeOf(out)).toBe(Object.prototype);
+        expect(out.isAdmin).toBeUndefined();
+        expect(out.name).toBe('Alice');
+      });
+
+      it('copies a nested __proto__ key without polluting the nested output prototype', () => {
+        const input = JSON.parse('{"meta":{"__proto__":{"isAdmin":true},"note":"hi"}}');
+
+        const out = convertTimestampsToMillis<{ meta: Record<string, unknown> }>(input);
+
+        expect(({} as Record<string, unknown>).isAdmin).toBeUndefined();
+        expect(Object.getPrototypeOf(out.meta)).toBe(Object.prototype);
+        expect(out.meta.isAdmin).toBeUndefined();
+        expect(out.meta.note).toBe('hi');
+      });
+    });
   });
 
   describe('createMillisTimestampConverter', () => {

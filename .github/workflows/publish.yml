@@ -58,6 +58,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check
+        run: npm run test:types
+
+      - name: Manifest / lockfile metadata agreement
+        run: npm run check:manifest
+
       # Same dual-suite gate used as the local release confidence check:
       # unit coverage + unit gate, then emulator integration coverage + integration gate.
       # See docs/development/testing.md — merged LCOV is intentionally not a gate.
@@ -71,6 +80,14 @@ jobs:
       # release path obvious in the Actions log.
       - name: Build
         run: npm run build
+
+      # Gate the exact artifact being published: tarball allowlist + express-free root graph, and a
+      # fresh ESM/CJS/express consumer compiled against the packed tarball.
+      - name: Verify package contents
+        run: npm run check:package
+
+      - name: Isolated packed-consumer compile
+        run: npm run check:consumer
 
       # No NODE_AUTH_TOKEN — the npm CLI detects the OIDC environment and
       # authenticates via Trusted Publishing. Provenance is attached automatically

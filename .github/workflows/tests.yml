@@ -110,3 +110,67 @@ jobs:
       # cannot verify because ts-jest runs with isolatedModules. See docs/development/testing.md.
       - name: Type-check
         run: npm run test:types
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+
+  # Exercises the exact artifact users install: builds, asserts the tarball allowlist + that the root
+  # declaration graph is express-free, checks manifest/lockfile metadata agreement, and compiles a
+  # fresh ESM and CJS consumer plus the /express subpath against the packed tarball.
+  package:
+    name: Package + isolated consumer
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Manifest / lockfile metadata agreement
+        run: npm run check:manifest
+      - name: Build
+        run: npm run build
+      - name: Tarball allowlist + express-graph check
+        run: npm run check:package
+      - name: Isolated packed-consumer compile (ESM + CJS + express)
+        run: npm run check:consumer
+
+  # Verify build + unit tests on the v3 Node floor (22) in addition to the pinned Node (24) used by
+  # the coverage jobs above.
+  node22:
+    name: Node 22 (build + unit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Unit tests
+        run: npm run test:unit

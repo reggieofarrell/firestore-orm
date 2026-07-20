@@ -96,6 +96,24 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { i
   }
 
   /**
+   * Rejects an empty update payload, matching the repository update surfaces so every update path
+   * shares one policy.
+   */
+  private assertNonEmptyUpdatePayload(payload: Record<string, any>): void {
+    if (Object.keys(payload).length === 0) {
+      throw new ValidationError([
+        {
+          code: 'custom',
+          path: [],
+          message:
+            'Update payload is empty — no fields to write after validation. Provide at least one ' +
+            'field to update (use delete() to remove a document).',
+        } as z.core.$ZodIssue,
+      ]);
+    }
+  }
+
+  /**
    * Add a where clause to filter documents.
    * Supports various operators based on field type.
    *
@@ -218,15 +236,14 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { i
 
         const validData = this.validateUpdate ? this.validateUpdate(updateData) : updateData;
         const sanitizedData = this.sanitizeUpdateData(validData);
-        if (Object.keys(sanitizedData as Record<string, any>).length > 0) {
-          actions.push(batch => batch.update(doc.ref, sanitizedData as any));
-          writtenIds.push(doc.id);
-        }
+        // Reject an empty patch (consistent with the repository update surfaces). Because the same
+        // data is applied to every matched doc, this is uniform across the result set.
+        this.assertNonEmptyUpdatePayload(sanitizedData as Record<string, any>);
+        actions.push(batch => batch.update(doc.ref, sanitizedData as any));
+        writtenIds.push(doc.id);
       }
 
       await this.commitInChunks(actions);
-      // Report only the documents actually written — a doc whose payload sanitized to empty (e.g.
-      // all-undefined values) produces no batch action. The hook ids and the return count agree.
       await this.runHooks('afterBulkUpdate', { ids: writtenIds });
       return writtenIds.length;
     } catch (error: any) {

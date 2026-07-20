@@ -522,6 +522,27 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
   }
 
   /**
+   * Rejects an update whose write payload is empty after validation/sanitization. An empty patch
+   * previously skipped the Firestore write entirely, which meant a nonexistent document was reported
+   * as successfully updated (the missing-doc NotFoundError comes from Firestore's own update()).
+   * Rejecting keeps the documented "update throws for a missing document" contract intact and makes
+   * every update surface behave identically.
+   */
+  private assertNonEmptyUpdatePayload(payload: Record<string, any>): void {
+    if (Object.keys(payload).length === 0) {
+      throw new ValidationError([
+        {
+          code: 'custom',
+          path: [],
+          message:
+            'Update payload is empty — no fields to write after validation. Provide at least one ' +
+            'field to update (use delete() to remove a document).',
+        } as z.core.$ZodIssue,
+      ]);
+    }
+  }
+
+  /**
    * Normalize update payloads into dot-notation form for merge-style updates.
    * This keeps nested-object updates explicit at field-path level while allowing
    * callers to mix regular nested objects and pre-defined dot-notation keys.
@@ -1022,9 +1043,8 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
       const validData = this.validateUpdateData(normalizedData);
       const writePayload = this.sanitizeUpdateData(validData);
 
-      if (Object.keys(writePayload as Record<string, any>).length > 0) {
-        await docRef.update(writePayload as any);
-      }
+      this.assertNonEmptyUpdatePayload(writePayload as Record<string, any>);
+      await docRef.update(writePayload as any);
       await this.runHooks('afterUpdate', { id });
 
       // When returnDoc is enabled, we re-read the document after write completion.
@@ -1108,9 +1128,8 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
         const validData = this.validateUpdateData(normalizedData);
         const writePayload = this.sanitizeUpdateData(validData);
 
-        if (Object.keys(writePayload as Record<string, any>).length > 0) {
-          actions.push(batch => batch.update(docRef, writePayload as any));
-        }
+        this.assertNonEmptyUpdatePayload(writePayload as Record<string, any>);
+        actions.push(batch => batch.update(docRef, writePayload as any));
         ids.push(id);
       }
 
@@ -1709,9 +1728,8 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
       const validData = this.validateUpdateData(normalizedData);
       const writePayload = this.sanitizeUpdateData(validData);
 
-      if (Object.keys(writePayload as Record<string, any>).length > 0) {
-        tx.update(docRef, writePayload as any);
-      }
+      this.assertNonEmptyUpdatePayload(writePayload as Record<string, any>);
+      tx.update(docRef, writePayload as any);
     } catch (error: any) {
       if (error instanceof z.ZodError) {
         throw new ValidationError(error.issues);

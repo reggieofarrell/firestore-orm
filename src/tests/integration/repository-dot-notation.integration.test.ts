@@ -1,3 +1,4 @@
+import { ValidationError } from '../../core/Errors.js';
 import { createUserRepoHarness } from './helpers/firestoreIntegrationHarness.js';
 
 describe('FirestoreRepository nested update behavior', () => {
@@ -312,20 +313,27 @@ describe('FirestoreRepository nested update behavior', () => {
       expect(updated.address?.city).toBeNull();
     }, 10000);
 
-    it('should handle undefined values with dot notation', async () => {
+    it('rejects an all-undefined update but filters undefined in a mixed update', async () => {
       const user = await userRepo.create({
         name: 'Undefined Test',
         address: { city: 'Portland', zipCode: '97201' },
       });
       trackUser(user.id);
 
+      // All values undefined => empty payload => rejected in v3.
+      await expect(
+        userRepo.update(user.id, { 'address.city': undefined } as any),
+      ).rejects.toBeInstanceOf(ValidationError);
+
+      // Mixed: the undefined leaf is filtered (existing value preserved), the real leaf is written.
       await userRepo.update(user.id, {
         'address.city': undefined,
+        'address.zipCode': '97210',
       } as any);
       const updated = await getUserOrFail(user.id);
 
-      expect(updated.address?.city).toBe('Portland');
-      expect(updated.address?.zipCode).toBe('97201');
+      expect(updated.address?.city).toBe('Portland'); // preserved (undefined filtered)
+      expect(updated.address?.zipCode).toBe('97210'); // written
     }, 10000);
 
     it('should handle multiple levels of new nesting', async () => {

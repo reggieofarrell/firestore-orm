@@ -1,4 +1,4 @@
-import { ConflictError, NotFoundError } from '../../core/Errors.js';
+import { ConflictError, NotFoundError, ValidationError } from '../../core/Errors.js';
 import { createTestUserInput } from '../shared/factories/user.factory.js';
 import { createUserRepoHarness } from './helpers/firestoreIntegrationHarness.js';
 
@@ -394,5 +394,62 @@ describe('FirestoreRepository update return and hook contracts', () => {
     await expect(userRepo.getOneByFieldOrThrow('name', duplicateName)).rejects.toBeInstanceOf(
       ConflictError,
     );
+  });
+});
+
+describe('FirestoreRepository empty-update policy (v3: reject empty patches)', () => {
+  const harness = createUserRepoHarness('test_users_empty_update');
+  const { userRepo, trackUser, cleanupTrackedUsers, cleanupCollection } = harness;
+
+  afterEach(async () => {
+    await cleanupTrackedUsers();
+  });
+
+  afterAll(async () => {
+    await cleanupCollection();
+  });
+
+  it('update() rejects an empty payload instead of falsely succeeding on a missing document', async () => {
+    // Previously an empty patch skipped the Firestore write, so a nonexistent doc was reported as
+    // updated. Now it throws before any write.
+    await expect(
+      userRepo.update('missing-empty-id', { name: undefined } as any),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it('update() still throws NotFoundError for a non-empty patch on a missing document', async () => {
+    await expect(userRepo.update('missing-id', { name: 'x' })).rejects.toBeInstanceOf(
+      NotFoundError,
+    );
+  });
+
+  it('bulkUpdate() rejects when any item sanitizes to an empty payload', async () => {
+    const user = await userRepo.create(createTestUserInput({ name: 'Bulk Empty' }));
+    trackUser(user.id);
+    await expect(
+      userRepo.bulkUpdate([{ id: user.id, data: { name: undefined } as any }]),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it('updateInTransaction() rejects an empty payload', async () => {
+    await expect(
+      userRepo.runInTransaction(async (tx, repo) => {
+        await repo.updateInTransaction(tx, 'missing-tx-id', { name: undefined } as any);
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it('query().update() rejects an empty payload on matched documents', async () => {
+    const user = await userRepo.create(
+      createTestUserInput({ name: 'Query Empty', email: 'query-empty@example.com' }),
+      { returnDoc: true },
+    );
+    trackUser(user.id);
+    await expect(
+      userRepo
+        .query()
+        .where('email', '==', 'query-empty@example.com')
+        .update({ name: undefined } as any),
+    ).rejects.toBeInstanceOf(ValidationError);
   });
 });

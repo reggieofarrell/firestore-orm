@@ -165,4 +165,33 @@ describe('dotNotation security and immutability', () => {
     expect(merged.profile).not.toBe(existing.profile);
     expect((merged.profile as { settings: unknown }).settings).not.toBe(existing.profile.settings);
   });
+
+  // Unlike expand/merge (which reject dangerous path *segments*), flattenToDotNotation is a copy
+  // builder that assigns arbitrary keys, so it must copy a dangerous own key *safely* rather than
+  // let it control the output object's prototype.
+  it('flattenToDotNotation does not let an own __proto__ key pollute Object.prototype', () => {
+    // JSON.parse produces an OWN enumerable __proto__ key (unlike an object literal).
+    const input = JSON.parse('{"__proto__":{"isAdmin":true},"name":"Alice"}');
+
+    const flattened = flattenToDotNotation(input);
+
+    // Global prototype is untouched...
+    expect(({} as Record<string, unknown>).isAdmin).toBeUndefined();
+    // ...and so is the returned object's prototype (not attacker-controlled).
+    expect(Object.getPrototypeOf(flattened)).toBe(Object.prototype);
+    expect((flattened as Record<string, unknown>).isAdmin).toBeUndefined();
+    expect(flattened.name).toBe('Alice');
+  });
+
+  it('flattenToDotNotation copies a non-plain __proto__ value as an own property', () => {
+    // A non-plain value under __proto__ takes the else-branch (result[fullKey] = value), which is the
+    // path that would otherwise invoke the prototype setter.
+    const input = JSON.parse('{"__proto__":[1,2,3]}');
+
+    const flattened = flattenToDotNotation(input);
+
+    expect(Object.getPrototypeOf(flattened)).toBe(Object.prototype);
+    expect(Object.prototype.hasOwnProperty.call(flattened, '__proto__')).toBe(true);
+    expect((flattened as Record<string, unknown>).__proto__).toEqual([1, 2, 3]);
+  });
 });

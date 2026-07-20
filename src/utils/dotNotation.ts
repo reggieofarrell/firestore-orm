@@ -2,6 +2,7 @@
  * Utility functions for handling dot notation in nested object updates
  * Supports Firestore's dot notation syntax for updating nested fields
  */
+import { safeAssign } from './safeObject.js';
 
 /**
  * Checks if a key uses dot notation
@@ -109,10 +110,17 @@ export function flattenToDotNotation(
       !(value instanceof Date) &&
       Object.getPrototypeOf(value) === Object.prototype
     ) {
-      // Recursively flatten nested objects
-      Object.assign(result, flattenToDotNotation(value, fullKey));
+      // Recursively flatten nested objects. Nested results are keyed by dotted paths
+      // (`prefix.key`), so their keys can never be a bare `__proto__`; copy them via safeAssign for
+      // one consistent safe-copy primitive across the object walkers.
+      const nested = flattenToDotNotation(value, fullKey);
+      for (const [nestedKey, nestedValue] of Object.entries(nested)) {
+        safeAssign(result, nestedKey, nestedValue);
+      }
     } else {
-      result[fullKey] = value;
+      // A caller-controlled `fullKey` of `__proto__` (top level, non-plain value) must become an own
+      // property, not mutate the output object's prototype (CWE-1321). See ./safeObject.ts.
+      safeAssign(result, fullKey, value);
     }
   }
   return result;

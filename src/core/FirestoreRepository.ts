@@ -1,4 +1,10 @@
-import { CollectionReference, Firestore, QueryDocumentSnapshot } from 'firebase-admin/firestore';
+import {
+  CollectionReference,
+  FieldPath,
+  Firestore,
+  QueryDocumentSnapshot,
+} from 'firebase-admin/firestore';
+import { FieldPaths } from '../utils/pathTypes.js';
 import {
   CreateInput,
   makeValidator,
@@ -1384,10 +1390,10 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * // Find orders by status
    * const pendingOrders = await orderRepo.findByField('status', 'pending');
    */
-  async findByField<K extends keyof T>(field: K, value: T[K]): Promise<(T & { id: ID })[]> {
+  async findByField(field: FieldPaths<T> | FieldPath, value: unknown): Promise<(T & { id: ID })[]> {
     try {
       const snapshot = await this.readCol()
-        .where(field as string, '==', value)
+        .where(field as string | FieldPath, '==', value)
         .get();
       return snapshot.docs.map(doc => ({ ...(doc.data() as T), id: doc.id }));
     } catch (error: any) {
@@ -1419,12 +1425,15 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    *   console.log('No order found');
    * }
    */
-  async getOneByField<K extends keyof T>(field: K, value: T[K]): Promise<(T & { id: ID }) | null> {
+  async getOneByField(
+    field: FieldPaths<T> | FieldPath,
+    value: unknown,
+  ): Promise<(T & { id: ID }) | null> {
     try {
       // We add `limit(1)` so Firestore only returns one document even if multiple matches exist.
       // This keeps reads/costs low and makes the method intentionally "first-match" oriented.
       const snapshot = await this.readCol()
-        .where(field as string, '==', value)
+        .where(field as string | FieldPath, '==', value)
         .limit(1)
         .get();
 
@@ -1450,12 +1459,15 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * @throws {NotFoundError} If no document matches the provided field/value
    * @throws {ConflictError} If more than one document matches the provided field/value
    */
-  async getOneByFieldOrThrow<K extends keyof T>(field: K, value: T[K]): Promise<T & { id: ID }> {
+  async getOneByFieldOrThrow(
+    field: FieldPaths<T> | FieldPath,
+    value: unknown,
+  ): Promise<T & { id: ID }> {
     try {
       // We query with limit(2) so we can efficiently detect duplicate matches
       // without paying for an unbounded query read.
       const snapshot = await this.readCol()
-        .where(field as string, '==', value)
+        .where(field as string | FieldPath, '==', value)
         .limit(2)
         .get();
 

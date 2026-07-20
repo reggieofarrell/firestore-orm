@@ -83,6 +83,36 @@ export async function projectionNarrowsResultType() {
   page.items[0].createdAt.getTime();
 }
 
+// sum()/average() accept only numeric field paths (including nested/dotted), not any keyof T;
+// findByField accepts typed dotted paths.
+const numSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  score: z.number(),
+  rating: z.number().optional(),
+  stats: z.object({ count: z.number(), label: z.string() }),
+});
+const numRepo = FirestoreRepository.withSchema(db, 'nums', numSchema);
+
+export function numericAggregationPaths() {
+  numRepo.query().sum('score');
+  numRepo.query().average('score');
+  numRepo.query().sum('rating'); // optional numeric field
+  numRepo.query().sum('stats.count'); // nested numeric path
+  // @ts-expect-error 'name' is a string, not a numeric field
+  numRepo.query().sum('name');
+  // @ts-expect-error 'stats.label' is a string, not numeric
+  numRepo.query().average('stats.label');
+  // @ts-expect-error 'stats' is an object, not a numeric field
+  numRepo.query().sum('stats');
+
+  // findByField accepts typed dotted paths (was limited to top-level keys).
+  numRepo.findByField('stats.count', 5);
+  numRepo.findByField('name', 'x');
+  // @ts-expect-error unknown field path
+  numRepo.findByField('nope', 1);
+}
+
 // `PathValue` resolves the read-model type at a (possibly dotted) path.
 const city: PathValue<Doc, 'address.city'> = 'x'; // string
 const email: PathValue<Doc, 'settings.notifications.email'> = true; // boolean

@@ -2,7 +2,7 @@ import { parseFirestoreError } from './ErrorParser.js';
 import { HookEvent, ID } from './FirestoreRepository.js';
 import { ValidationError } from './Errors.js';
 import { UpdateInput } from './Validation.js';
-import { FieldPaths } from '../utils/pathTypes.js';
+import { FieldPaths, NumericFieldPaths } from '../utils/pathTypes.js';
 import {
   AggregateField,
   CollectionReference,
@@ -117,9 +117,15 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { i
    * Add a where clause to filter documents.
    * Supports various operators based on field type.
    *
-   * @param field - The field to filter on
+   * The `field` is a schema-aware field path (typo-checked), but `value` is intentionally typed as
+   * `unknown` rather than the field's type: a `readConverter` can make the application model (`T`)
+   * differ from the value actually stored in Firestore, so the stored comparison value cannot be
+   * derived from `T` in general. Callers are responsible for passing a value matching the STORED
+   * representation.
+   *
+   * @param field - The field path to filter on (typed) or a `FieldPath`
    * @param op - The comparison operator
-   * @param value - The value to compare against
+   * @param value - The value to compare against (matches the stored representation)
    *
    * @example
    * // Basic equality
@@ -577,10 +583,10 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { i
    *   .where('status', '==', 'completed')
    *   .sum('total');
    */
-  async sum<K extends keyof T>(field: K): Promise<number> {
+  async sum(field: NumericFieldPaths<T> | FieldPath): Promise<number> {
     try {
       const snapshot = await this.query
-        .aggregate({ sum: AggregateField.sum(field as string) })
+        .aggregate({ sum: AggregateField.sum(field as string | FieldPath) })
         .get();
 
       // Firestore can return null when no matching numeric values exist.
@@ -604,10 +610,10 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { i
    *   .where('productId', '==', productId)
    *   .average('rating');
    */
-  async average<K extends keyof T>(field: K): Promise<number> {
+  async average(field: NumericFieldPaths<T> | FieldPath): Promise<number> {
     try {
       const snapshot = await this.query
-        .aggregate({ average: AggregateField.average(field as string) })
+        .aggregate({ average: AggregateField.average(field as string | FieldPath) })
         .get();
 
       // Firestore can return null when no matching numeric values exist.
@@ -622,7 +628,13 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { i
    * Get all distinct values for a specific field.
    * Useful for generating filter options or analyzing data distribution.
    *
-   * @param field - The field to get distinct values from
+   * LIMITATION — scalar values only: distinctness is computed with a JavaScript `Set`, which uses
+   * reference identity for objects. Structured/reference Firestore values (maps, arrays,
+   * `Timestamp`, `GeoPoint`, `DocumentReference`) are therefore deduplicated by identity, not by
+   * semantic equality, so two equal-but-distinct-object values are reported as separate. Use this
+   * only for scalar fields (string/number/boolean), or dedupe structured values yourself.
+   *
+   * @param field - The (top-level) field to get distinct values from
    * @returns Array of unique values
    *
    * @example

@@ -104,3 +104,16 @@ export type PathValue<T, P extends string> = P extends `${infer Head}.${infer Re
   : P extends keyof T
     ? T[P]
     : never;
+
+/**
+ * The subset of {@link FieldPaths} whose resolved value is numeric (including optional numeric
+ * fields and nested numeric paths). Used to constrain numeric aggregations (`sum`/`average`) to
+ * actual number fields rather than any `keyof T`.
+ *
+ * @example
+ * type N = NumericFieldPaths<{ name: string; score: number; stats: { count: number } }>;
+ * //   => 'score' | 'stats.count'
+ */
+export type NumericFieldPaths<T> = {
+  [P in FieldPaths<T>]: NonNullable<PathValue<T, P>> extends number ? P : never;
+}[FieldPaths<T>];

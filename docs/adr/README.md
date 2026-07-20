@@ -38,3 +38,4 @@ consequences. They explain _why_ the codebase looks the way it does, which commi
 | [0014](0014-reject-empty-update-payloads.md)                   | Reject empty update payloads                                                 | Accepted (v3)                                                 | 2026-07-19 |
 | [0015](0015-express-adapter-subpath.md)                        | Express adapter behind an optional `firestore-orm/express` subpath           | Accepted (v3)                                                 | 2026-07-19 |
 | [0016](0016-dual-esm-cjs-build-and-support-floor.md)           | Dual ESM+CJS build and the v3 runtime/support floor                          | Accepted (v3)                                                 | 2026-07-19 |
+| [0017](0017-v3-core-operations-scope.md)                       | v3 scope is Firestore Core operations; server-parity features deferred       | Accepted (v3)                                                 | 2026-07-19 |

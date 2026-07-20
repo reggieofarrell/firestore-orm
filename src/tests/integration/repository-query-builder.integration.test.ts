@@ -168,12 +168,26 @@ describe('FirestoreRepository QueryBuilder', () => {
     await expect(userRepo.query().paginate(2)).rejects.toThrow('orderBy');
   });
 
-  it('should reject paginate with non-positive page size', async () => {
+  it('should reject paginate/offsetPaginate with non-positive, non-integer, or non-finite inputs', async () => {
     await expect(userRepo.query().orderBy('sortKey').paginate(0)).rejects.toThrow('pageSize');
+    await expect(userRepo.query().orderBy('sortKey').paginate(-1)).rejects.toThrow('pageSize');
+    await expect(userRepo.query().orderBy('sortKey').paginate(1.5)).rejects.toThrow('pageSize');
+    await expect(userRepo.query().orderBy('sortKey').paginate(Number.NaN)).rejects.toThrow(
+      'pageSize',
+    );
+    await expect(
+      userRepo.query().orderBy('sortKey').paginate(Number.POSITIVE_INFINITY),
+    ).rejects.toThrow('pageSize');
+
+    // offsetPaginate previously performed no validation at all.
+    await expect(userRepo.query().offsetPaginate(0, 10)).rejects.toThrow('page');
+    await expect(userRepo.query().offsetPaginate(1, 0)).rejects.toThrow('pageSize');
+    await expect(userRepo.query().offsetPaginate(-2, 10)).rejects.toThrow('page');
+    await expect(userRepo.query().offsetPaginate(1.5, 10)).rejects.toThrow('page');
   });
 
   it('should reject paginate when cursor document was deleted', async () => {
-    const items = await seedCatalog();
+    await seedCatalog();
     const firstPage = await userRepo.query().orderBy('sortKey', 'asc').paginate(1);
     const cursorDocId = firstPage.items[0].id;
 
@@ -181,7 +195,26 @@ describe('FirestoreRepository QueryBuilder', () => {
 
     await expect(
       userRepo.query().orderBy('sortKey', 'asc').paginate(1, firstPage.nextCursor),
-    ).rejects.toThrow('Cursor document');
+    ).rejects.toThrow(/cursor no longer points/i);
+  });
+
+  it('should reject a cursor bound to a different collection', async () => {
+    await seedCatalog();
+    // Forge a cursor whose document path points at another collection.
+    const foreignCursor = Buffer.from(
+      JSON.stringify({ path: 'some_other_collection/forged-doc' }),
+    ).toString('base64url');
+
+    await expect(
+      userRepo.query().orderBy('sortKey', 'asc').paginate(1, foreignCursor),
+    ).rejects.toThrow(/cursor for this collection/i);
+  });
+
+  it('should reject a malformed cursor without echoing its contents', async () => {
+    await seedCatalog();
+    await expect(
+      userRepo.query().orderBy('sortKey', 'asc').paginate(1, 'not-a-valid-cursor'),
+    ).rejects.toThrow(/invalid pagination cursor/i);
   });
 
   it('should select a subset of fields in query results', async () => {

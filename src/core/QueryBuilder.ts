@@ -71,13 +71,31 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { i
    * @returns Document snapshot represented by the cursor
    */
   private async decodeCursor(cursor: string): Promise<QueryDocumentSnapshot<any>> {
-    const json = Buffer.from(cursor, 'base64url').toString('utf8');
-    const payload = JSON.parse(json) as { path: string };
-    const snapshot = await this.db.doc(payload.path).get();
+    let docRef: FirebaseFirestore.DocumentReference;
+    try {
+      const json = Buffer.from(cursor, 'base64url').toString('utf8');
+      const payload = JSON.parse(json) as { path?: unknown };
+      if (typeof payload.path !== 'string' || payload.path === '') {
+        throw new Error('missing path');
+      }
+      docRef = this.db.doc(payload.path);
+    } catch {
+      // Never echo the decoded path — it is caller-supplied and untrusted.
+      throw new Error('Invalid pagination cursor.');
+    }
 
+    // Bind the cursor to THIS collection: a forged/foreign cursor pointing at a document in another
+    // collection must not be dereferenced (which would let pagination probe arbitrary documents in
+    // the same database, disclosing their existence via timing/error behavior).
+    if (docRef.parent.path !== this.collectionRef.path) {
+      throw new Error('Invalid pagination cursor for this collection.');
+    }
+
+    const snapshot = await docRef.get();
     if (!snapshot.exists) {
       throw new Error(
-        `Cursor document at path "${payload.path}" no longer exists. This can happen if the document was deleted between page requests.`,
+        'Pagination cursor no longer points to an existing document (it may have been deleted ' +
+          'between page requests).',
       );
     }
 
@@ -110,6 +128,17 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { i
             'field to update (use delete() to remove a document).',
         } as z.core.$ZodIssue,
       ]);
+    }
+  }
+
+  /**
+   * Validates a pagination input is a positive, finite integer, rejecting `0`, negatives,
+   * non-integers, `NaN`, and `Infinity` up front (which would otherwise produce nonsensical offsets
+   * / page counts or fail later in less predictable ways).
+   */
+  private assertPositiveInt(name: string, value: number): void {
+    if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+      throw new Error(`${name} must be a positive integer (received ${String(value)}).`);
     }
   }
 
@@ -433,9 +462,7 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { i
     cursor?: string | null,
   ): Promise<{ items: R[]; nextCursor: string | null; hasMore: boolean }> {
     try {
-      if (pageSize <= 0) {
-        throw new Error('pageSize must be a positive number');
-      }
+      this.assertPositiveInt('pageSize', pageSize);
 
       if (!this.hasOrderBy) {
         throw new Error(
@@ -499,6 +526,9 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { i
     totalPages: number;
   }> {
     try {
+      this.assertPositiveInt('page', page);
+      this.assertPositiveInt('pageSize', pageSize);
+
       const total = await this.count();
       const offset = (page - 1) * pageSize;
 

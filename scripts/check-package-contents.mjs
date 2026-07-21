@@ -77,10 +77,35 @@ function checkNoExpressInRootGraph(violations) {
   }
 }
 
+/**
+ * Guard D13/D14 (declaration hygiene, ADR-0021): tsconfig sets `stripInternal:true` and
+ * `removeComments:false`. Both are silent-regression-prone, so assert the emitted artifact directly:
+ *   - the sole `@internal` member (`getUnderlyingQuery`) must be stripped from EVERY shipped .d.ts;
+ *   - public JSDoc must survive in a representative core declaration (removeComments not re-enabled).
+ */
+function checkDeclarationHygiene(violations) {
+  const dtsFiles = collectDtsFiles('dist', new Set());
+  for (const file of dtsFiles) {
+    if (readFileSync(file, 'utf8').includes('getUnderlyingQuery')) {
+      violations.push(
+        `@internal member "getUnderlyingQuery" leaked into declarations (stripInternal regressed): ${file}`,
+      );
+    }
+  }
+  const repoDts = 'dist/core/FirestoreRepository.d.ts';
+  const jsdocBlocks = (readFileSync(repoDts, 'utf8').match(/\/\*\*/g) ?? []).length;
+  if (jsdocBlocks < 10) {
+    violations.push(
+      `public JSDoc missing from ${repoDts} (removeComments regressed?): found ${jsdocBlocks} block(s), expected >= 10`,
+    );
+  }
+}
+
 function main() {
   const files = packedFiles();
   const violations = [];
   checkNoExpressInRootGraph(violations);
+  checkDeclarationHygiene(violations);
 
   for (const path of files) {
     if (path.startsWith('dist/tests/')) {

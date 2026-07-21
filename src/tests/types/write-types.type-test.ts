@@ -148,3 +148,15 @@ export async function dotNotationNegatives() {
   // @ts-expect-error `id` is not a writable update key
   await profiles.update('x', { id: 'nope' });
 }
+
+// ── G) Transaction update options exclude `returnDoc` (ADR-0021 / D7) ──────────────────────────
+// A transaction cannot read a document back after writing it, so updateInTransaction takes only
+// `{ merge?: boolean }`. Guards against a future regression back to the broad `UpdateOptions` alias.
+declare const tx: FirebaseFirestore.Transaction;
+
+export async function transactionUpdateOptions() {
+  await repo.updateInTransaction(tx, 'e1', { name: 'x' }); // no options — ok
+  await repo.updateInTransaction(tx, 'e1', { name: 'x' }, { merge: true }); // merge is honored
+  // @ts-expect-error updateInTransaction options do not include returnDoc (a tx cannot read back)
+  await repo.updateInTransaction(tx, 'e1', { name: 'x' }, { returnDoc: true });
+}

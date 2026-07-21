@@ -72,7 +72,6 @@ capability matrix is the honest middle ground.
 
 ## References
 
-- [`docs/development/v3-release-review.md`](../development/v3-release-review.md) — "Server-side
-  Firestore feature parity follow-up".
-- [`docs/development/v3-release-review-response-round2.md`](../development/v3-release-review-response-round2.md).
+- The v3 release review and its round-2 response — "Server-side Firestore feature parity follow-up"
+  (maintainer-local review records under `reviews/`, not committed to the repo).
 - GitHub issues #30–#41 (labels `parity`, `v3.x`).

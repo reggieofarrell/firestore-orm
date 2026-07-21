@@ -53,7 +53,7 @@ describe('errorHandler', () => {
     });
   });
 
-  it('should return 503 with index URL for FirestoreIndexError', () => {
+  it('should return 503 for FirestoreIndexError without leaking the console index URL', () => {
     const res = createMockResponse();
     const err = new FirestoreIndexError('https://console.firebase.google.com/index', [
       'status',
@@ -64,11 +64,19 @@ describe('errorHandler', () => {
 
     // A missing index is a server/config failure — 5xx, not a client 404.
     expect(res.status).toHaveBeenCalledWith(503);
+    // The console index-creation URL is deliberately NOT returned to the client (it can disclose the
+    // project id, database id, and field/order structure). The body is a generic config error.
     expect(res.json).toHaveBeenCalledWith({
       error: 'Query needs an index',
       message: err.message,
-      url: err.indexUrl,
     });
+    const body = (res.json as jest.Mock).mock.calls[0][0];
+    expect(body).not.toHaveProperty('url');
+    // Test the security property, not one serialization shape: the URL must not appear anywhere in
+    // the serialized response (guards against a future change that embeds it in `message`).
+    expect(JSON.stringify(body)).not.toContain(err.indexUrl);
+    // The URL remains available server-side on the caught error for the app to log.
+    expect(err.indexUrl).toBe('https://console.firebase.google.com/index');
   });
 
   it('should return 409 for ConflictError', () => {

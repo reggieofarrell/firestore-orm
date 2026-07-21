@@ -598,8 +598,15 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { i
    *   .getOne();
    */
   async getOne(): Promise<R | null> {
-    const results = await this.limit(1).get();
-    return results[0] || null;
+    try {
+      // Build a local limited query instead of calling this.limit(1), which would mutate this.query
+      // and permanently limit any later use of the same builder.
+      const snapshot = await this.query.limit(1).get();
+      const doc = snapshot.docs[0];
+      return doc ? ({ ...(doc.data() as T), id: doc.id } as unknown as R) : null;
+    } catch (error: any) {
+      throw parseFirestoreError(error);
+    }
   }
 
   /**
@@ -621,8 +628,13 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { i
    *   .exists();
    */
   async exists(): Promise<boolean> {
-    const count = await this.limit(1).count();
-    return count > 0;
+    try {
+      // Local limited count — do not mutate this.query via this.limit(1) (see getOne()).
+      const snapshot = await this.query.limit(1).count().get();
+      return snapshot.data().count > 0;
+    } catch (error: any) {
+      throw parseFirestoreError(error);
+    }
   }
 
   /**
@@ -797,7 +809,10 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { i
           callback(items);
         },
         error => {
-          if (onError) onError(error);
+          // Normalize async stream errors through the same error parser as one-time reads
+          // (get/stream) and listenOne, so the same query surfaces one error type whether it is
+          // read once or listened to.
+          if (onError) onError(parseFirestoreError(error));
         },
       );
     } catch (error: any) {

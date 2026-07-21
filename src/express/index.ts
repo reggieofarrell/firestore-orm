@@ -76,11 +76,13 @@ export function errorHandler(err: any, req: Request, res: Response, _next: NextF
   }
 
   if (err instanceof FirestoreIndexError) {
-    // A missing composite index is a server/configuration failure, not a client 4xx.
+    // A missing composite index is a server/configuration failure, not a client 4xx. The console
+    // index-creation URL is deliberately NOT returned to the client — it can disclose the project id,
+    // database id, and field/order structure. Log `err.indexUrl` server-side (it remains on the
+    // caught FirestoreIndexError) and return only a generic configuration error.
     return res.status(503).json({
       error: 'Query needs an index',
       message: err.message,
-      url: err.indexUrl,
     });
   }
 

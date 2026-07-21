@@ -11,11 +11,11 @@ on:
   # Allows a manual run from the Actions tab (e.g. after first enable).
   workflow_dispatch:
 
-# Allow this job to clone the repo and create a page deployment.
+# Least privilege: the default token is read-only. The write scopes needed to publish Pages
+# (`pages: write`, `id-token: write`) are granted only to the `deploy` job below — the `build` job
+# runs the third-party `withastro/action` and needs nothing beyond `contents: read`.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
@@ -37,6 +37,10 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    # The Pages deployment token is scoped to this job only (see top-level note).
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

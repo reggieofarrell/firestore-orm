@@ -4,9 +4,8 @@
 - **Date:** 2026-07-21
 - **Deciders:** Reggie O'Farrell
 - **Related:** Refines [ADR-0002](0002-per-field-sentinel-write-validation.md) (per-field sentinel
-  validation);
-  [`reviews/v3-pre-release-codebase-review.md`](../../reviews/v3-pre-release-codebase-review.md)
-  (finding B8); [`src/core/Validation.ts`](../../src/core/Validation.ts),
+  validation); the v3 pre-release codebase review (maintainer-local, finding B8);
+  [`src/core/Validation.ts`](../../src/core/Validation.ts),
   [`src/core/FirestoreRepository.ts`](../../src/core/FirestoreRepository.ts).
 
 ## Context

@@ -3,9 +3,8 @@
 - **Status:** Accepted (v3) — implementing on branch `v3-release-hardening-part-2`
 - **Date:** 2026-07-21
 - **Deciders:** Reggie O'Farrell
-- **Related:**
-  [`reviews/v3-pre-release-codebase-review.md`](../../reviews/v3-pre-release-codebase-review.md)
-  (finding B9); issue [#34](https://github.com/reggieofarrell/firestore-orm/issues/34);
+- **Related:** the v3 pre-release codebase review (maintainer-local, finding B9); issue
+  [#34](https://github.com/reggieofarrell/firestore-orm/issues/34);
   [`src/core/QueryBuilder.ts`](../../src/core/QueryBuilder.ts).
 
 ## Context

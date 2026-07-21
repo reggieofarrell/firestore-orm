@@ -3,10 +3,9 @@
 - **Status:** Accepted (v3) — implementing on branch `v3-release-hardening-part-2`
 - **Date:** 2026-07-21
 - **Deciders:** Reggie O'Farrell
-- **Related:**
-  [`reviews/v3-pre-release-codebase-review.md`](../../reviews/v3-pre-release-codebase-review.md),
-  [`reviews/v3-document-id-and-query-typing-recommendation.md`](../../reviews/v3-document-id-and-query-typing-recommendation.md);
-  refines [ADR-0004](0004-schema-inferred-write-types.md) /
+- **Related:** the v3 pre-release codebase review and the document-id / query-typing recommendation
+  (maintainer-local review artifacts under `reviews/`, not committed to the repo); refines
+  [ADR-0004](0004-schema-inferred-write-types.md) /
   [ADR-0007](0007-retire-curried-schema-factories.md) (write-input types),
   [ADR-0008](0008-read-only-converters.md) (`readConverter`),
   [ADR-0009](0009-explicit-read-validators.md) (read validators),
@@ -49,12 +48,23 @@ We will make the document-identity model explicit and split the three observable
 
 1. **Virtual identity only.** The native Firestore document name is the sole authority for `id`. A
    top-level `id` in any read/write/stored schema is **rejected at construction** with a remedial
-   error. Existing collections that physically store `id === document name` drop the field with a
-   one-line schema edit; the stored value becomes inert (reads overlay `snapshot.id`, which wins)
-   and can be removed later via an optional data migration. We do **not** implement a "mirrored
-   identity" policy — being opinionated here removes a large subsystem (read-invariant checks, write
-   injection across every mutation spelling, mismatch errors, audit tooling) for a compatibility
-   case a single schema edit already covers.
+   error. We do **not** implement a "mirrored identity" policy — being opinionated here removes a
+   large subsystem (read-invariant checks, write injection across every mutation spelling, mismatch
+   errors, audit tooling).
+
+   Migration cost depends on whether the stored `id` is redundant. For a **genuinely redundant**
+   mirror (nothing outside this repository reads it), it is a one-line schema edit: drop `id`, the
+   stored value becomes inert (reads overlay `snapshot.id`, which wins), and old values can be
+   removed later via optional cleanup. It is **not** cost-free when the physical `id` is a real data
+   contract — consumed by Security Rules (`request.resource.data.id`), physical-field or
+   collection-group queries / composite indexes, other services or clients, triggers, exports/ETL,
+   or a cross-writer invariant. There, adopting virtual identity is a **downstream contract
+   migration**: future repository writes stop maintaining the field (new docs omit it, old docs keep
+   it → a mixed collection), so those consumers, rules, indexes, and writers must be migrated in a
+   safe order first. **v3 does not support preserving or managing a physical top-level `id`
+   mirror**; collections that depend on that field must migrate before adopting the virtual-identity
+   model. The maintainer owns mirrored collections and accepts that migration; this ADR does not
+   claim it is universally free.
 
 2. **Three data models, three generics.**
    `FirestoreRepository<ReadData, WriteInput = ReadData, StoredData = ReadData>` (the
@@ -94,17 +104,26 @@ We will make the document-identity model explicit and split the three observable
    before-hooks and build write actions and after-hook payloads from the captured values; freeze the
    event envelopes. Documented data-field mutation still works.
 
-8. **Deferrals, recorded so the design is not lost:**
+8. **Deferrals, recorded so the design is not lost. Note where each is _not_ semver-free — these are
+   deliberate long-term type/product choices, not cost-free future additions:**
    - **Scoped/branded `DocumentId<Scope>`.** v3 ships runtime id validation and returns plain string
-     `ID`. Branding is deferred: branded _return_ types and `repo.id()`/`newId()`/`zDocumentId`
-     helpers can be added later **non-breakingly** (a brand is a `string` subtype, so narrowing a
-     return is covariant); only _requiring_ branded ids at method **inputs** is breaking (a
-     `string | DocumentId` union collapses back to `string`), so hard enforcement is reserved for a
-     future major.
-   - **Typed query operands.** v3 restricts query _field paths_ to `StoredData` but keeps
-     `value: unknown`. Typing the operand from `PathValue<StoredData, P>` is a post-v3 experiment,
-     gated on a `tsc --extendedDiagnostics` baseline; it is purely additive because `StoredData`
-     already exists.
+     `ID`. A _parallel_ branded reference/helper API added later (`zDocumentId`, brand-returning
+     `repo.id()`/`newId()`) is additive. But branding is **not universally semver-free**: covariance
+     holds only at function-**return** positions (`const s: string = repo.newId()` keeps compiling
+     if `newId()` later returns a brand). `FirestoreDocument` (and hook events, pagination results)
+     is an **exported structural type consumers construct** — fixtures, mocks, factories, and
+     message adapters assign plain-string `id`s — and TypeScript cannot force an exported alias to
+     be used covariantly only. So narrowing `FirestoreDocument.id` from `string` to a brand later is
+     a **type-level breaking change reserved for a future major**, and the existing `ID = string`
+     alias stays a plain string (any brand is a separate type). v3's chosen path: keep
+     `FirestoreDocument.id` / `ID` as plain strings; runtime validation is the actual B1 boundary.
+   - **Typed query operands.** v3 restricts query _field paths_ to `StoredData` (fixing the `id`
+     leak) but keeps `value: unknown`. This is **not** "purely additive": adding operator-group
+     overloads later _while keeping the `unknown` fallback_ is source-compatible but does **not**
+     enforce anything (the fallback still accepts every wrong operand — a non-enforcing preview).
+     The actual feature is _removing/narrowing_ that fallback, which is **breaking** for calls that
+     previously compiled and is reserved for a future major. It is unblocked structurally (because
+     `StoredData` already exists) and gated on a `tsc --extendedDiagnostics` baseline.
 
 ## Consequences
 
@@ -113,10 +132,11 @@ We will make the document-identity model explicit and split the three observable
   patches.
 - **Breaking (v3):** schemas no longer declare `id`; query field-path types drop `id`; write-input
   types follow `z.input`; the result type is `FirestoreDocument<…>` (flat and assignment-compatible
-  with the old `T & { id }`, so most read code is unaffected). Migration is a one-line schema edit
-  per repository plus optional stored-`id` cleanup; the migration guide must distinguish a
-  _historical fake_ `id` from a _legitimately stored_ one and advise dropping it (not a data
-  rewrite).
+  with the old `T & { id }`, so most read code is unaffected). For a **redundant** stored `id` the
+  migration is a one-line schema edit plus optional data cleanup; for a **consumed** `id` mirror it
+  is a downstream contract migration (see Decision §1). The migration guide must distinguish a
+  _historical fake_ `id` (drop it) from a _consumed_ mirror (migrate its consumers first) — never a
+  blanket "delete `id`".
 - The repository keeps **three** generics with defaults; common usage
   (`withSchema(db, 'users', schema)`) gets simpler (no fake `id` in the schema) and stronger.
   `ADR-0013` (create returns `{ id }`) stands.
@@ -130,9 +150,13 @@ We will make the document-identity model explicit and split the three observable
   Rejected for v3: a large subsystem for a compatibility case that a single schema edit resolves; we
   chose to be opinionated and reject a stored top-level `id`.
 - **Full scoped/branded IDs in v3.** Deferred: the security fix is runtime validation (no brand
-  needed); enforcement adds compiler-perf cost and call-site friction and is mostly addable later
-  without a break.
-- **Typed query operands in v3.** Deferred: the one real compiler-perf risk; additive later.
+  needed), and a parallel branded helper API is additive. Branding the exported result structures
+  (`FirestoreDocument.id`) later is a future-major type break, and input enforcement adds
+  compiler-perf cost and call-site friction (see Decision §8) — so this is a deliberate deferral,
+  not a cost-free later addition.
+- **Typed query operands in v3.** Deferred: the one real compiler-perf risk. Addable later only as a
+  non-enforcing preview; strict enforcement (narrowing the `unknown` fallback) is a future-major
+  break (see Decision §8).
 - **Curried `unvalidated()()` factory** to infer scope for unvalidated repos. Rejected: reintroduces
   currying that [ADR-0007](0007-retire-curried-schema-factories.md) retired; unvalidated repos take
   a broad scope instead.
@@ -141,8 +165,8 @@ We will make the document-identity model explicit and split the three observable
 
 ## References
 
-- [`reviews/v3-pre-release-codebase-review.md`](../../reviews/v3-pre-release-codebase-review.md),
-  [`reviews/v3-document-id-and-query-typing-recommendation.md`](../../reviews/v3-document-id-and-query-typing-recommendation.md)
+- The v3 pre-release codebase review and the document-id / query-typing recommendation
+  (maintainer-local review artifacts under `reviews/`, not committed).
 - [`src/core/FirestoreRepository.ts`](../../src/core/FirestoreRepository.ts),
   [`src/core/QueryBuilder.ts`](../../src/core/QueryBuilder.ts),
   [`src/core/Validation.ts`](../../src/core/Validation.ts),

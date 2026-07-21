@@ -3,9 +3,8 @@
 - **Status:** Accepted (v3) — implementing on branch `v3-release-hardening-part-2`
 - **Date:** 2026-07-21
 - **Deciders:** Reggie O'Farrell
-- **Related:**
-  [`reviews/v3-pre-release-codebase-review.md`](../../reviews/v3-pre-release-codebase-review.md)
-  (decisions D4, D7, D11, D13, D14); [`src/core/QueryBuilder.ts`](../../src/core/QueryBuilder.ts),
+- **Related:** the v3 pre-release codebase review (maintainer-local; decisions D4, D7, D11, D13,
+  D14); [`src/core/QueryBuilder.ts`](../../src/core/QueryBuilder.ts),
   [`src/vector/withVectorSearch.ts`](../../src/vector/withVectorSearch.ts),
   [`src/core/FirestoreRepository.ts`](../../src/core/FirestoreRepository.ts),
   [`tsconfig.json`](../../tsconfig.json).

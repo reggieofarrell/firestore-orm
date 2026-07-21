@@ -72,6 +72,9 @@ describe('errorHandler', () => {
     });
     const body = (res.json as jest.Mock).mock.calls[0][0];
     expect(body).not.toHaveProperty('url');
+    // Test the security property, not one serialization shape: the URL must not appear anywhere in
+    // the serialized response (guards against a future change that embeds it in `message`).
+    expect(JSON.stringify(body)).not.toContain(err.indexUrl);
     // The URL remains available server-side on the caught error for the app to log.
     expect(err.indexUrl).toBe('https://console.firebase.google.com/index');
   });

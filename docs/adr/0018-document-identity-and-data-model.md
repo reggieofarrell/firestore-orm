@@ -38,9 +38,10 @@ The Admin SDK authenticates via IAM and bypasses Firestore Security Rules, so th
 scoping is the only server-side boundary — path validation is a real boundary, not cosmetics.
 
 A follow-up design doc proposed a Typesaurus-influenced model. We adopt its foundational ideas
-(document name is authoritative; query values derive from stored data; separate read/write/stored
-types) and deliberately **decline** its heavier machinery (universal `{ data, ref }` wrapper,
-mirrored-identity subsystem, and — for v3 — scoped/branded IDs and typed query operands).
+(document name is authoritative; query field paths derive from stored data; separate
+read/write/stored types) and deliberately **decline** its heavier machinery (universal
+`{ data, ref }` wrapper, mirrored-identity subsystem, and — for v3 — scoped/branded IDs and typed
+query operands).
 
 ## Decision
 
@@ -147,8 +148,10 @@ We will make the document-identity model explicit and split the three observable
 ## Alternatives considered
 
 - **Mirrored identity mode** (enforce a stored `id === name` invariant on every read/write).
-  Rejected for v3: a large subsystem for a compatibility case that a single schema edit resolves; we
-  chose to be opinionated and reject a stored top-level `id`.
+  Rejected for v3 because preserving it would require read-invariant checks, write injection across
+  every mutation spelling, mismatch errors, and audit tooling. A _redundant_ mirror can be retired
+  with a schema edit; a _consumed_ mirror instead requires the downstream migration described in
+  Decision §1. We chose to be opinionated and reject a stored top-level `id`.
 - **Full scoped/branded IDs in v3.** Deferred: the security fix is runtime validation (no brand
   needed), and a parallel branded helper API is additive. Branding the exported result structures
   (`FirestoreDocument.id`) later is a future-major type break, and input enforcement adds

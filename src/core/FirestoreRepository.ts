@@ -1760,7 +1760,10 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
     tx: FirebaseFirestore.Transaction,
     id: ID,
     data: UpdateInput<W>,
-    options?: UpdateOptions,
+    // Transaction updates cannot honor `returnDoc` (a transaction cannot read a document back after
+    // writing it), so the option is deliberately absent here — only `merge` is meaningful. This
+    // mirrors `createInTransaction`, which also excludes `returnDoc`.
+    options?: { merge?: boolean },
   ): Promise<void> {
     try {
       const docRef = this.writeCol().doc(id);

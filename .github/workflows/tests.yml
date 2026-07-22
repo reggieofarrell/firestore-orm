@@ -189,6 +189,39 @@ jobs:
           FIRESTORE_ORM_ADMIN_VERSION: ${{ matrix.admin }}
         run: npm run check:consumer
 
+  # Vector object-form FLOOR guard (B3): the library issues the object-form findNearest(), which needs
+  # @google-cloud/firestore >= 7.10. firebase-admin 12 can resolve a firestore BELOW that floor, so
+  # this pins the transitive firestore (via an npm override in the consumer) and — beyond installing +
+  # loading the packed library — the consumer FUNCTIONALLY constructs an object-form findNearest and
+  # asserts the promised behavior at each pinned version: it must CONSTRUCT on 7.10, and on 7.9
+  # (positional-only) it must fail with the library's deterministic object-form compatibility error,
+  # not a raw SDK argument error (review T4).
+  firestore-floor-compat:
+    name: Consumer (firebase-admin ^12 + @google-cloud/firestore ${{ matrix.firestore }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        firestore: ['7.9.0', '7.10.0']
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Packed-consumer compile/load + object-form findNearest probe
+        env:
+          FIRESTORE_ORM_ADMIN_VERSION: '^12.0.0'
+          FIRESTORE_ORM_FIRESTORE_VERSION: ${{ matrix.firestore }}
+        run: npm run check:consumer
+
   # Runtime-only dependency audit (the shipped package declares no runtime deps, so this stays clean;
   # dev-toolchain advisories are informational and excluded via --omit=dev).
   audit:

@@ -6,6 +6,7 @@ import {
 } from 'firebase-admin/firestore';
 import { FieldPaths } from '../utils/pathTypes.js';
 import {
+  collectDeleteSentinelPaths,
   CreateInput,
   CreateOutput,
   makeValidator,
@@ -943,9 +944,15 @@ export class FirestoreRepository<
     // parseCreate returns the exact parsed create OUTPUT (CreateOutput<WO>) — that is what gets
     // written and what after-create hooks observe. The unvalidated branch is the one honest cast:
     // with no parser, WO defaults to W and the raw (possibly sentinel-bearing) input IS the output.
-    return this.validator
+    const validData = this.validator
       ? this.validator.parseCreate(createPayload)
       : (createPayload as unknown as CreateOutput<WO>);
+    // Scan the PARSED OUTPUT — not the raw input — for delete sentinels. A schema transform or
+    // default is part of the supported write model and can inject FieldValue.delete() during
+    // parsing; the output is the value actually sent to Firestore, so scanning the input would miss
+    // a transform-produced delete and let it fail only at commit (review T1 / ADR-0019).
+    this.assertNoDeleteSentinel(validData as Record<string, any>);
+    return validData;
   }
 
   /**
@@ -966,6 +973,36 @@ export class FirestoreRepository<
   private stripTopLevelId<TInput extends Record<string, any>>(data: TInput): Omit<TInput, 'id'> {
     const { id: _ignoredId, ...payload } = data;
     return payload as Omit<TInput, 'id'>;
+  }
+
+  /**
+   * Rejects a `FieldValue.delete()` sentinel anywhere in a write payload, before any I/O.
+   *
+   * Firestore only honors a delete sentinel on update-like writes (`update()`, or
+   * `set(..., { merge: true })`), so a delete on a plain `create`/`set` fails at commit. This is
+   * called on the **final parsed output** (not the raw input) of every create chokepoint — `create`,
+   * `bulkCreate`, `createInTransaction`, and the `upsert` create branch (all via
+   * {@link validateCreateData}) — so a delete introduced by a schema transform/default is caught too
+   * (review T1). `upsert` additionally rejects a delete on its **update** branch (and up front on the
+   * raw input), so the same input is rejected whether or not the document already exists — the
+   * existence-independent contract ADR-0019 requires. A direct `update()`/`patch()` still permits
+   * delete. Other sentinel kinds (`increment`/`arrayUnion`/`arrayRemove`/`serverTimestamp`) are
+   * backend-valid on create and pass through untouched.
+   */
+  private assertNoDeleteSentinel(payload: Record<string, any>): void {
+    const deletePaths = collectDeleteSentinelPaths(payload);
+    if (deletePaths.length === 0) {
+      return;
+    }
+    throw new ValidationError(
+      deletePaths.map(path => ({
+        code: 'custom',
+        path,
+        message:
+          'FieldValue.delete() is not valid on create/set/upsert — Firestore only honors it on ' +
+          'update-like writes. Use update() or patch() to clear a field.',
+      })) as z.core.$ZodIssue[],
+    );
   }
 
   /**
@@ -1408,6 +1445,25 @@ export class FirestoreRepository<
     data: UpdateInput<W>,
     options?: UpdateOptions,
   ): Promise<{ id: ID } | FirestoreDocument<T>> {
+    // A direct update()/patch() legitimately permits FieldValue.delete() to clear a field.
+    return this.runUpdate(id, data, options, false);
+  }
+
+  /**
+   * Shared implementation for {@link update} and the `upsert` update branch.
+   *
+   * `rejectDeleteSentinels` is set only by `upsert`: it rejects a delete sentinel in the final parsed
+   * update payload (after `beforeUpdate` hooks and schema transforms), so `upsert` behaves the same
+   * whether the document exists (this branch) or not (the create branch, which rejects delete via
+   * {@link validateCreateData}). A direct `update()` leaves it `false` — delete stays valid there
+   * (review T1 / ADR-0019).
+   */
+  private async runUpdate(
+    id: ID,
+    data: UpdateInput<W>,
+    options: UpdateOptions | undefined,
+    rejectDeleteSentinels: boolean,
+  ): Promise<{ id: ID } | FirestoreDocument<T>> {
     this.validateId(id);
     try {
       const docRef = this.writeCol().doc(id);
@@ -1431,6 +1487,11 @@ export class FirestoreRepository<
       const writePayload = this.sanitizeUpdateData(validData);
 
       this.assertNonEmptyUpdatePayload(writePayload as Record<string, any>);
+      // upsert only: reject a delete in the final parsed update output (e.g. from a transform) so its
+      // contract is existence-independent. A direct update()/patch() keeps delete valid.
+      if (rejectDeleteSentinels) {
+        this.assertNoDeleteSentinel(writePayload as Record<string, any>);
+      }
       await docRef.update(writePayload as any);
       await this.runHooks('afterUpdate', Object.freeze({ id }));
 
@@ -1629,13 +1690,23 @@ export class FirestoreRepository<
             'names on create). Use a nested object, or update() for field-path merges.',
         );
       }
+      // Fast path: reject a delete sentinel present directly in the raw input up front, before the
+      // existence read. A delete introduced later by a schema transform is caught per-branch below
+      // (create → validateCreateData scans the parsed output; update → runUpdate with rejection on),
+      // so upsert rejects a delete-producing input whether or not the document exists — the
+      // existence-independent contract (review T1 / ADR-0019). Clear a field with update()/patch().
+      this.assertNoDeleteSentinel(data as Record<string, any>);
       const existing = await this.getById(id);
       const shouldReturnDoc = options?.returnDoc === true;
       if (existing) {
-        if (shouldReturnDoc) {
-          return await this.update(id, data as unknown as UpdateInput<W>, { returnDoc: true });
-        }
-        return await this.update(id, data as unknown as UpdateInput<W>);
+        // Update branch with delete-rejection ON, so a transform-introduced delete is rejected here
+        // exactly as it would be on the create branch (existence-independent determinism).
+        return await this.runUpdate(
+          id,
+          data as unknown as UpdateInput<W>,
+          { returnDoc: shouldReturnDoc },
+          true,
+        );
       }
 
       // The `id` is non-writable on the before-hook payload (review R2): a hook may mutate data but

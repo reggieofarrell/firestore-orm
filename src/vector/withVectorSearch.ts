@@ -5,29 +5,39 @@ import { VectorQueryBuilder } from './VectorQueryBuilder.js';
 
 /**
  * Repository type returned by {@link withVectorSearch}.
- * Identical to {@link FirestoreRepository} except `query()` returns {@link VectorQueryBuilder}.
+ *
+ * Identical to {@link FirestoreRepository}, plus a `vectorQuery()` entry point returning a
+ * {@link VectorQueryBuilder}. `query()` is left intact and returns the normal query builder — the
+ * capability wrapper *adds* vector search rather than replacing core query behavior (ADR-0021, D4).
  */
 export type VectorEnabledRepository<
   T extends object,
   W extends object = T,
   S extends object = T,
   WO extends object = W,
-> = Omit<FirestoreRepository<T, W, S, WO>, 'query'> & {
-  query(): VectorQueryBuilder<T, S>;
+> = FirestoreRepository<T, W, S, WO> & {
+  vectorQuery(): VectorQueryBuilder<T, S>;
 };
 
 /**
  * Opts a {@link FirestoreRepository} into vector similarity search.
- * All repository methods are proxied; `query()` returns a {@link VectorQueryBuilder}.
+ *
+ * All core repository methods are proxied unchanged — including `query()`, which still returns the
+ * normal {@link FirestoreQueryBuilder}. The wrapper adds a `vectorQuery()` entry point that returns
+ * a {@link VectorQueryBuilder} for `findNearest` searches (ADR-0021, D4).
  *
  * @param repo - Core repository instance
- * @returns Repository with vector-enabled query builder
+ * @returns The repository with an added `vectorQuery()` entry point
  *
  * @example
  * const vectorRepo = withVectorSearch(articleRepo);
- * const neighbors = await vectorRepo.query()
+ * const neighbors = await vectorRepo.vectorQuery()
  *   .findNearest({ vectorField: 'embedding', queryVector: [0.1, 0.2], limit: 5, distanceMeasure: 'COSINE' })
  *   .get();
+ *
+ * @example
+ * // query() is unchanged — normal filtering, pagination, and aggregation still work.
+ * const active = await vectorRepo.query().where('status', '==', 'active').get();
  */
 export function withVectorSearch<
   T extends object,
@@ -37,7 +47,7 @@ export function withVectorSearch<
 >(repo: FirestoreRepository<T, W, S, WO>): VectorEnabledRepository<T, W, S, WO> {
   return new Proxy(repo, {
     get(target, property, receiver) {
-      if (property === 'query') {
+      if (property === 'vectorQuery') {
         return () => {
           const coreBuilder = target.query();
           assertVectorSearchSupported(getQueryRef(coreBuilder));

@@ -43,3 +43,4 @@ consequences. They explain _why_ the codebase looks the way it does, which commi
 | [0019](0019-operation-aware-sentinel-validation.md)            | Operation-aware sentinel validation (reject delete sentinels on create)      | Accepted (v3)                                                 | 2026-07-21 |
 | [0020](0020-aggregate-null-fidelity.md)                        | Aggregate null fidelity — `average` returns `number \| null`                 | Accepted (v3)                                                 | 2026-07-21 |
 | [0021](0021-v3-query-builder-api-cleanups.md)                  | v3 query-builder and packaging API cleanups                                  | Accepted (v3)                                                 | 2026-07-21 |
+| [0022](0022-vector-value-hardening.md)                         | v3 vector-value hardening (genuine VectorValue, object-form compat)          | Accepted (v3)                                                 | 2026-07-22 |

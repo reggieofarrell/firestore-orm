@@ -108,4 +108,155 @@ describe('per-field sentinel combinators (emulator, strict)', () => {
       repo.update(created.id, { when: FieldValue.increment(1) as unknown as number }),
     ).rejects.toThrow();
   });
+
+  describe('delete sentinel rejected on create paths (B8, ADR-0019)', () => {
+    // Every field below permits FieldValue.delete() at the schema level (withDelete / allowDelete),
+    // so validation itself passes. B8's guarantee is that a create/set path must STILL reject the
+    // delete sentinel before any I/O, because Firestore only honors delete on update-like writes.
+    const deleteMessage = /delete\(\) is not valid on create\/set/;
+
+    const withDeleteNote = () =>
+      ({
+        count: 1,
+        tags: ['a'],
+        when: new Date('2022-01-01T00:00:00.000Z'),
+        note: FieldValue.delete() as unknown as string,
+      }) as unknown as ComboDoc;
+
+    it('rejects delete() on create() even though the field schema allows delete', async () => {
+      await expect(repo.create(withDeleteNote())).rejects.toThrow(deleteMessage);
+    });
+
+    it('rejects delete() on bulkCreate()', async () => {
+      await expect(repo.bulkCreate([withDeleteNote()])).rejects.toThrow(deleteMessage);
+    });
+
+    it('rejects delete() on createInTransaction()', async () => {
+      await expect(
+        repo.runInTransaction(async (tx, txRepo) =>
+          txRepo.createInTransaction(tx, withDeleteNote()),
+        ),
+      ).rejects.toThrow(deleteMessage);
+    });
+
+    it('rejects delete() on upsert() for a document that does NOT exist', async () => {
+      await expect(repo.upsert(`b8-upsert-new-${Date.now()}`, withDeleteNote())).rejects.toThrow(
+        deleteMessage,
+      );
+    });
+
+    it('rejects delete() on upsert() for a document that DOES exist (deterministic)', async () => {
+      // The core ADR-0019 determinism guarantee: upsert rejects the delete sentinel up front,
+      // regardless of document existence. Otherwise the same input succeeds on the update branch and
+      // fails on the create branch depending purely on whether the doc happens to exist.
+      const existing = await repo.create({
+        count: 1,
+        tags: ['a'],
+        when: new Date('2022-01-01T00:00:00.000Z'),
+      } as unknown as ComboDoc);
+
+      await expect(repo.upsert(existing.id, withDeleteNote())).rejects.toThrow(deleteMessage);
+    });
+
+    it('still accepts non-delete sentinels (increment / arrayUnion / serverTimestamp) on create()', async () => {
+      // Guards against over-rejection: Firestore accepts these sentinels on set/create, so B8 must
+      // let them through.
+      const created = await repo.create({
+        count: FieldValue.increment(2) as unknown as number,
+        tags: FieldValue.arrayUnion('a', 'b') as unknown as string[],
+        when: FieldValue.serverTimestamp() as unknown as number,
+      } as unknown as ComboDoc);
+
+      const stored = await repo.getById(created.id);
+      expect(stored).not.toBeNull();
+      expect(stored?.count).toBe(2);
+      expect(stored?.tags).toEqual(['a', 'b']);
+    });
+  });
+});
+
+describe('delete sentinels introduced during parsing are rejected (T1, ADR-0019)', () => {
+  const db = getIntegrationDb();
+  const deleteMessage = /delete\(\) is not valid on create\/set\/upsert/;
+
+  // `note` transforms to FieldValue.delete() during parsing, so the delete lands in the PARSED
+  // OUTPUT and never appears in the raw caller input. The guard must scan the output on every create
+  // path and on both upsert branches. `note` is optional so a note-less document can be seeded.
+  const transformSchema = z.object({
+    name: z.string(),
+    note: z
+      .string()
+      .transform(() => FieldValue.delete() as unknown as string)
+      .optional(),
+  });
+
+  const makeTransformRepo = () =>
+    FirestoreRepository.withSchema(
+      db,
+      `test_t1_transform_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      transformSchema,
+    );
+
+  it('create() rejects a transform-produced delete and writes nothing', async () => {
+    const repo = makeTransformRepo();
+    await expect(repo.create({ name: 'c', note: 'x' } as never)).rejects.toThrow(deleteMessage);
+    expect(await repo.query().get()).toHaveLength(0);
+  });
+
+  it('bulkCreate() rejects a transform-produced delete and writes nothing', async () => {
+    const repo = makeTransformRepo();
+    await expect(repo.bulkCreate([{ name: 'b', note: 'x' }] as never[])).rejects.toThrow(
+      deleteMessage,
+    );
+    expect(await repo.query().get()).toHaveLength(0);
+  });
+
+  it('createInTransaction() rejects a transform-produced delete and writes nothing', async () => {
+    const repo = makeTransformRepo();
+    await expect(
+      repo.runInTransaction(async (tx, txRepo) =>
+        txRepo.createInTransaction(tx, { name: 't', note: 'x' } as never),
+      ),
+    ).rejects.toThrow(deleteMessage);
+    expect(await repo.query().get()).toHaveLength(0);
+  });
+
+  it('upsert() rejects a transform-produced delete for a MISSING document (create branch)', async () => {
+    const repo = makeTransformRepo();
+    const id = `t1-missing-${Date.now()}`;
+    await expect(repo.upsert(id, { name: 'new', note: 'x' } as never)).rejects.toThrow(
+      deleteMessage,
+    );
+    expect(await repo.getById(id)).toBeNull();
+  });
+
+  it('upsert() rejects a transform-produced delete for an EXISTING document (update branch)', async () => {
+    // The core existence-independence guarantee: the same delete-producing input is rejected whether
+    // or not the document exists. A note-less seed is valid (no transform runs).
+    const repo = makeTransformRepo();
+    const seeded = await repo.create({ name: 'seed' } as never);
+
+    await expect(repo.upsert(seeded.id, { name: 'seed', note: 'x' } as never)).rejects.toThrow(
+      deleteMessage,
+    );
+
+    // The existing document is untouched — no field was cleared.
+    const after = await repo.getById(seeded.id);
+    expect(after?.name).toBe('seed');
+  });
+
+  it('create() rejects a delete injected by a schema default and writes nothing', async () => {
+    const defaultSchema = z.object({
+      name: z.string(),
+      cleared: z.custom<unknown>(() => true).default(() => FieldValue.delete()),
+    });
+    const repo = FirestoreRepository.withSchema(
+      db,
+      `test_t1_default_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      defaultSchema,
+    );
+
+    await expect(repo.create({ name: 'c' } as never)).rejects.toThrow(deleteMessage);
+    expect(await repo.query().get()).toHaveLength(0);
+  });
 });

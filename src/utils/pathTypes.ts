@@ -16,7 +16,7 @@ import type { Timestamp, GeoPoint, DocumentReference, FieldValue } from 'firebas
  * coupling to a transitive dependency — consistent with the codebase's structural vector detection
  * (`isVectorWriteValue` in `../core/Validation.ts`).
  */
-type VectorValueLike = { toArray(): number[]; isEqual(other: unknown): boolean };
+export type VectorValueLike = { toArray(): number[]; isEqual(other: unknown): boolean };
 
 /**
  * Terminal types: values we never descend into and never emit `.<subkey>` paths under. Arrays are

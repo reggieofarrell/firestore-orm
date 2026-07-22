@@ -91,7 +91,7 @@ async function runBenchmarks() {
   // Test 6: Count Performance
   console.log('\nCount Tests:');
   await benchmark(' Count all documents', () => repo.query().count());
-  await benchmark(' Total count', () => repo.query().totalCount());
+  await benchmark(' Collection count', () => repo.query().collectionCount());
 
   // Cleanup
   console.log('\nCleaning up...');

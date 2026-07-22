@@ -1,6 +1,6 @@
 # ADR-0020: Aggregate null fidelity — `average` returns `number | null`
 
-- **Status:** Accepted (v3) — implementing on branch `v3-release-hardening-part-2`
+- **Status:** Accepted (v3) — implemented in the Track B hardening series
 - **Date:** 2026-07-21
 - **Deciders:** Reggie O'Farrell
 - **Related:** the v3 pre-release codebase review (maintainer-local, finding B9); issue

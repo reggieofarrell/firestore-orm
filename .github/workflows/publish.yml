@@ -103,6 +103,17 @@ jobs:
             FIRESTORE_ORM_ADMIN_VERSION="$v" npm run check:consumer
           done
 
+      # Vector object-form floor (B3): firebase-admin 12 can resolve a firestore below the >= 7.10 the
+      # object-form findNearest() needs. Pin the transitive firestore and FUNCTIONALLY probe object-form
+      # construction at each version — 7.10 must construct, 7.9 must fail with the library's object-form
+      # compatibility error. Mirrors the PR `firestore-floor-compat` matrix (review T4).
+      - name: Admin 12 + @google-cloud/firestore 7.9/7.10 object-form floor packed-consumer
+        run: |
+          for fs in "7.9.0" "7.10.0"; do
+            echo "--- @google-cloud/firestore $fs ---"
+            FIRESTORE_ORM_ADMIN_VERSION="^12.0.0" FIRESTORE_ORM_FIRESTORE_VERSION="$fs" npm run check:consumer
+          done
+
       # No NODE_AUTH_TOKEN — the npm CLI detects the OIDC environment and
       # authenticates via Trusted Publishing. Provenance is attached automatically
       # for public packages from public repos.

@@ -12,6 +12,7 @@ import {
   VectorDistanceMeasure,
   VECTOR_MAX_DIMENSIONS,
   VECTOR_MAX_LIMIT,
+  withVectorSearch,
 } from '../../vector/index.js';
 import { getIntegrationDb } from './helpers/firestoreIntegrationHarness.js';
 
@@ -146,9 +147,23 @@ describe('Vector validation integration', () => {
   });
 
   describe('isVectorFieldValue', () => {
-    it('should detect vector sentinels and structural vector values', () => {
+    it('should detect a genuine FieldValue.vector() sentinel', () => {
       expect(isVectorFieldValue(FieldValue.vector([1, 2, 3]))).toBe(true);
-      expect(isVectorFieldValue({ _values: [0.1, 0.2, 0.3] })).toBe(true);
+    });
+
+    it('should REJECT a forged { _values } map that is not a genuine VectorValue (B7)', () => {
+      // A hand-built map is not an instanceof the VectorValue constructor, so it must not be treated
+      // as a vector sentinel — otherwise it would bypass schema validation.
+      expect(isVectorFieldValue({ _values: [0.1, 0.2, 0.3] })).toBe(false);
+    });
+
+    it('should REJECT the reviewer forge with spoofed non-enumerable toArray()/isEqual() (T2)', () => {
+      const forge: Record<string, unknown> = { _values: [1, 2] };
+      Object.defineProperties(forge, {
+        toArray: { value: () => [1, 2] },
+        isEqual: { value: () => false },
+      });
+      expect(isVectorFieldValue(forge)).toBe(false);
     });
 
     it('should reject invalid vector-like values', () => {
@@ -158,19 +173,18 @@ describe('Vector validation integration', () => {
       expect(isVectorFieldValue({ foo: 'bar' })).toBe(false);
     });
 
-    it('should reject vector sentinels with non-finite components', () => {
+    it('should reject a genuine vector sentinel with non-finite components', () => {
       // The sentinel path (not just plain arrays) must reject +/-Infinity.
       expect(isVectorFieldValue(FieldValue.vector([Infinity]))).toBe(false);
       expect(isVectorFieldValue(FieldValue.vector([1, -Infinity, 3]))).toBe(false);
-      expect(isVectorFieldValue({ _values: [Number.POSITIVE_INFINITY] })).toBe(false);
     });
 
-    it('should accept sentinel-like objects that stringify to vector', () => {
-      const sentinelLike = {
+    it('should REJECT a forged object that merely stringifies to vector (no toArray) (B7)', () => {
+      const forgedSentinel = {
         isEqual: () => true,
         toString: () => 'FieldValue.vector([1,2,3])',
       };
-      expect(isVectorFieldValue(sentinelLike)).toBe(true);
+      expect(isVectorFieldValue(forgedSentinel)).toBe(false);
     });
   });
 
@@ -200,6 +214,33 @@ describe('Vector validation integration', () => {
       expect(schema.safeParse([]).success).toBe(false);
     });
 
+    it('should reject a forged { _values } map at the schema level (B7)', () => {
+      const schema = vectorEmbeddingSchema(3);
+      // A genuine sentinel and a plain array pass; a hand-built { _values } map does NOT (it is not
+      // a genuine VectorValue, so it falls through to the array path and is rejected).
+      expect(schema.safeParse(FieldValue.vector([1, 2, 3])).success).toBe(true);
+      expect(schema.safeParse({ _values: [1, 2, 3] }).success).toBe(false);
+    });
+
+    it('should enforce the exact dimension on native vectors, not just arrays (T3)', () => {
+      const schema = vectorEmbeddingSchema(3);
+      // A native 2-component vector must fail a fixed 3-dimension schema, exactly like a 2-element
+      // array — the native path must not short-circuit past the dimension check.
+      expect(schema.safeParse([1, 2]).success).toBe(false);
+      expect(schema.safeParse(FieldValue.vector([1, 2])).success).toBe(false);
+      expect(schema.safeParse(FieldValue.vector([1, 2, 3])).success).toBe(true);
+    });
+
+    it('should enforce VECTOR_MAX_DIMENSIONS on both arrays and native vectors (T3)', () => {
+      const schema = vectorEmbeddingSchema();
+      const oversized = Array.from({ length: VECTOR_MAX_DIMENSIONS + 1 }, () => 0.1);
+      expect(schema.safeParse(oversized).success).toBe(false);
+      expect(schema.safeParse(FieldValue.vector(oversized)).success).toBe(false);
+      // The maximum itself is accepted.
+      const atMax = Array.from({ length: VECTOR_MAX_DIMENSIONS }, () => 0.1);
+      expect(schema.safeParse(FieldValue.vector(atMax)).success).toBe(true);
+    });
+
     it('should reject invalid embeddings through schema-validated repository writes', async () => {
       const schema = z.object({
         name: z.string(),
@@ -214,10 +255,59 @@ describe('Vector validation integration', () => {
         }),
       ).rejects.toThrow();
 
+      // B7 end-to-end: a forged { _values } map must be rejected on write, not silently persisted
+      // as an ordinary map that later reads back as a non-vector.
+      await expect(
+        repo.create({
+          name: 'forged-embedding',
+          embedding: { _values: [1, 2, 3] } as never,
+        }),
+      ).rejects.toThrow();
+
+      // T2 end-to-end: the reviewer forge (spoofed non-enumerable toArray()/isEqual()) is likewise
+      // rejected before persistence, not written as an ordinary map.
+      const forge: Record<string, unknown> = { _values: [1, 2, 3] };
+      Object.defineProperties(forge, {
+        toArray: { value: () => [1, 2, 3] },
+        isEqual: { value: () => false },
+      });
+      await expect(
+        repo.create({ name: 'forged-methods-embedding', embedding: forge as never }),
+      ).rejects.toThrow();
+
+      // T3 end-to-end: a native vector of the wrong dimension is rejected on write (does not bypass
+      // the fixed-dimension schema).
+      await expect(
+        repo.create({ name: 'wrong-dim-native', embedding: FieldValue.vector([1, 2]) as never }),
+      ).rejects.toThrow();
+
+      // Nothing above was persisted.
       const docs = await repo.query().get();
+      expect(docs).toHaveLength(0);
       if (docs.length > 0) {
         await repo.bulkDelete(docs.map(doc => doc.id));
       }
+    });
+  });
+
+  describe('object-form compatibility error classification (R1)', () => {
+    it('does not relabel a supported-SDK bad-field-path error as a version incompatibility', () => {
+      // The installed SDK (>= 7.10) DOES support the object form, so the capability probe passes and
+      // the guard does not throw. A genuinely invalid Firestore field path must then surface as an
+      // ordinary path/input error from the real findNearest — NOT the ">= 7.10 upgrade" compat error.
+      const wrapped = withVectorSearch(new FirestoreRepository(db, 'test_vectors_r1'));
+      const attempt = () =>
+        wrapped.vectorQuery().findNearest({
+          vectorField: 'invalid..path' as never,
+          queryVector: [1, 2, 3],
+          limit: 1,
+          distanceMeasure: VectorDistanceMeasure.COSINE,
+        });
+
+      // It throws a field-path error...
+      expect(attempt).toThrow(/field path/i);
+      // ...and specifically NOT the version-incompatibility guidance.
+      expect(attempt).not.toThrow(/>= 7\.10/);
     });
   });
 });

@@ -5,7 +5,7 @@
  * milliseconds-since-epoch by the helper's converter. Confirms the recipe works on both the create
  * (add) and update (partial) write paths against the real Admin SDK.
  */
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import { FirestoreRepository } from '../../core/FirestoreRepository.js';
 import { zDateWrite } from '../../core/Validation.js';
@@ -20,7 +20,6 @@ interface EventDoc {
 
 // Write schema: happenedAt accepts a Date or serverTimestamp() (never a raw number).
 const eventWriteSchema = z.object({
-  id: z.string(),
   name: z.string().min(1),
   happenedAt: zDateWrite(),
 });
@@ -30,12 +29,20 @@ const eventWriteSchema = z.object({
 // `id` is overlaid by the repository).
 const eventConverter = createMillisTimestampConverter<EventDoc>();
 
+// The converter maps the stored Timestamp to an ms `number` on read, so the at-rest shape differs
+// from the read model — storedSchema is required with a readConverter (ADR-0018 / A3).
+const eventStoredSchema = z.object({
+  name: z.string().min(1),
+  happenedAt: z.instanceof(Timestamp),
+});
+
 const COLLECTION = `test_events_timestamp_${Date.now()}`;
 
 describe('Timestamp <-> millis read-converter pattern', () => {
   const db = getIntegrationDb();
   const repo = FirestoreRepository.withSchema(db, COLLECTION, eventWriteSchema, {
     readConverter: eventConverter,
+    storedSchema: eventStoredSchema,
     sentinelPolicy: 'strict',
   });
 

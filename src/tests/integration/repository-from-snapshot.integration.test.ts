@@ -24,9 +24,15 @@ interface EventDoc {
 }
 
 const eventWriteSchema = z.object({
-  id: z.string(),
   name: z.string().min(1),
   happenedAt: zDateWrite(),
+});
+
+// The readConverter maps the stored Timestamp to an ms `number` on read, so the at-rest shape
+// (happenedAt: Timestamp) differs from the read model — storedSchema is required (ADR-0018 / A3).
+const eventStoredSchema = z.object({
+  name: z.string().min(1),
+  happenedAt: z.instanceof(Timestamp),
 });
 
 const CONVERTER_COLLECTION = `test_from_snapshot_converter_${Date.now()}`;
@@ -37,6 +43,7 @@ describe('FirestoreRepository.fromSnapshot (integration)', () => {
 
   const converterRepo = FirestoreRepository.withSchema(db, CONVERTER_COLLECTION, eventWriteSchema, {
     readConverter: createMillisTimestampConverter<EventDoc>(),
+    storedSchema: eventStoredSchema,
     sentinelPolicy: 'strict',
   });
 

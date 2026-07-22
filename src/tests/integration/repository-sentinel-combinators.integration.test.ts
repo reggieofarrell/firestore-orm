@@ -24,7 +24,6 @@ interface ComboDoc {
 }
 
 const comboSchema = z.object({
-  id: z.string(),
   count: zNumberWrite({ allowDelete: true }), // number | increment | delete
   tags: zArrayWrite(z.string(), { allowDelete: true }), // string[] | arrayUnion | arrayRemove | delete
   when: zDateWrite({ allowDelete: true }), // Date | serverTimestamp | delete

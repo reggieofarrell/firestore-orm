@@ -242,3 +242,29 @@ export function vectorSearchResultTyping(
 export function vectorSearchResultReservedId(): never {
   return undefined as unknown as VectorSearchResult<Model, 'id'>;
 }
+
+// ── R1: withVectorSearch threads the 4th generic (WO), so a transformed-write repository (W ≠ WO)
+// can be wrapped and the wrapper preserves the exact after-create OUTPUT typing. Before the fix the
+// wrap call was a hard TS2345 (WO collapsed to W) and afterCreate exposed the write INPUT. ──────────
+const tRead = z.object({ title: z.string(), score: z.number() });
+const tWrite = z.object({ title: z.string(), score: z.string().transform(s => Number(s)) });
+const tRepo = FirestoreRepository.withSchema(db, 'tdocs', tRead, { writeSchema: tWrite });
+// Regression guard: this must COMPILE (W = { score: string }, WO = { score: number }).
+const tVector = withVectorSearch(tRepo);
+
+export async function transformedRepoWrapsAndPreservesOutputTyping() {
+  // create() still accepts the pre-transform write INPUT (string).
+  await tVector.create({ title: 't', score: '5' });
+  // @ts-expect-error create input is the pre-transform string, not the number output
+  await tVector.create({ title: 't', score: 5 });
+
+  tVector.on('afterCreate', v => {
+    // afterCreate observes the EXACT parsed output (number) — WO threaded through the wrapper (R1) and
+    // exact via CreateOutput (R4).
+    const exact: number = v.score;
+    void exact;
+    // @ts-expect-error the wrapped afterCreate is WO-derived (number), not the string write input
+    const bad: string = v.score;
+    void bad;
+  });
+}

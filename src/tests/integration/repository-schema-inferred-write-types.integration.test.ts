@@ -18,7 +18,6 @@ import { getIntegrationDb } from './helpers/firestoreIntegrationHarness.js';
 
 // Base schema = the read shape. Its z.infer type is clean (no sentinels, no firebase-admin).
 const eventBase = z.object({
-  id: z.string(),
   name: z.string().min(1),
   score: z.number(),
   tags: z.array(z.string()),

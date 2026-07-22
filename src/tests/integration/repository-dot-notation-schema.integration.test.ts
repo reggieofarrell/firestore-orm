@@ -15,7 +15,6 @@ import { ValidationError } from '../../core/Errors.js';
 import { getIntegrationDb } from './helpers/firestoreIntegrationHarness.js';
 
 const userSchema = z.object({
-  id: z.string(),
   name: z.string().min(1),
   role: z.string().optional(),
   address: z

@@ -13,7 +13,7 @@
  * sentinel is never compile-checked (only runtime `'strict'` enforces it); and `update`
  * (`PartialWithFieldValue`) is looser than `create` (`WithFieldValue`) for object-typed fields.
  */
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import {
   FirestoreRepository,
@@ -25,13 +25,11 @@ import {
 declare const db: FirebaseFirestore.Firestore;
 
 const eventRead = z.object({
-  id: z.string(),
   name: z.string(),
   loginCount: z.number(), // plain number (read)
   happenedAt: z.date(), // plain Date (read)
 });
 const eventWrite = z.object({
-  id: z.string(),
   name: z.string(),
   loginCount: zNumberWrite(), // number | increment
   happenedAt: zDateWrite(), // Date | serverTimestamp()
@@ -92,11 +90,16 @@ export async function fallbackNegatives() {
 }
 
 // ── D) All options together: readConverter contextual typing must not break WS inference ──────
-type EventDoc = { id: string; name: string; happenedAt: number };
-const eventDocRead = z.object({ id: z.string(), name: z.string(), happenedAt: z.number() });
-const eventDocWrite = z.object({ id: z.string(), name: z.string(), happenedAt: zDateWrite() });
+type EventDoc = { name: string; happenedAt: number };
+const eventDocRead = z.object({ name: z.string(), happenedAt: z.number() });
+const eventDocWrite = z.object({ name: z.string(), happenedAt: zDateWrite() });
+// A readConverter is present, so `storedSchema` is REQUIRED (ADR-0018 / review A3): the converter
+// maps the stored `Timestamp` to a read-side `number`, so the at-rest query shape differs from the
+// read model and cannot be inferred from the read schema.
+const eventDocStored = z.object({ name: z.string(), happenedAt: z.instanceof(Timestamp) });
 const events = FirestoreRepository.withSchema(db, 'events', eventDocRead, {
   writeSchema: eventDocWrite,
+  storedSchema: eventDocStored,
   sentinelPolicy: 'strict',
   readConverter: createMillisTimestampConverter<EventDoc>(),
 });
@@ -110,8 +113,8 @@ export async function allOptions() {
 }
 
 // ── E) subcollection schema-inferred overlay: same inference as withSchema ─────────────────────
-const orderRead = z.object({ id: z.string(), total: z.number() });
-const orderWrite = z.object({ id: z.string(), total: zNumberWrite() });
+const orderRead = z.object({ total: z.number() });
+const orderWrite = z.object({ total: zNumberWrite() });
 const orders = repo.subcollection('u1', 'orders', orderRead, { writeSchema: orderWrite });
 
 export async function subcollectionOverlay() {
@@ -124,7 +127,6 @@ export async function subcollectionOverlay() {
 // ── F) Dot-notation update keys are first-class and type-checked (no `as any`) ──────────────────
 // `UpdateInput<W>` now reuses the SDK's `UpdateData<Omit<W,'id'>>`, so nested field paths are typed.
 const profileRead = z.object({
-  id: z.string(),
   name: z.string(),
   address: z.object({ city: z.string(), zip: z.string().optional() }),
   profile: z.object({ settings: z.object({ theme: z.string() }) }),

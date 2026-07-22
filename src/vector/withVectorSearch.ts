@@ -1,4 +1,4 @@
-import { FirestoreRepository, ID } from '../core/FirestoreRepository.js';
+import { FirestoreRepository } from '../core/FirestoreRepository.js';
 import { getQueryRef } from '../core/QueryBuilder.js';
 import { assertVectorSearchSupported } from './VectorSearch.js';
 import { VectorQueryBuilder } from './VectorQueryBuilder.js';
@@ -7,11 +7,13 @@ import { VectorQueryBuilder } from './VectorQueryBuilder.js';
  * Repository type returned by {@link withVectorSearch}.
  * Identical to {@link FirestoreRepository} except `query()` returns {@link VectorQueryBuilder}.
  */
-export type VectorEnabledRepository<T extends { id?: ID }, W = T> = Omit<
-  FirestoreRepository<T, W>,
-  'query'
-> & {
-  query(): VectorQueryBuilder<T>;
+export type VectorEnabledRepository<
+  T extends object,
+  W extends object = T,
+  S extends object = T,
+  WO extends object = W,
+> = Omit<FirestoreRepository<T, W, S, WO>, 'query'> & {
+  query(): VectorQueryBuilder<T, S>;
 };
 
 /**
@@ -27,9 +29,12 @@ export type VectorEnabledRepository<T extends { id?: ID }, W = T> = Omit<
  *   .findNearest({ vectorField: 'embedding', queryVector: [0.1, 0.2], limit: 5, distanceMeasure: 'COSINE' })
  *   .get();
  */
-export function withVectorSearch<T extends { id?: ID }, W = T>(
-  repo: FirestoreRepository<T, W>,
-): VectorEnabledRepository<T, W> {
+export function withVectorSearch<
+  T extends object,
+  W extends object = T,
+  S extends object = T,
+  WO extends object = W,
+>(repo: FirestoreRepository<T, W, S, WO>): VectorEnabledRepository<T, W, S, WO> {
   return new Proxy(repo, {
     get(target, property, receiver) {
       if (property === 'query') {
@@ -46,5 +51,5 @@ export function withVectorSearch<T extends { id?: ID }, W = T>(
       }
       return value;
     },
-  }) as unknown as VectorEnabledRepository<T, W>;
+  }) as unknown as VectorEnabledRepository<T, W, S, WO>;
 }

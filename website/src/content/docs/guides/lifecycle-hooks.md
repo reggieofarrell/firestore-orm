@@ -54,6 +54,21 @@ these hooks wrap.
 Delete hooks (single and bulk) receive the full persisted document(s) as they existed before
 deletion, so cleanup logic has access to every field, not just the `id`.
 
+### Hook payload immutability
+
+Hook payloads protect identity and accounting:
+
+- **Identity is read-only.** The `id` / `ids` on a payload cannot be repointed by a hook, and the
+  event envelopes and bulk arrays are frozen — a hook cannot reorder, splice, or replace entries to
+  redirect or suppress a write.
+- **Before-update hooks may mutate data _in place_** (`entry.data.someField = …`) but may not
+  replace the whole `data` object.
+- **Delete payloads are observe-only and deep-frozen**, so a `beforeDelete`/`beforeBulkDelete` hook
+  cannot forge nested data that a later `afterDelete`/`afterBulkDelete` hook (or an audit/outbox
+  consumer) then observes. **Limitation:** a class-instance field value returned by a
+  `readConverter` (e.g. a mutable `Date`, `Map`, or custom class) is not cloned or frozen — treat
+  such values as observe-only by convention.
+
 ## Examples
 
 ```typescript

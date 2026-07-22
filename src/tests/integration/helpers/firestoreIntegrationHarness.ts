@@ -2,6 +2,7 @@ import { getApp, getApps, initializeApp } from 'firebase-admin/app';
 import { Firestore, getFirestore } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import { FirestoreRepository } from '../../../core/FirestoreRepository.js';
+import type { FirestoreDocument } from '../../../core/DocumentId.js';
 import { zArrayWrite, zNumberWrite, zSentinel } from '../../../core/Validation.js';
 
 /**
@@ -13,7 +14,6 @@ const TEST_PROJECT_ID = 'demo-firestoreorm-test';
  * Shared user shape for repository integration coverage.
  */
 export interface User {
-  id: string;
   name: string;
   email?: string;
   address?: {
@@ -39,7 +39,6 @@ export interface User {
  * Shape used by schema-validation and sentinel-focused integration tests.
  */
 export interface HookValidatedUser {
-  id: string;
   name: string;
   score: number;
   createdAt: string;
@@ -51,7 +50,6 @@ export interface HookValidatedUser {
  * Shared Zod schema used for hook-first validation tests.
  */
 export const hookValidatedUserSchema = z.object({
-  id: z.string(),
   name: z.string().min(1),
   score: z.number().min(0),
   createdAt: z.string().datetime(),
@@ -65,7 +63,6 @@ export const hookValidatedUserSchema = z.object({
  * accepts an array or arrayUnion/arrayRemove, and `loginCount` accepts a number or increment.
  */
 export const strictHookValidatedUserSchema = z.object({
-  id: z.string(),
   name: z.string().min(1),
   score: z.number().min(0),
   createdAt: z.union([z.string(), zSentinel('serverTimestamp')]),
@@ -129,7 +126,7 @@ export function createUserRepoHarness(prefix: string = 'test_users_integration')
   const getUserOrFail = async (userId: string) => {
     const user = await userRepo.getById(userId);
     expect(user).not.toBeNull();
-    return user as User & { id: string };
+    return user as FirestoreDocument<User>;
   };
 
   /**
@@ -219,7 +216,6 @@ export async function cleanupValidatedRepo(
  * Uses a top-level `embedding` field (recommended for emulator reliability).
  */
 export interface VectorDoc {
-  id: string;
   name: string;
   category?: string;
   status?: string;

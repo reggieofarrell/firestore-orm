@@ -1,5 +1,5 @@
 import { FieldValue, Query } from 'firebase-admin/firestore';
-import { ID } from '../core/FirestoreRepository.js';
+import { FirestoreDocument } from '../core/DocumentId.js';
 import { hasFiniteVectorValues, hasVectorValuesShape } from '../utils/vectorValue.js';
 
 /**
@@ -81,11 +81,11 @@ export type DistanceFieldResult<R, DF extends string> = string extends DF
  * {@link DistanceFieldResult} for the collision/reserved-`id`/broad-`string` rules.
  */
 export type VectorSearchResult<
-  T,
+  T extends object,
   DistanceField extends string | undefined = undefined,
 > = DistanceField extends string
-  ? DistanceFieldResult<T & { id: ID }, DistanceField>
-  : T & { id: ID };
+  ? DistanceFieldResult<FirestoreDocument<T>, DistanceField>
+  : FirestoreDocument<T>;
 
 const VECTOR_DISTANCE_MEASURES = new Set<string>(Object.values(VectorDistanceMeasure));
 

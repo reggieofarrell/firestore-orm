@@ -15,7 +15,7 @@ import { FirestoreRepository, ReadConverter } from '../../core/FirestoreReposito
  *   3. subcollections do not inherit a parent converter and honor their own `readConverter`;
  *   4. transaction-scoped repositories preserve the read-ref converter wrapping;
  *   5. the `withSchema` factory forwards `options.readConverter` to the read ref;
- *   6. `withSchema` still enforces a required top-level `id` on the read schema.
+ *   6. `withSchema` rejects a top-level `id` on any schema (v3 virtual identity, ADR-0018).
  */
 function createReadConverter<T>(): ReadConverter<T> {
   return snapshot => snapshot.data() as T;
@@ -31,7 +31,7 @@ function expectWrappedWith(withConverter: jest.Mock, fromFirestore: ReadConverte
 
 // Minimal subcollection read schema — subcollections require a schema; converter behavior below is
 // independent of it.
-const orderSubSchema = z.object({ id: z.string(), total: z.number() });
+const orderSubSchema = z.object({ total: z.number() });
 
 describe('read-only converter support', () => {
   it('keeps default behavior when no converter is provided', () => {
@@ -142,6 +142,9 @@ describe('read-only converter support', () => {
     );
     const subcollectionRepo = parentRepo.subcollection('user-123', 'orders', orderSubSchema, {
       readConverter: childReadConverter,
+      // A readConverter requires a storedSchema (ADR-0018 / R6). This converter does not restructure
+      // fields, so the at-rest shape equals the read schema.
+      storedSchema: orderSubSchema,
     });
     const childCollection = (subcollectionRepo as any).readCol();
 
@@ -184,10 +187,9 @@ describe('read-only converter support', () => {
 
   it('forwards options.readConverter to the read ref through the withSchema factory', () => {
     const userSchema = z.object({
-      id: z.string(),
       name: z.string(),
     });
-    const readConverter = createReadConverter<{ id?: string; name: string }>();
+    const readConverter = createReadConverter<{ name: string }>();
     const convertedCollectionRef = { kind: 'converted' };
     const collectionRef = {
       withConverter: jest.fn().mockReturnValue(convertedCollectionRef),
@@ -196,27 +198,102 @@ describe('read-only converter support', () => {
       collection: jest.fn().mockReturnValue(collectionRef),
     } as any;
 
-    const repo = FirestoreRepository.withSchema(db, 'users', userSchema, { readConverter });
+    // A readConverter is present, so storedSchema is required (ADR-0018 / A3).
+    const repo = FirestoreRepository.withSchema(db, 'users', userSchema, {
+      readConverter,
+      storedSchema: userSchema,
+    });
 
     expect((repo as any).readCol()).toBe(convertedCollectionRef);
     expectWrappedWith(collectionRef.withConverter, readConverter);
   });
 
-  it('throws when withSchema receives a schema without a required id field', () => {
-    const missingIdSchema = z.object({
+  it('forwards options.readConverter to the read ref through the raw() factory (review R7)', () => {
+    // raw() is the unvalidated escape hatch and takes no storedSchema (no schema to infer from), so
+    // this is the only factory that wires a converter without one. Locks raw()'s converter threading.
+    const readConverter = createReadConverter<{ name: string }>();
+    const convertedCollectionRef = { kind: 'converted' };
+    const collectionRef = {
+      withConverter: jest.fn().mockReturnValue(convertedCollectionRef),
+    };
+    const db = {
+      collection: jest.fn().mockReturnValue(collectionRef),
+    } as any;
+
+    const repo = FirestoreRepository.raw<{ name: string }>(db, 'users', { readConverter });
+
+    expect((repo as any).readCol()).toBe(convertedCollectionRef);
+    expectWrappedWith(collectionRef.withConverter, readConverter);
+  });
+
+  it('rejects a read schema that declares a top-level id (v3 virtual identity)', () => {
+    const mirroredSchema = z.object({
+      id: z.string(),
       name: z.string(),
     });
-    const optionalIdSchema = z.object({
-      id: z.string().optional(),
+    const idlessSchema = z.object({
       name: z.string(),
     });
     const db = {} as any;
 
-    expect(() => FirestoreRepository.withSchema(db, 'users', missingIdSchema)).toThrow(
+    expect(() => FirestoreRepository.withSchema(db, 'users', mirroredSchema)).toThrow(
       /top-level "id" field/i,
     );
-    expect(() => FirestoreRepository.withSchema(db, 'users', optionalIdSchema)).toThrow(
-      /requires "id" to be required/i,
-    );
+    // A read schema without a top-level id is accepted.
+    expect(() => FirestoreRepository.withSchema(db, 'users', idlessSchema)).not.toThrow();
+  });
+
+  // Review R6: the storedSchema-with-converter invariant must be enforced at RUNTIME, not only by the
+  // TypeScript overloads. A JavaScript caller — or a TS call crossing an `any` boundary — must get a
+  // construction-time error rather than a structurally-unsound repository.
+  describe('storedSchema required with a readConverter at runtime (review R6)', () => {
+    const db = { collection: jest.fn() } as any;
+    const userSchema = z.object({ name: z.string() });
+    const orderSchema = z.object({ total: z.number() });
+    const readConverter = createReadConverter<{ name: string }>();
+
+    it('throws when withSchema gets a readConverter without a storedSchema (any boundary)', () => {
+      expect(() =>
+        FirestoreRepository.withSchema(db, 'users', userSchema, { readConverter } as any),
+      ).toThrow(/readConverter requires a storedSchema/i);
+    });
+
+    it('does not throw when storedSchema is present with a readConverter', () => {
+      expect(() =>
+        FirestoreRepository.withSchema(db, 'users', userSchema, {
+          readConverter,
+          storedSchema: userSchema,
+        }),
+      ).not.toThrow();
+    });
+
+    it('does not throw for a converter-absent call (guard is gated on readConverter presence)', () => {
+      expect(() =>
+        FirestoreRepository.withSchema(db, 'users', userSchema, { storedSchema: userSchema }),
+      ).not.toThrow();
+    });
+
+    it('does not throw when readConverter is explicitly undefined (overload 1)', () => {
+      expect(() =>
+        FirestoreRepository.withSchema(db, 'users', userSchema, { readConverter: undefined }),
+      ).not.toThrow();
+    });
+
+    it('throws for a subcollection readConverter without a storedSchema', () => {
+      const parent = new FirestoreRepository<{ name: string }>(db, 'users');
+      expect(() =>
+        (parent as any).subcollection('p1', 'orders', orderSchema, { readConverter }),
+      ).toThrow(/readConverter requires a storedSchema/i);
+    });
+
+    it('does not throw for a subcollection with both a readConverter and a storedSchema', () => {
+      const parent = new FirestoreRepository<{ name: string }>(db, 'users');
+      expect(() =>
+        parent.subcollection('p1', 'orders', orderSchema, {
+          readConverter: createReadConverter<{ total: number }>(),
+          storedSchema: orderSchema,
+        }),
+      ).not.toThrow();
+    });
   });
 });

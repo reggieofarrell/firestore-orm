@@ -45,7 +45,8 @@ query operands).
 
 ## Decision
 
-We will make the document-identity model explicit and split the three observable data contracts.
+We will make the document-identity model explicit and split the distinct data contracts (read, write
+input, stored, and parsed write output — see Decision §2).
 
 1. **Virtual identity only.** The native Firestore document name is the sole authority for `id`. A
    top-level `id` in any read/write/stored schema is **rejected at construction** with a remedial
@@ -67,15 +68,38 @@ We will make the document-identity model explicit and split the three observable
    model. The maintainer owns mirrored collections and accepts that migration; this ADR does not
    claim it is universally free.
 
-2. **Three data models, three generics.**
-   `FirestoreRepository<ReadData, WriteInput = ReadData, StoredData = ReadData>` (the
-   `T extends { id?: string }` constraint is removed):
+2. **Four data models, four generics.**
+   `FirestoreRepository<ReadData, WriteInput = ReadData, StoredData = ReadData, ParsedWriteData = WriteInput>`
+   (the `T extends { id?: string }` constraint is removed):
    - `ReadData = z.output<RS>` — application shape after any `readConverter`.
    - `WriteInput = z.input<WS>` — caller input to create/update. Using `z.input` (not `z.infer`)
      fixes the transform/coerce/default input-vs-output inversion (B5).
    - `StoredData = z.output<SS>` — the at-rest shape; the source of query field paths. Defaults to
      `z.output<RS>`, and is **required** (via `storedSchema`) whenever a `readConverter` is
      configured, because a converter can make the read model diverge from what is stored (D8).
+   - `ParsedWriteData = z.output<WS>` — the write payload _after_ validation (transforms, coercions,
+     and defaults applied); what the SDK persists and what after-create hooks observe. Separating it
+     from `WriteInput` fixes the after-hook type/runtime contradiction where a transformed value was
+     typed as its pre-parse input (A6, extending B5/D9). It defaults to `WriteInput` for the common
+     no-transform case. The exported low-level `Validator<Input, Output = Input>` carries the same
+     split (`makeValidator` returns `Validator<z.input<S>, z.output<S>>`), so a direct-constructor
+     repository expresses `WriteInput ≠ ParsedWriteData` identically to the factory path.
+
+   The repository models a **single write shape** — `WriteInput`/`ParsedWriteData` serve both create
+   and update; the update-write schema is derived as `create.partial()` (or a caller override). A
+   distinct `ParsedWriteData` therefore requires a validator (a parser): a schema-less repository
+   (the raw constructor / `FirestoreRepository.raw`) always has `ParsedWriteData = WriteInput`,
+   enforced by the constructor requiring a validator whenever the two diverge, so a hook can never
+   be promised a parsed type that no parser produces (S1). A custom update-write schema passed to
+   `makeValidator` must be input/output-compatible with the create schema; a type-divergent one is
+   rejected at `makeValidator` rather than producing a validator no repository can attach (S2).
+
+   > Amendment (Workstream A hardening, part 2): this decision originally specified **three**
+   > generics. Adversarial review (A6) showed three could not model the parsed write output without
+   > typing it as the write input, so a fourth repository generic `ParsedWriteData` was added, and
+   > the `Validator` carries the two-dimensional `Input`/`Output` write shape.
+   > `FirestoreRepository<T>` / `Validator<T>` still resolve via defaults, so single-generic
+   > references are unaffected.
 
 3. **Flat, authoritative result.** Reads return
    `FirestoreDocument<ReadData> = Omit<ReadData, 'id'> & { readonly id: ID }`, with `id` always from
@@ -101,9 +125,26 @@ We will make the document-identity model explicit and split the three observable
    the caller-supplied path. Add `repo.id(raw)` (validating boundary) and `repo.newId()` (validated
    auto-id, no write).
 
+   > Amendment (Workstream A hardening, part 2 — A5/R7): the `/^__.*__$/` reserved-namespace
+   > rejection has one **explicit, off-by-default opt-in**, `allowLegacyDatastoreIds`, that permits
+   > the documented `__id[0-9]+__` Cloud Datastore-import document-name form on **document segments
+   > only** (collection segments always reject the reserved namespace). Without it, imported
+   > Datastore numeric ids would be unreachable; keeping it opt-in means the default validator is
+   > not silently weakened. The flag is a named option on `withSchema`/`subcollection`, and — for
+   > the raw/unvalidated path — on the
+   > `FirestoreRepository.raw(db, collection, { allowLegacyDatastoreIds })` factory (preferred over
+   > the positional constructor for discoverability of this security-relevant flag).
+
 7. **Immutable hook identity** (B2): capture target ids / `DocumentReference`s **before** invoking
    before-hooks and build write actions and after-hook payloads from the captured values; freeze the
-   event envelopes. Documented data-field mutation still works.
+   event envelopes. Documented data-field mutation still works. On the update-family surfaces a
+   before-hook may mutate a payload field _in place_ (`entry.data.x = …`) but may not REPLACE the
+   whole `data` object (rejected on both the repository and query surfaces, S3). Delete-hook
+   payloads are observe-only and are **deep-frozen** (nested plain objects/arrays too, S4) so a
+   before-hook cannot forge nested data a later after-hook or audit consumer observes — with one
+   documented limitation: a class-instance field value produced by a `readConverter` (a mutable
+   `Date`/`Map`/ custom class) is left as-is (not cloned or frozen — `Object.freeze` cannot protect
+   a `Date`'s internal slot), so such values are observe-only **by contract**, not by enforcement.
 
 8. **Deferrals, recorded so the design is not lost. Note where each is _not_ semver-free — these are
    deliberate long-term type/product choices, not cost-free future additions:**
@@ -128,9 +169,10 @@ We will make the document-identity model explicit and split the three observable
 
 ## Consequences
 
-- Resolves the reviewed findings B1, B2, B4, B5, B6, D8, and D9 (hook payloads now carry
-  `FirestoreDocument<ReadData>` / `WriteInput`) at the model level rather than by per-symptom
-  patches.
+- Resolves the reviewed findings B1, B2, B4, B5, B6, D8, D9, and A6 (hook payloads now carry
+  `FirestoreDocument<ReadData>` for read/delete hooks, the write **input** `WriteInput` for
+  before-hooks, and the parsed write **output** `ParsedWriteData` for after-create hooks) at the
+  model level rather than by per-symptom patches.
 - **Breaking (v3):** schemas no longer declare `id`; query field-path types drop `id`; write-input
   types follow `z.input`; the result type is `FirestoreDocument<…>` (flat and assignment-compatible
   with the old `T & { id }`, so most read code is unaffected). For a **redundant** stored `id` the
@@ -138,7 +180,7 @@ We will make the document-identity model explicit and split the three observable
   is a downstream contract migration (see Decision §1). The migration guide must distinguish a
   _historical fake_ `id` (drop it) from a _consumed_ mirror (migrate its consumers first) — never a
   blanket "delete `id`".
-- The repository keeps **three** generics with defaults; common usage
+- The repository keeps **four** generics with defaults (see Decision §2); common usage
   (`withSchema(db, 'users', schema)`) gets simpler (no fake `id` in the schema) and stronger.
   `ADR-0013` (create returns `{ id }`) stands.
 - **Perf risk:** propagating `FieldPaths<StoredData>` adds type-level work; bounded by keeping the

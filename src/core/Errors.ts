@@ -112,3 +112,43 @@ Note: This is a one-time setup per query pattern.
         `.trim();
   }
 }
+
+/**
+ * A stable, machine-readable reason for an invalid Firestore document id or path segment.
+ */
+export type InvalidDocumentIdReason =
+  | 'not_string'
+  | 'empty'
+  | 'contains_slash'
+  | 'reserved_dot_segment'
+  | 'reserved_namespace'
+  | 'too_long'
+  | 'invalid_utf8';
+
+/**
+ * Error thrown when a caller-supplied document id, collection segment, or subcollection name is not a
+ * single valid Firestore path segment.
+ *
+ * This is a real server-side boundary: the Admin SDK bypasses Firestore Security Rules (access is
+ * governed by IAM), so `CollectionReference.doc(id)` — which accepts a slash-separated *path* — would
+ * otherwise let a slash-containing id address a document outside the repository's collection. The
+ * repository validates every externally-supplied id/segment before any read, write, or hook runs.
+ *
+ * @example
+ * try {
+ *   await userRepo.getById(req.params.id); // untrusted route param
+ * } catch (error) {
+ *   if (error instanceof InvalidDocumentIdError) {
+ *     res.status(400).json({ error: 'Invalid id', reason: error.reason });
+ *   }
+ * }
+ */
+export class InvalidDocumentIdError extends Error {
+  constructor(
+    message: string,
+    public reason: InvalidDocumentIdReason,
+  ) {
+    super(message);
+    this.name = 'InvalidDocumentIdError';
+  }
+}

@@ -9,19 +9,42 @@ export type RepositorySchemaSet = Readonly<{
   update: z.ZodObject<any>;
 }>;
 
-export type Validator<T> = {
-  parseCreate(input: unknown): WithFieldValue<T>;
-  parseUpdate(input: unknown): UpdateData<Omit<T, 'id'>>;
+/**
+ * Validates write payloads and carries the schema set. The repository models a **single write shape**
+ * — `W`/`WO` serve both create and update — so the validator has two dimensions: `Input` is what a
+ * caller passes (`z.input` of the write schema, pre-transform) and `Output` is the parsed result the
+ * SDK persists and after-create hooks observe (`z.output`, transforms/coercions/defaults applied).
+ * `parseCreate` returns the **exact** parsed create output (`CreateOutput`, no `WithFieldValue`
+ * widening — a schema that genuinely emits a sentinel already types it in its output); `parseUpdate`
+ * keeps the widened `UpdateInput` shape (dot-notation paths and `FieldValue` are legitimate on the
+ * update path). Both default so `Validator<X>` ≡ `Validator<X, X>` — single-parameter references
+ * remain valid. A custom update schema passed to `makeValidator` must be input/output-compatible with
+ * the read/create schema (review S2); a type-divergent one is rejected at `makeValidator`, so every
+ * produced validator is attachable to a `FirestoreRepository<…, W, …, WO>`.
+ */
+export type Validator<Input, Output = Input> = {
+  parseCreate(input: CreateInput<Input>): CreateOutput<Output>;
+  parseUpdate(input: UpdateInput<Input>): UpdateInput<Output>;
   schemas: RepositorySchemaSet;
 };
 
 /**
  * Input accepted by create-family operations (`create`, `bulkCreate`, `upsert`,
- * `createInTransaction`). The top-level `id` is optional because the repository sources the
- * document id itself (auto-generated on create, or the explicit `id` argument on `upsert`) and
- * strips any `id` from the payload — so callers never need to supply one.
+ * `createInTransaction`). `id` is not a member: the repository sources the document id itself
+ * (auto-generated on create, or the explicit `id` argument on `upsert`) and returns it as the
+ * read-only `id` on the resulting {@link FirestoreDocument}. `Omit<T, 'id'>` defends the contract
+ * even for a directly-typed (unvalidated) repository whose `T` happens to carry an `id`.
  */
-export type CreateInput<T> = WithFieldValue<Omit<T, 'id'>> & { id?: string };
+export type CreateInput<T> = WithFieldValue<Omit<T, 'id'>>;
+
+/**
+ * The parsed output of a create write — what the SDK persists and what after-create hooks observe.
+ * Unlike {@link CreateInput}, this is the **exact** parsed shape with no `WithFieldValue` widening:
+ * the value has already been validated/transformed, so a field is only `T | FieldValue` when its own
+ * schema output type is (e.g. a `zSentinel`-annotated field). `id` is omitted; the repository
+ * overlays the authoritative read-only `id` on the after-create payload. (review R4)
+ */
+export type CreateOutput<T> = Omit<T, 'id'>;
 
 /**
  * Input accepted by update-family operations (`update`, `patch`, `bulkUpdate`, `bulkPatch`,
@@ -205,10 +228,14 @@ const zFieldValueSentinel = z.custom<FieldValue>(isFieldValueSentinel, {
  * Use it to widen a field schema so it also accepts specific approved sentinels, e.g.
  * `z.union([z.string(), zSentinel('serverTimestamp')])`.
  */
-export function zSentinel(...kinds: FieldValueKind[]): z.ZodType<FieldValue> {
+export function zSentinel(...kinds: FieldValueKind[]): z.ZodType<FieldValue, FieldValue> {
+  // Declare BOTH the output and input type params as FieldValue. Zod v4's `ZodType<Output, Input>`
+  // defaults `Input` to `unknown`; leaving it off would make `z.input` of any combinator built on
+  // this sentinel collapse to `unknown` (weakening the write-input types now derived via
+  // `z.input<WS>` — see ADR-0018 / review B5).
   return zFieldValueSentinel.refine(value => kinds.includes(whichFieldValue(value)), {
     message: `Expected a FieldValue sentinel of kind: ${kinds.join(' | ')}`,
-  }) as z.ZodType<FieldValue>;
+  }) as z.ZodType<FieldValue, FieldValue>;
 }
 
 /**
@@ -421,11 +448,45 @@ function stripInjectedDefaults(parsed: unknown, input: unknown): unknown {
   return out;
 }
 
-export function makeValidator<T extends z.ZodObject<any>>(
+/**
+ * Constrains a custom update schema `U` so the validator it produces is HONEST against the single
+ * write shape the repository assigns to updates (review S2/T1). The repository types every update
+ * method from the create/read write shape and, at runtime, validates against `U` and writes the
+ * parsed result. Both directions must hold:
+ *
+ * - **Input** — the shared declared input must be able to inhabit `U`
+ *   (`z.input<T>` assignable to `z.input<U>`), so a value the update method's type accepts is not
+ *   categorically rejected by the runtime schema. Without this, an input-divergent schema (create
+ *   input `number`, update input `string`) attaches but contradicts itself: `update({ score: 7 })`
+ *   type-checks yet throws, while the string the schema really wants is a compile error (T1).
+ * - **Output** — `U`'s parsed output must be assignable to the create output, **per field and
+ *   allowing omission** (updates are inherently partial; restricting updatable fields via `.pick` is
+ *   supported).
+ *
+ * `.pick(...)` (narrower fields) and coercions like `z.coerce.number()` (input broad enough to accept
+ * the shared numeric input, output still `number`) satisfy both; `z.string().transform(Number)` over
+ * a numeric create schema is rejected (its input `string` cannot accept the shared `number`), even
+ * though its output happens to be numeric. A rejected schema collapses `U` to `never`, a compile
+ * error at `makeValidator`.
+ *
+ * Note: an update schema that WIDENS a field's output (e.g. `withDelete`/`zNumberWrite` to allow a
+ * `FieldValue` sentinel on the update path only) is also rejected (output not assignable to the
+ * narrower create output). Put the combinator on the shared write schema — the derived
+ * `create.partial()` update inherits it — rather than only on a custom update schema.
+ */
+type UpdateCompatible<T extends z.ZodObject<any>, U extends z.ZodObject<any>> = [
+  z.input<T>,
+] extends [z.input<U>]
+  ? [z.output<U>] extends [Partial<z.output<T>>]
+    ? U
+    : never
+  : never;
+
+export function makeValidator<T extends z.ZodObject<any>, U extends z.ZodObject<any> = T>(
   readSchema: T,
-  updateSchema?: z.ZodObject<any>,
+  updateSchema?: UpdateCompatible<T, U>,
   opts?: { sentinelPolicy?: SentinelPolicy },
-): Validator<z.infer<T>> {
+): Validator<z.input<T>, z.output<T>> {
   const policy: SentinelPolicy = opts?.sentinelPolicy ?? 'strict';
   const createWriteSchema = omitTopLevelId(readSchema);
   const updateWriteSchema = updateSchema
@@ -480,8 +541,8 @@ export function makeValidator<T extends z.ZodObject<any>>(
    * actually persist. A dotted key that is definitively absent from the schema throws (fail loud)
    * instead of silently disappearing.
    */
-  const parseUpdate = (input: unknown): UpdateData<Omit<z.infer<T>, 'id'>> => {
-    type Result = UpdateData<Omit<z.infer<T>, 'id'>>;
+  const parseUpdate = (input: unknown): UpdateData<Omit<z.output<T>, 'id'>> => {
+    type Result = UpdateData<Omit<z.output<T>, 'id'>>;
 
     if (input === null || typeof input !== 'object') {
       return runParse<Result>(updateWriteSchema, input);
@@ -526,12 +587,12 @@ export function makeValidator<T extends z.ZodObject<any>>(
           : value;
     }
 
-    return { ...validatedNonDotted, ...validatedDotted } as UpdateData<Omit<z.infer<T>, 'id'>>;
+    return { ...validatedNonDotted, ...validatedDotted } as UpdateData<Omit<z.output<T>, 'id'>>;
   };
 
   return {
     schemas,
-    parseCreate: input => runParse<WithFieldValue<z.infer<T>>>(createWriteSchema, input),
+    parseCreate: input => runParse<CreateOutput<z.output<T>>>(createWriteSchema, input),
     parseUpdate,
   };
 }

@@ -20,7 +20,6 @@ import { ValidationError } from '../../core/Errors.js';
 const db = {} as any;
 
 const userSchema = z.object({
-  id: z.string(),
   name: z.string().min(1),
   age: z.number().int().positive().optional(),
 });
@@ -78,7 +77,6 @@ describe('FirestoreRepository.validate / safeValidate', () => {
     it('returns the Zod-transformed/coerced value, not the raw input', () => {
       // Coerce string → number so the parsed output differs from the input shape.
       const coerceSchema = z.object({
-        id: z.string(),
         count: z.coerce.number(),
       });
       const coerceRepo = FirestoreRepository.withSchema(db, 'counts', coerceSchema);
@@ -92,6 +90,33 @@ describe('FirestoreRepository.validate / safeValidate', () => {
       const parsed = repo.validate(withExtra);
       expect(parsed).toEqual({ id: 'u1', name: 'Alice' });
       expect('legacyField' in parsed).toBe(false);
+    });
+  });
+
+  describe('A4 — strict read schemas (id stripped before parse, re-attached after)', () => {
+    // A strict schema REJECTS unknown keys. Because the synthetic `id` is NOT a declared stored
+    // field, validate()/safeValidate() must strip it BEFORE parsing and re-attach it after —
+    // otherwise a strict read schema would reject the `id` key on every read.
+    const strictSchema = z.strictObject({ name: z.string().min(1) });
+    const repo = FirestoreRepository.withSchema(db, 'users', strictSchema);
+
+    it('validate returns the flat document (with id) under a strict read schema', () => {
+      expect(repo.validate({ id: 'u1', name: 'Alice' })).toEqual({ id: 'u1', name: 'Alice' });
+    });
+
+    it('safeValidate succeeds with id present under a strict read schema', () => {
+      expect(repo.safeValidate({ id: 'u1', name: 'Alice' })).toEqual({
+        success: true,
+        data: { id: 'u1', name: 'Alice' },
+      });
+    });
+
+    it('still rejects a genuinely undeclared key (the strip is narrow — id only)', () => {
+      const result = repo.safeValidate({ id: 'u1', name: 'Alice', rogue: 'x' } as unknown as {
+        id: string;
+        name: string;
+      });
+      expect(result.success).toBe(false);
     });
   });
 
@@ -135,7 +160,6 @@ describe('FirestoreRepository.validate / safeValidate', () => {
 
     it('returns the Zod-transformed/coerced value on success', () => {
       const coerceSchema = z.object({
-        id: z.string(),
         count: z.coerce.number(),
       });
       const coerceRepo = FirestoreRepository.withSchema(db, 'counts', coerceSchema);

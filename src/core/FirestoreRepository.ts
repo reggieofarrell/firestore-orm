@@ -7,6 +7,7 @@ import {
 import { FieldPaths } from '../utils/pathTypes.js';
 import {
   CreateInput,
+  CreateOutput,
   makeValidator,
   RepositorySchemaSet,
   SentinelPolicy,
@@ -18,6 +19,13 @@ import { ConflictError, NotFoundError, ValidationError } from './Errors.js';
 import { FirestoreQueryBuilder } from './QueryBuilder.js';
 import { parseFirestoreError } from './ErrorParser.js';
 import { flattenToDotNotation, hasDotNotationKeys, isDotNotation } from '../utils/dotNotation.js';
+import { deepFreeze } from '../utils/safeObject.js';
+import { FirestoreDocument } from './DocumentId.js';
+import {
+  validateCollectionPath,
+  validateCollectionSegment,
+  validateDocumentId,
+} from '../utils/documentId.js';
 
 export type ID = string;
 export type UpdateOptions = {
@@ -31,8 +39,8 @@ export type UpdateOptions = {
  * Mirrors Zod's `safeParse` shape, but normalizes failures to the library's {@link ValidationError}
  * (never a raw `ZodError`) so callers have one error type across write and read validation.
  */
-export type SafeResult<T> =
-  { success: true; data: T & { id: ID } } | { success: false; error: ValidationError };
+export type SafeResult<T extends object> =
+  { success: true; data: FirestoreDocument<T> } | { success: false; error: ValidationError };
 
 /**
  * A read-only converter: just the `fromFirestore` half of a Firestore `FirestoreDataConverter`.
@@ -62,24 +70,45 @@ type BulkHookEvent =
 
 export type HookEvent = SingleHookEvent | BulkHookEvent;
 
-// Write-side hooks are typed by the write model `W` (what create/update accept); the delete hook
-// is typed by the read model `T` (it receives persisted documents).
-type SingleHookFn<W> = (data: UpdateInput<W> & { id?: ID }) => Promise<void> | void;
-type BulkCreateHookFn<W> = (data: (CreateInput<W> & { id: ID })[]) => Promise<void> | void;
-type BeforeUpdateHookFn<W> = (data: UpdateInput<W> & { id: ID }) => Promise<void> | void;
-type AfterUpdateHookFn = (data: { id: ID }) => Promise<void> | void;
-type BeforeBulkUpdateHookFn<W> = (data: { id: ID; data: UpdateInput<W> }[]) => Promise<void> | void;
-type AfterBulkUpdateHookFn = (data: { ids: ID[] }) => Promise<void> | void;
-type BulkDeleteHookFn<T> = (data: {
-  ids: ID[];
-  documents: (T & { id: ID })[];
+// Hooks are typed by the model they actually observe at runtime (review D9): "before" create/update
+// hooks by the write INPUT `W`, "after" create hooks by the parsed write OUTPUT `WO` (transforms/
+// coercions/defaults applied — review A6), delete hooks by the read model `T` (a `FirestoreDocument<T>`).
+// Identity is repository-owned: every `id` / `ids` / event array is `readonly` so a hook can mutate
+// documented DATA fields but cannot repoint identity, membership, ordering, or accounting (review A1;
+// the runtime additionally builds a stable pre-hook work list and never trusts the handed value).
+type BeforeCreateHookFn<W> = (data: CreateInput<W> & { readonly id?: ID }) => Promise<void> | void;
+type AfterCreateHookFn<WO extends object> = (
+  data: CreateOutput<WO> & { readonly id: ID },
+) => Promise<void> | void;
+type BeforeUpdateHookFn<W> = (data: UpdateInput<W> & { readonly id: ID }) => Promise<void> | void;
+type AfterUpdateHookFn = (data: { readonly id: ID }) => Promise<void> | void;
+type DeleteHookFn<T extends object> = (data: FirestoreDocument<T>) => Promise<void> | void;
+type BeforeBulkCreateHookFn<W> = (
+  data: readonly (CreateInput<W> & { readonly id: ID })[],
+) => Promise<void> | void;
+type AfterBulkCreateHookFn<WO extends object> = (
+  data: readonly (CreateOutput<WO> & { readonly id: ID })[],
+) => Promise<void> | void;
+type BeforeBulkUpdateHookFn<W> = (
+  // `data` is readonly: a hook may mutate FIELDS of the update payload in place (`entry.data.x = …`)
+  // but may NOT replace the whole `data` object — replacement is silently dropped by the write on the
+  // repository bulk path, so it is rejected on both surfaces for a consistent contract (review S3).
+  data: readonly { readonly id: ID; readonly data: UpdateInput<W> }[],
+) => Promise<void> | void;
+type AfterBulkUpdateHookFn = (data: { readonly ids: readonly ID[] }) => Promise<void> | void;
+type BulkDeleteHookFn<T extends object> = (data: {
+  readonly ids: readonly ID[];
+  readonly documents: readonly FirestoreDocument<T>[];
 }) => Promise<void> | void;
 
-type AnyHookFn<T, W> =
-  | SingleHookFn<W>
-  | BulkCreateHookFn<W>
+type AnyHookFn<T extends object, W extends object, WO extends object> =
+  | BeforeCreateHookFn<W>
+  | AfterCreateHookFn<WO>
   | BeforeUpdateHookFn<W>
   | AfterUpdateHookFn
+  | DeleteHookFn<T>
+  | BeforeBulkCreateHookFn<W>
+  | AfterBulkCreateHookFn<WO>
   | BeforeBulkUpdateHookFn<W>
   | AfterBulkUpdateHookFn
   | BulkDeleteHookFn<T>;
@@ -88,7 +117,14 @@ type AnyHookFn<T, W> =
  * Type-safe Firestore repository with validation and lifecycle hooks.
  * Provides a clean API for common database operations with built-in error handling.
  *
- * @template T - The document type for this collection
+ * Four data models are distinguished (see ADR-0018):
+ * @template T - **read data** — the application/read shape (after any `readConverter`). `id` is NOT a
+ *   member; reads return {@link FirestoreDocument}`<T>` with the authoritative document id overlaid.
+ * @template W - **write input** — what create/update accept (from `z.input<writeSchema>`). Defaults to `T`.
+ * @template S - **stored data** — the at-rest Firestore shape; the source of query field paths.
+ *   Defaults to `T`. Differs from `T` only when a `readConverter` changes the field structure.
+ * @template WO - **parsed write output** — the validated write payload (from `z.output<writeSchema>`,
+ *   transforms/coercions/defaults applied) that `afterCreate`/`afterBulkCreate` observe. Defaults to `W`.
  *
  * @example
  * // Basic usage without validation
@@ -105,63 +141,175 @@ type AnyHookFn<T, W> =
  *   await sendOrderConfirmation(order);
  * });
  */
-export class FirestoreRepository<T extends { id?: ID }, W = T> {
-  private hooks: { [K in HookEvent]?: AnyHookFn<T, W>[] } = {};
+/** True only when `A` and `B` are mutually assignable (the same type). */
+type MutuallyAssignable<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+
+/**
+ * Constructor argument tuple. The `validator` (a parser) is the ONLY thing that can produce a parsed
+ * write output (`WO`) that differs from the write input (`W`). So it is **required** whenever `WO`
+ * diverges from `W`, and optional when they match (the default and every schema-less repository).
+ * This prevents a schema-less instance from promising a parsed output no parser produces (review S1).
+ */
+type RepositoryConstructorArgs<T extends object, W extends object, WO extends object> =
+  MutuallyAssignable<W, WO> extends true
+    ? [
+        db: Firestore,
+        collectionPath: string,
+        validator?: Validator<W, WO>,
+        parentPath?: string,
+        readConverter?: ReadConverter<T>,
+        schemas?: RepositorySchemaSet,
+        allowLegacyDatastoreIds?: boolean,
+      ]
+    : [
+        db: Firestore,
+        collectionPath: string,
+        validator: Validator<W, WO>,
+        parentPath?: string,
+        readConverter?: ReadConverter<T>,
+        schemas?: RepositorySchemaSet,
+        allowLegacyDatastoreIds?: boolean,
+      ];
+
+export class FirestoreRepository<
+  T extends object,
+  W extends object = T,
+  S extends object = T,
+  WO extends object = W,
+> {
+  private hooks: { [K in HookEvent]?: AnyHookFn<T, W, WO>[] } = {};
+  private db: Firestore;
+  private collectionPath: string;
+  private validator?: Validator<W, WO>;
   private parentPath?: string;
   private readConverter?: ReadConverter<T>;
   private schemasInternal?: RepositorySchemaSet;
+  private allowLegacyDatastoreIds: boolean;
 
-  constructor(
-    private db: Firestore,
-    private collectionPath: string,
-    private validator?: Validator<W>,
-    parentPath?: string,
-    readConverter?: ReadConverter<T>,
-    schemas?: RepositorySchemaSet,
-  ) {
+  constructor(...args: RepositoryConstructorArgs<T, W, WO>) {
+    const [
+      db,
+      collectionPath,
+      validator,
+      parentPath,
+      readConverter,
+      schemas,
+      allowLegacyDatastoreIds = false,
+    ] = args as [
+      Firestore,
+      string,
+      Validator<W, WO>?,
+      string?,
+      ReadConverter<T>?,
+      RepositorySchemaSet?,
+      boolean?,
+    ];
+    this.db = db;
+    this.collectionPath = collectionPath;
+    this.validator = validator;
+    this.allowLegacyDatastoreIds = allowLegacyDatastoreIds;
+    // Validate the collection path once, at construction, so an illegal base path (empty, even
+    // segment count, or a segment that is not a legal Firestore path segment) fails fast rather than
+    // deep inside a later read/write. See src/utils/documentId.ts.
+    validateCollectionPath(collectionPath, { allowLegacyDatastoreIds });
     this.parentPath = parentPath;
     this.readConverter = readConverter;
     this.schemasInternal = schemas ?? validator?.schemas;
+    // Centralize the no-top-level-`id` schema invariant across EVERY effective schema member (review
+    // A8/R3). `makeValidator` derives id-free create/update schemas, but `Validator` and
+    // `RepositorySchemaSet` are exported: a hand-rolled validator/schema set passed to this public
+    // constructor could carry a top-level `id` in create/update even with an id-free read schema. The
+    // factory checks (withSchema/subcollection) give richer messages; this is the low-level backstop.
+    if (this.schemasInternal) {
+      FirestoreRepository.assertSchemaHasNoTopLevelId(
+        this.schemasInternal.read,
+        'FirestoreRepository (read schema)',
+      );
+      FirestoreRepository.assertSchemaHasNoTopLevelId(
+        this.schemasInternal.create,
+        'FirestoreRepository (create schema)',
+      );
+      FirestoreRepository.assertSchemaHasNoTopLevelId(
+        this.schemasInternal.update,
+        'FirestoreRepository (update schema)',
+      );
+    }
   }
 
   /**
-   * Ensures a schema includes a required top-level `id` field.
-   * This keeps document types aligned with repository read results where `id` is always present.
+   * Validates a caller-supplied document id against Firestore's id rules, honoring this repository's
+   * `allowLegacyDatastoreIds` setting. Throws {@link InvalidDocumentIdError} before any I/O (review B1).
    */
-  private static assertSchemaHasRequiredId(schema: z.ZodObject<any>, context: string): void {
-    const shape = schema.shape as Record<string, z.ZodTypeAny>;
-    const idSchema = shape.id;
+  private validateId(id: ID, label = 'document id'): ID {
+    return validateDocumentId(id, label, {
+      allowLegacyDatastoreIds: this.allowLegacyDatastoreIds,
+    });
+  }
 
-    if (!idSchema) {
+  /**
+   * Rejects a schema that declares a top-level `id` field (ADR-0018). `id` is repository-owned
+   * metadata sourced from the Firestore document name (`snapshot.id`) and overlaid on reads as a
+   * read-only `id`; schemas describe the document's own fields (read/write/stored models), which
+   * must not compete with that identity.
+   *
+   * This replaces the old required-`id` probe (which parsed a hard-coded literal and wrongly rejected
+   * refined id schemas — UUID/regex/branded — review B6). No probe value is parsed here; native ids
+   * are validated at the `repo.id`/create/read boundaries against Firestore's actual rules. Nested
+   * fields named `id` (e.g. `author.id`) are unaffected — only the top level is checked.
+   */
+  private static assertSchemaHasNoTopLevelId(schema: z.ZodObject<any>, context: string): void {
+    if (Object.prototype.hasOwnProperty.call(schema.shape, 'id')) {
       throw new Error(
-        `${context} requires a schema with a top-level "id" field. Include "id: z.string()" in the schema.`,
+        `${context}: schema must not declare a top-level "id" field. The repository sources the ` +
+          'document id from the Firestore document name and returns it as a read-only "id" on every ' +
+          'read — remove "id" from the schema. If your documents physically store an "id" mirror, ' +
+          'see the v3 migration guide: a redundant mirror can be dropped, but a consumed mirror ' +
+          '(used by rules/indexes/other writers) requires a downstream migration first.',
       );
     }
+  }
 
-    // The id must be required (rejects `undefined`) and non-nullable (rejects `null`) so every read
-    // document carries a concrete string id. Probing via safeParse avoids Zod's deprecated
-    // `.isOptional()`/`.isNullable()` reflection and also covers wrappers like `.nullish()`.
-    if (idSchema.safeParse(undefined).success) {
+  /**
+   * Enforces, on the **schema factories** (`withSchema`/`subcollection`), the ADR-0018 invariant that
+   * a `readConverter` requires a `storedSchema` at RUNTIME, not only via the TypeScript overloads
+   * (review R6). The overloads block the typed path, but a JavaScript caller of a factory — or a
+   * TypeScript call crossing an `any` boundary — could otherwise construct a structurally-unsound
+   * repository whose stored/query shape silently defaults to the read schema.
+   *
+   * This applies to the schema-inferred factories only. The unvalidated escape hatches (the raw
+   * positional constructor and {@link FirestoreRepository.raw}) run no Zod validation and infer no
+   * types from schemas, so there is no `storedSchema` to require — the caller owns the `StoredData`
+   * generic directly and is responsible for setting it to the physical shape when a converter
+   * restructures fields.
+   */
+  private static assertConverterHasStoredSchema(
+    options: { readConverter?: unknown; storedSchema?: unknown } | undefined,
+    context: string,
+  ): void {
+    if (options?.readConverter && !options.storedSchema) {
       throw new Error(
-        `${context} requires "id" to be required in the schema. Use "id: z.string()" instead of an optional id.`,
+        `${context}: a readConverter requires a storedSchema. A converter can change the at-rest ` +
+          'field structure, so the stored/query shape cannot be inferred from the read schema — pass ' +
+          'options.storedSchema describing the physical document (ADR-0018).',
       );
     }
+  }
 
-    if (idSchema.safeParse(null).success) {
-      throw new Error(
-        `${context} requires "id" to be non-nullable. Use "id: z.string()" instead of a nullable id.`,
-      );
-    }
-
-    // The id must accept a string AND its parsed output must remain a string — reject transforms
-    // that change the output type (e.g. `z.string().transform(v => v.length)` yields a number),
-    // which would break the repository's `T & { id: string }` contract.
-    const parsed = idSchema.safeParse('firestoreorm-id');
-    if (!parsed.success || typeof parsed.data !== 'string') {
-      throw new Error(
-        `${context} requires "id" to accept and preserve string values. Avoid transforms that change the id's type.`,
-      );
-    }
+  /**
+   * Defines the repository-owned `id` as a non-writable, non-configurable property on a before-hook
+   * payload, so a hook can still mutate documented DATA fields but cannot repoint identity or forge
+   * the id a later hook (or the after-event) observes (review R2/ADR-0018 Decision 7). Returns the
+   * same object. The write target is always taken from a separately-captured id/ref, never from this
+   * payload — this hardens lifecycle-accounting/audit integrity on top of that.
+   */
+  private static withReadonlyId<O extends Record<string, any>>(obj: O, id: ID): O {
+    Object.defineProperty(obj, 'id', {
+      value: id,
+      writable: false,
+      configurable: false,
+      enumerable: true,
+    });
+    return obj;
   }
 
   /**
@@ -199,23 +347,28 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * Create a repository instance with Zod schema validation.
    * Automatically validates all create and update operations.
    *
-   * Both the read and write types are inferred from schema values in a single call:
-   * - The **read type** is `z.infer<readSchema>` — the canonical document shape (must include a
-   *   required top-level `id`).
-   * - The **write type** is `z.infer<writeSchema>` when a `writeSchema` overlay is supplied,
-   *   otherwise it equals the read type. Build the overlay from the write combinators
+   * Schemas must NOT declare a top-level `id` (ADR-0018) — the repository sources the document id
+   * from the Firestore document name and returns it as a read-only `id` on every read
+   * ({@link FirestoreDocument}). Types are inferred from schema values:
+   * - The **read type** is `z.output<readSchema>`; reads return `FirestoreDocument<readType>`.
+   * - The **write input** is `z.input<writeSchema>` when a `writeSchema` overlay is supplied,
+   *   otherwise it is `z.input<readSchema>`. Build the overlay from the write combinators
    *   (`zNumberWrite`/`zArrayWrite`/`zDateWrite`/`withDelete`/`zSentinel`) to accept native values
    *   and `FieldValue` sentinels on `create`/`update` with no cast.
    *
    * @param db - Firestore database instance
    * @param collection - Collection path
-   * @param readSchema - Canonical read schema; must include a required top-level `id` field
+   * @param readSchema - Canonical read schema describing the **read model** (no top-level `id`)
    * @param options - Optional settings:
-   *   - `writeSchema`: write-side overlay schema. When given, the write type is `z.infer<writeSchema>`
-   *     and create/update validation derives from it. Need not include `id`.
-   *   - `readConverter`: a read-only converter — the `fromFirestore(snapshot) => T` half only. The
-   *     repository builds the full `FirestoreDataConverter` internally and applies it to reads, so
-   *     `toFirestore` never runs. For write-time normalization use a `before*` hook.
+   *   - `writeSchema`: write-side overlay schema (write input = `z.input<writeSchema>`).
+   *   - `storedSchema`: the at-rest/physical shape that query field paths derive from. Optional
+   *     without a `readConverter` (defaults to the read schema). **Required whenever a `readConverter`
+   *     is configured** — a converter can make the read model diverge from what is physically stored,
+   *     and the compiler cannot tell whether it does, so the at-rest query shape must be given
+   *     explicitly (enforced by the overloads and at runtime).
+   *   - `readConverter`: a read-only converter — the `fromFirestore(snapshot) => T` half only (returns
+   *     read data without `id`; the repository overlays the document id). For write-time
+   *     normalization use a `before*` hook.
    *   - `sentinelPolicy`: defaults to `'strict'` (v3), which only accepts sentinels a field's schema
    *     explicitly permits and always returns the parsed Zod output. Set `'permissive'` to opt into
    *     the pre-v3 escape hatch that writes the raw input verbatim when parsing fails only at
@@ -224,19 +377,18 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    *
    * @example
    * const userSchema = z.object({
-   *   id: z.string(),
    *   name: z.string().min(1),
    *   email: z.string().email(),
    *   age: z.number().int().positive().optional(),
    * });
    *
-   * // read type = write type = z.infer<userSchema>
+   * // reads return DocumentOf<typeof userRepo> = z.output<userSchema> & { id }
    * const userRepo = FirestoreRepository.withSchema(db, 'users', userSchema);
    *
    * @example
    * // Cast-free combinator writes via a write overlay
-   * const eventRead = z.object({ id: z.string(), name: z.string(), happenedAt: z.date() });
-   * const eventWrite = z.object({ id: z.string(), name: z.string(), happenedAt: zDateWrite() });
+   * const eventRead = z.object({ name: z.string(), happenedAt: z.date() });
+   * const eventWrite = z.object({ name: z.string(), happenedAt: zDateWrite() });
    * const events = FirestoreRepository.withSchema(db, 'events', eventRead, { writeSchema: eventWrite });
    * await events.update('id', { happenedAt: FieldValue.serverTimestamp() }); // no cast
    *
@@ -250,27 +402,69 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    *   }
    * }
    */
-  static withSchema<RS extends z.ZodObject<any>, WS extends z.ZodObject<any> = RS>(
+  // Overload 1 — no `readConverter`: `storedSchema` is optional (stored shape defaults to the read
+  // schema, since without a converter the at-rest shape equals the read shape).
+  static withSchema<
+    RS extends z.ZodObject<any>,
+    WS extends z.ZodObject<any> = RS,
+    SS extends z.ZodObject<any> = RS,
+  >(
     db: Firestore,
     collection: string,
     readSchema: RS,
     options?: {
       writeSchema?: WS;
-      readConverter?: ReadConverter<z.infer<RS>>;
+      storedSchema?: SS;
       sentinelPolicy?: SentinelPolicy;
+      allowLegacyDatastoreIds?: boolean;
+      readConverter?: undefined;
     },
-  ): FirestoreRepository<z.infer<RS>, z.infer<WS>>;
+  ): FirestoreRepository<z.output<RS>, z.input<WS>, z.output<SS>, z.output<WS>>;
+  // Overload 2 — `readConverter` present: `storedSchema` is REQUIRED (review A3 / ADR-0018). A
+  // converter can change the field structure vs the read model, so the at-rest query shape cannot be
+  // inferred from the read schema and must be given explicitly.
+  static withSchema<
+    RS extends z.ZodObject<any>,
+    SS extends z.ZodObject<any>,
+    WS extends z.ZodObject<any> = RS,
+  >(
+    db: Firestore,
+    collection: string,
+    readSchema: RS,
+    options: {
+      readConverter: ReadConverter<z.output<RS>>;
+      storedSchema: SS;
+      writeSchema?: WS;
+      sentinelPolicy?: SentinelPolicy;
+      allowLegacyDatastoreIds?: boolean;
+    },
+  ): FirestoreRepository<z.output<RS>, z.input<WS>, z.output<SS>, z.output<WS>>;
   static withSchema(
     db: Firestore,
     collection: string,
     readSchema: z.ZodObject<any>,
     options?: {
       writeSchema?: z.ZodObject<any>;
+      storedSchema?: z.ZodObject<any>;
       readConverter?: ReadConverter<any>;
       sentinelPolicy?: SentinelPolicy;
+      allowLegacyDatastoreIds?: boolean;
     },
-  ): FirestoreRepository<any> {
-    FirestoreRepository.assertSchemaHasRequiredId(readSchema, 'FirestoreRepository.withSchema');
+  ): FirestoreRepository<any, any, any, any> {
+    FirestoreRepository.assertSchemaHasNoTopLevelId(readSchema, 'FirestoreRepository.withSchema');
+    if (options?.writeSchema) {
+      FirestoreRepository.assertSchemaHasNoTopLevelId(
+        options.writeSchema,
+        'FirestoreRepository.withSchema (writeSchema)',
+      );
+    }
+    if (options?.storedSchema) {
+      FirestoreRepository.assertSchemaHasNoTopLevelId(
+        options.storedSchema,
+        'FirestoreRepository.withSchema (storedSchema)',
+      );
+    }
+    FirestoreRepository.assertConverterHasStoredSchema(options, 'FirestoreRepository.withSchema');
     const writeBase = options?.writeSchema ?? readSchema;
     const validator = makeValidator(writeBase, undefined, {
       sentinelPolicy: options?.sentinelPolicy,
@@ -281,46 +475,95 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
       create: validator.schemas.create,
       update: validator.schemas.update,
     });
-    return new FirestoreRepository<any, any>(
+    return new FirestoreRepository<any, any, any, any>(
       db,
       collection,
       validator,
       undefined,
       options?.readConverter,
       schemas,
+      options?.allowLegacyDatastoreIds,
     );
+  }
+
+  /**
+   * Named entry point for an **unvalidated** (schema-less) repository. Prefer this over the positional
+   * constructor when you need a raw repository with options — it makes a security-relevant flag like
+   * `allowLegacyDatastoreIds` discoverable and hard to misplace, instead of a trailing positional
+   * boolean after several `undefined`s (review R7). Types come from the explicit generic `T`; no Zod
+   * validation runs (use {@link FirestoreRepository.withSchema} for that).
+   *
+   * @param db - Firestore database instance
+   * @param collection - Collection path
+   * @param options - Optional settings:
+   *   - `readConverter`: a read-only `fromFirestore(snapshot) => T` mapper (the repository overlays the
+   *     document id). Because this path runs no schema validation, there is no `storedSchema` to
+   *     require: if the converter RESTRUCTURES fields, supply the physical shape as the `StoredData`
+   *     generic yourself (`FirestoreRepository.raw<Read, Write, Stored>(…)`) so query field paths are
+   *     correct — unlike {@link FirestoreRepository.withSchema}, this factory cannot infer it.
+   *   - `allowLegacyDatastoreIds`: opt in to the documented `__id[0-9]+__` Cloud Datastore-import
+   *     document-name form (document segments only; off by default). See ADR-0018 §6.
+   *
+   * @example
+   * // A raw repository that can address imported Datastore numeric ids:
+   * const repo = FirestoreRepository.raw<User>(db, 'users', { allowLegacyDatastoreIds: true });
+   */
+  static raw<T extends object, W extends object = T, S extends object = T>(
+    db: Firestore,
+    collection: string,
+    options?: { readConverter?: ReadConverter<T>; allowLegacyDatastoreIds?: boolean },
+  ): FirestoreRepository<T, W, S, W> {
+    // No independent parsed-output generic: this path runs no parser, so the parsed write output
+    // cannot diverge from the write input `W`. Pinning `WO = W` keeps the schema-less contract sound
+    // (a hook can never be promised a parsed type nothing produces — review S1). The args cast is
+    // because `RepositoryConstructorArgs<T, W, W>` is a deferred conditional under a generic `W`; the
+    // optional-validator branch is the correct one here (WO === W).
+    const args = [
+      db,
+      collection,
+      undefined,
+      undefined,
+      options?.readConverter,
+      undefined,
+      options?.allowLegacyDatastoreIds,
+    ] as unknown as RepositoryConstructorArgs<T, W, W>;
+    return new FirestoreRepository<T, W, S, W>(...args);
   }
 
   /**
    * Access a subcollection under a specific parent document.
    *
    * Mirrors {@link FirestoreRepository.withSchema}: read/write types are inferred from schema values,
-   * a required `readSchema` (with a top-level `id`) drives reads, and an optional `writeSchema`
-   * overlay drives cast-free combinator writes. Read converters are read-only (a
-   * `fromFirestore(snapshot) => T` mapper), explicit per repository instance, and never inherited
-   * from parent repositories — pass one in `options.readConverter` when needed.
+   * the `readSchema` describes the read model (no top-level `id`), and an optional `writeSchema`
+   * overlay drives cast-free combinator writes. Read converters are read-only (a `fromFirestore(snapshot) => T`
+   * mapper), explicit per repository instance, and never inherited from parent repositories — pass one
+   * in `options.readConverter` when needed. The `parentId` and `subcollectionName` are validated as
+   * single path segments (no slashes / reserved values).
    *
    * For an unvalidated subcollection, construct a repository directly against the full path, e.g.
    * `new FirestoreRepository<Order>(db, `${parentPath}/${parentId}/orders`)`.
    *
-   * @param parentId - Parent document id
-   * @param subcollectionName - Subcollection name
-   * @param readSchema - Canonical read schema; must include a required top-level `id` field
-   * @param options - Optional `writeSchema` overlay, `readConverter`, and `sentinelPolicy` (see
-   *   {@link FirestoreRepository.withSchema})
+   * @param parentId - Parent document id (a single, valid path segment)
+   * @param subcollectionName - Subcollection name (a single, valid collection segment)
+   * @param readSchema - Canonical read schema describing the **read model** (no top-level `id`)
+   * @param options - Optional `writeSchema` overlay, `storedSchema` (required with a `readConverter`),
+   *   `readConverter`, and `sentinelPolicy` (see {@link FirestoreRepository.withSchema})
    *
    * @example
    * // Access orders for a specific user
-   * const orderSchema = z.object({ id: z.string(), product: z.string(), price: z.number() });
+   * const orderSchema = z.object({ product: z.string(), price: z.number() });
    * const userOrders = userRepo.subcollection('user-123', 'orders', orderSchema);
    * await userOrders.create({ product: 'Widget', price: 99 });
    *
    * @example
-   * // With a write overlay (cast-free combinator writes) and a read-only converter
-   * const orderWrite = z.object({ id: z.string(), product: z.string(), price: zNumberWrite() });
+   * // With a write overlay (cast-free combinator writes) and a read-only converter. A `readConverter`
+   * // requires a `storedSchema` describing the at-rest/physical document (ADR-0018).
+   * const orderWrite = z.object({ product: z.string(), price: zNumberWrite() });
+   * const orderStored = z.object({ product: z.string(), priceCents: z.number() });
    * const userOrders = userRepo.subcollection('user-123', 'orders', orderSchema, {
    *   writeSchema: orderWrite,
    *   readConverter: orderConverter,
+   *   storedSchema: orderStored,
    * });
    * await userOrders.update('o1', { price: FieldValue.increment(5) }); // no cast
    *
@@ -330,30 +573,77 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    *   .subcollection('post-123', 'comments', commentSchema)
    *   .subcollection('comment-456', 'replies', replySchema);
    */
-  subcollection<RS extends z.ZodObject<any>, WS extends z.ZodObject<any> = RS>(
+  // Overload 1 — no `readConverter`: `storedSchema` optional (see withSchema).
+  subcollection<
+    RS extends z.ZodObject<any>,
+    WS extends z.ZodObject<any> = RS,
+    SS extends z.ZodObject<any> = RS,
+  >(
     parentId: ID,
     subcollectionName: string,
     readSchema: RS,
     options?: {
       writeSchema?: WS;
-      readConverter?: ReadConverter<z.infer<RS>>;
+      storedSchema?: SS;
       sentinelPolicy?: SentinelPolicy;
+      allowLegacyDatastoreIds?: boolean;
+      readConverter?: undefined;
     },
-  ): FirestoreRepository<z.infer<RS>, z.infer<WS>>;
+  ): FirestoreRepository<z.output<RS>, z.input<WS>, z.output<SS>, z.output<WS>>;
+  // Overload 2 — `readConverter` present: `storedSchema` REQUIRED (review A3 / ADR-0018).
+  subcollection<
+    RS extends z.ZodObject<any>,
+    SS extends z.ZodObject<any>,
+    WS extends z.ZodObject<any> = RS,
+  >(
+    parentId: ID,
+    subcollectionName: string,
+    readSchema: RS,
+    options: {
+      readConverter: ReadConverter<z.output<RS>>;
+      storedSchema: SS;
+      writeSchema?: WS;
+      sentinelPolicy?: SentinelPolicy;
+      allowLegacyDatastoreIds?: boolean;
+    },
+  ): FirestoreRepository<z.output<RS>, z.input<WS>, z.output<SS>, z.output<WS>>;
   subcollection(
     parentId: ID,
     subcollectionName: string,
     readSchema: z.ZodObject<any>,
     options?: {
       writeSchema?: z.ZodObject<any>;
+      storedSchema?: z.ZodObject<any>;
       readConverter?: ReadConverter<any>;
       sentinelPolicy?: SentinelPolicy;
+      allowLegacyDatastoreIds?: boolean;
     },
-  ): FirestoreRepository<any> {
+  ): FirestoreRepository<any, any, any, any> {
+    // Validate the parent id and subcollection name as single path segments before composing the
+    // path (review B1): a slash-bearing parentId/name would otherwise traverse to an arbitrary
+    // nested collection.
+    this.validateId(parentId, 'subcollection parent id');
+    validateCollectionSegment(subcollectionName, 'subcollection name');
     const newPath = `${this.collectionPath}/${parentId}/${subcollectionName}`;
-    FirestoreRepository.assertSchemaHasRequiredId(
+    FirestoreRepository.assertSchemaHasNoTopLevelId(
       readSchema,
       'FirestoreRepository.subcollection(..., readSchema, ...)',
+    );
+    if (options?.writeSchema) {
+      FirestoreRepository.assertSchemaHasNoTopLevelId(
+        options.writeSchema,
+        'FirestoreRepository.subcollection (writeSchema)',
+      );
+    }
+    if (options?.storedSchema) {
+      FirestoreRepository.assertSchemaHasNoTopLevelId(
+        options.storedSchema,
+        'FirestoreRepository.subcollection (storedSchema)',
+      );
+    }
+    FirestoreRepository.assertConverterHasStoredSchema(
+      options,
+      'FirestoreRepository.subcollection',
     );
     const writeBase = options?.writeSchema ?? readSchema;
     const validator = makeValidator(writeBase, undefined, {
@@ -365,13 +655,14 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
       create: validator.schemas.create,
       update: validator.schemas.update,
     });
-    return new FirestoreRepository<any, any>(
+    return new FirestoreRepository<any, any, any, any>(
       this.db,
       newPath,
       validator,
       newPath, // for tracking parent path for reference
       options?.readConverter,
       schemas,
+      options?.allowLegacyDatastoreIds ?? this.allowLegacyDatastoreIds,
     );
   }
 
@@ -464,14 +755,17 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    *   await auditLog.record('users_deleted', { count: ids.length });
    * });
    */
-  on(event: Exclude<SingleHookEvent, 'beforeUpdate' | 'afterUpdate'>, fn: SingleHookFn<W>): void;
+  on(event: 'beforeCreate', fn: BeforeCreateHookFn<W>): void;
+  on(event: 'afterCreate', fn: AfterCreateHookFn<WO>): void;
   on(event: 'beforeUpdate', fn: BeforeUpdateHookFn<W>): void;
   on(event: 'afterUpdate', fn: AfterUpdateHookFn): void;
-  on(event: 'beforeBulkCreate' | 'afterBulkCreate', fn: BulkCreateHookFn<W>): void;
+  on(event: 'beforeDelete' | 'afterDelete', fn: DeleteHookFn<T>): void;
+  on(event: 'beforeBulkCreate', fn: BeforeBulkCreateHookFn<W>): void;
+  on(event: 'afterBulkCreate', fn: AfterBulkCreateHookFn<WO>): void;
   on(event: 'beforeBulkUpdate', fn: BeforeBulkUpdateHookFn<W>): void;
   on(event: 'afterBulkUpdate', fn: AfterBulkUpdateHookFn): void;
   on(event: 'beforeBulkDelete' | 'afterBulkDelete', fn: BulkDeleteHookFn<T>): void;
-  on(event: HookEvent, fn: AnyHookFn<T, W>): void {
+  on(event: HookEvent, fn: AnyHookFn<T, W, WO>): void {
     if (!this.hooks[event]) this.hooks[event] = [];
     this.hooks[event]!.push(fn);
   }
@@ -479,6 +773,22 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
   private async runHooks(event: HookEvent, data: any) {
     const fns = this.hooks[event] || [];
     for (const fn of fns) await fn(data);
+  }
+
+  // Typed after-create emitters (review R4). Dispatching through these — instead of calling the
+  // untyped `runHooks` directly with an `as Record<string, any>` payload — makes the compiler verify
+  // that the event carries the exact parsed create OUTPUT (`CreateOutput<WO>`): an accidentally
+  // input-shaped value fails to compile at the call. The emitter owns freezing the envelope so an
+  // after-hook cannot mutate identity/accounting (review R2); the `id` is added here so the frozen
+  // payload never round-trips a generic `Omit` through a spread at the call site.
+  private async emitAfterCreate(data: CreateOutput<WO>, id: ID): Promise<void> {
+    await this.runHooks('afterCreate', Object.freeze({ ...data, id }));
+  }
+
+  private async emitAfterBulkCreate(
+    data: readonly (CreateOutput<WO> & { id: ID })[],
+  ): Promise<void> {
+    await this.runHooks('afterBulkCreate', Object.freeze(data.map(doc => Object.freeze(doc))));
   }
 
   /**
@@ -619,7 +929,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * Validate create payloads using configured schema when available.
    * Falls back to returning the original payload when validation is disabled.
    */
-  private validateCreateData(data: CreateInput<W>): CreateInput<W> {
+  private validateCreateData(data: CreateInput<W>): CreateOutput<WO> {
     const createPayload = this.stripTopLevelId(data as Record<string, any>) as CreateInput<W>;
     // Firestore only interprets dot-notation as a field path on update(); set()/add() would create a
     // field whose *name* literally contains a dot. The types already forbid dotted keys on create,
@@ -630,9 +940,12 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
           'them as literal field names). Use a nested object, or update() for field-path merges.',
       );
     }
-    return (
-      this.validator ? this.validator.parseCreate(createPayload) : createPayload
-    ) as CreateInput<W>;
+    // parseCreate returns the exact parsed create OUTPUT (CreateOutput<WO>) — that is what gets
+    // written and what after-create hooks observe. The unvalidated branch is the one honest cast:
+    // with no parser, WO defaults to W and the raw (possibly sentinel-bearing) input IS the output.
+    return this.validator
+      ? this.validator.parseCreate(createPayload)
+      : (createPayload as unknown as CreateOutput<WO>);
   }
 
   /**
@@ -667,7 +980,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    *
    * @param data - Document data (without ID)
    * @param options - `{ returnDoc: true }` to return the converted read model instead of `{ id }`
-   * @returns `{ id }` by default, or the created document (`T & { id }`) when `returnDoc` is true
+   * @returns `{ id }` by default, or the created document (`FirestoreDocument<T>`) when `returnDoc` is true
    * @throws {ValidationError} If schema validation fails
    *
    * @example
@@ -682,12 +995,12 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * );
    * console.log(user.name);
    */
-  async create(data: CreateInput<W>, options: { returnDoc: true }): Promise<T & { id: ID }>;
+  async create(data: CreateInput<W>, options: { returnDoc: true }): Promise<FirestoreDocument<T>>;
   async create(data: CreateInput<W>, options?: { returnDoc?: false }): Promise<{ id: ID }>;
   async create(
     data: CreateInput<W>,
     options?: { returnDoc?: boolean },
-  ): Promise<{ id: ID } | (T & { id: ID })> {
+  ): Promise<{ id: ID } | FirestoreDocument<T>> {
     try {
       const docToCreate = { ...(data as Record<string, any>) } as Record<string, any>;
       await this.runHooks('beforeCreate', docToCreate);
@@ -695,8 +1008,10 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
 
       const docRef = await this.writeCol().add(validData as any);
 
-      // Hooks receive the validated write model plus the generated id.
-      await this.runHooks('afterCreate', { ...(validData as Record<string, any>), id: docRef.id });
+      // After-create hooks receive the parsed write OUTPUT plus the generated id, in a frozen
+      // envelope (review R4/R2): the type is verified by emitAfterCreate and the identity/accounting
+      // cannot be mutated by a hook.
+      await this.emitAfterCreate(validData, docRef.id);
 
       if (options?.returnDoc === true) {
         return await this.getByIdOrThrow(docRef.id);
@@ -720,7 +1035,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    *
    * @param dataArray - Array of documents to create
    * @param options - `{ returnDoc: true }` to return the converted read models instead of `{ id }[]`
-   * @returns `{ id }[]` by default, or the created documents (`(T & { id })[]`) when `returnDoc` is true
+   * @returns `{ id }[]` by default, or the created documents (`(FirestoreDocument<T>)[]`) when `returnDoc` is true
    * @throws {ValidationError} If any document fails validation
    *
    * @example
@@ -737,7 +1052,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
   async bulkCreate(
     dataArray: CreateInput<W>[],
     options: { returnDoc: true },
-  ): Promise<(T & { id: ID })[]>;
+  ): Promise<FirestoreDocument<T>[]>;
   async bulkCreate(
     dataArray: CreateInput<W>[],
     options?: { returnDoc?: false },
@@ -745,41 +1060,54 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
   async bulkCreate(
     dataArray: CreateInput<W>[],
     options?: { returnDoc?: boolean },
-  ): Promise<{ id: ID }[] | (T & { id: ID })[]> {
+  ): Promise<{ id: ID }[] | FirestoreDocument<T>[]> {
     try {
       const colRef = this.writeCol();
 
-      // Draft docs: raw input + a pre-assigned id. This is what `beforeBulkCreate` sees and may
-      // mutate before validation.
-      const drafts: (CreateInput<W> & { id: ID })[] = dataArray.map(data => {
-        const docRef = colRef.doc();
-        return {
-          ...(data as Record<string, any>),
-          id: docRef.id,
-        } as unknown as CreateInput<W> & { id: ID };
-      });
+      // Draft docs: raw input + a pre-assigned auto id. This is what `beforeBulkCreate` sees and may
+      // mutate before validation. Capture the assigned ids up front (review B2) so a hook that mutates
+      // a draft's `id` cannot redirect the write target — the write ref and the returned id come from
+      // the captured id, while the (possibly hook-mutated) draft data is still what gets validated.
+      const capturedIds = dataArray.map(() => colRef.doc().id);
+      const drafts: (CreateInput<W> & { id: ID })[] = dataArray.map(
+        (data, index) =>
+          FirestoreRepository.withReadonlyId(
+            { ...(data as Record<string, any>) },
+            capturedIds[index],
+          ) as unknown as CreateInput<W> & { id: ID },
+      );
+      // Stable pre-hook work list (review A1): each captured id is paired with its draft OBJECT
+      // before the hook runs. A `beforeBulkCreate` hook may mutate a draft's DATA fields in place, but
+      // reordering, splicing, or replacing entries in the array it receives cannot change which id
+      // gets which data — the write loop iterates THIS list, not the hook-handed `drafts` array.
+      const work = drafts.map((draft, index) => ({ id: capturedIds[index], draft }));
 
+      // Freeze the array the hook sees (review R2): membership/order/length are immutable and each
+      // draft's `id` is already non-writable, while `data` fields stay mutable (shared with `work`),
+      // so documented in-place data mutation still reaches the write.
+      Object.freeze(drafts);
       await this.runHooks('beforeBulkCreate', drafts);
 
       const actions: ((batch: FirebaseFirestore.WriteBatch) => void)[] = [];
-      // Result/hook payload is built from the VALIDATED data (never the raw draft), so any key Zod
-      // strips is absent from both the return value and the afterBulkCreate payload.
-      const validatedDocs: (CreateInput<W> & { id: ID })[] = [];
+      // Result/hook payload is built from the VALIDATED create OUTPUT (never the raw draft), so any
+      // key Zod strips is absent from both the return value and the afterBulkCreate payload, and the
+      // element type is the exact parsed output (review R4).
+      const validatedDocs: (CreateOutput<WO> & { id: ID })[] = [];
 
-      for (const draft of drafts) {
-        const { id } = draft;
+      for (const { id, draft } of work) {
         const docRef = colRef.doc(id);
         const validData = this.validateCreateData(draft as CreateInput<W>);
 
         actions.push(batch => batch.set(docRef, validData as any));
         validatedDocs.push({
-          ...(validData as Record<string, any>),
+          ...validData,
           id,
-        } as unknown as CreateInput<W> & { id: ID });
+        });
       }
 
       await this.commitInChunks(actions);
-      await this.runHooks('afterBulkCreate', validatedDocs);
+      // emitAfterBulkCreate freezes the array and each doc so the hook cannot mutate the accounting.
+      await this.emitAfterBulkCreate(validatedDocs);
 
       if (options?.returnDoc === true) {
         return await Promise.all(validatedDocs.map(doc => this.getByIdOrThrow(doc.id)));
@@ -806,13 +1134,15 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * }
    *
    */
-  async getById(id: ID): Promise<(T & { id: ID }) | null> {
+  async getById(id: ID): Promise<FirestoreDocument<T> | null> {
+    this.validateId(id);
     try {
       const snapshot = await this.readCol().doc(id).get();
       if (!snapshot.exists) return null;
 
       const data = snapshot.data() as any;
-      return { ...(data as T), id };
+      // Overlay the authoritative document name (snapshot.id), never the caller-supplied argument.
+      return { ...(data as T), id: snapshot.id };
     } catch (error: any) {
       throw parseFirestoreError(error);
     }
@@ -827,7 +1157,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * @returns Document with ID
    * @throws {NotFoundError} If no document exists for the provided id
    */
-  async getByIdOrThrow(id: ID): Promise<T & { id: ID }> {
+  async getByIdOrThrow(id: ID): Promise<FirestoreDocument<T>> {
     const doc = await this.getById(id);
     if (!doc) {
       throw new NotFoundError(`Document with id ${id} not found`);
@@ -852,7 +1182,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * `const doc = repo.fromSnapshot(snap); if (doc) repo.validate(doc);`.
    *
    * @param snapshot - A Firestore `DocumentSnapshot` / `QueryDocumentSnapshot`
-   * @returns The document as `T & { id }`, or `null` if the snapshot does not exist
+   * @returns The document as `FirestoreDocument<T>`, or `null` if the snapshot does not exist
    *
    * @example
    * // firebase-functions v2 trigger
@@ -862,7 +1192,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    *   // `user` is a fully reconstructed User & { id }
    * });
    */
-  fromSnapshot(snapshot: FirebaseFirestore.DocumentSnapshot): (T & { id: ID }) | null {
+  fromSnapshot(snapshot: FirebaseFirestore.DocumentSnapshot): FirestoreDocument<T> | null {
     if (!snapshot.exists) return null;
     const data = this.readConverter
       ? this.readConverter(snapshot as FirebaseFirestore.QueryDocumentSnapshot)
@@ -890,7 +1220,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * schema is a programmer error and throws a plain `Error` (not `ValidationError`).
    *
    * @param data - A single read document, or an array of read documents
-   * @returns The parsed document(s) as `T & { id }`
+   * @returns The parsed document(s) as `FirestoreDocument<T>`
    * @throws {ValidationError} If any document fails `schemas.read` validation
    * @throws {Error} If the repository was constructed without a schema
    *
@@ -909,9 +1239,11 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * // List — all-or-nothing
    * const users = repo.validate(await repo.getAll());
    */
-  validate(data: T & { id: ID }): T & { id: ID };
-  validate(data: (T & { id: ID })[]): (T & { id: ID })[];
-  validate(data: (T & { id: ID }) | (T & { id: ID })[]): (T & { id: ID }) | (T & { id: ID })[] {
+  validate(data: FirestoreDocument<T>): FirestoreDocument<T>;
+  validate(data: FirestoreDocument<T>[]): FirestoreDocument<T>[];
+  validate(
+    data: FirestoreDocument<T> | FirestoreDocument<T>[],
+  ): FirestoreDocument<T> | FirestoreDocument<T>[] {
     const readSchema = this.requireReadSchemaForValidate('validate');
     if (Array.isArray(data)) {
       // All-or-nothing: parse each element; the first Zod failure becomes ValidationError.
@@ -949,9 +1281,11 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    *   console.error(result.error.issues);
    * }
    */
-  safeValidate(data: T & { id: ID }): SafeResult<T>;
-  safeValidate(data: (T & { id: ID })[]): SafeResult<T>[];
-  safeValidate(data: (T & { id: ID }) | (T & { id: ID })[]): SafeResult<T> | SafeResult<T>[] {
+  safeValidate(data: FirestoreDocument<T>): SafeResult<T>;
+  safeValidate(data: FirestoreDocument<T>[]): SafeResult<T>[];
+  safeValidate(
+    data: FirestoreDocument<T> | FirestoreDocument<T>[],
+  ): SafeResult<T> | SafeResult<T>[] {
     const readSchema = this.requireReadSchemaForValidate('safeValidate');
     if (Array.isArray(data)) {
       // Per-item results so one bad document does not nuke the batch.
@@ -979,10 +1313,18 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * Parse a single read value through `schemas.read`, returning the parsed output.
    * Wraps Zod failures as {@link ValidationError} to match write-path error handling.
    */
-  private parseReadValue(readSchema: z.ZodObject<any>, data: T & { id: ID }): T & { id: ID } {
+  private parseReadValue(
+    readSchema: z.ZodObject<any>,
+    data: FirestoreDocument<T>,
+  ): FirestoreDocument<T> {
     try {
-      // Return the parsed value — Zod may transform/coerce, so callers get the schema output.
-      return readSchema.parse(data) as T & { id: ID };
+      // Separate the repository-owned `id` from the read data BEFORE parsing (review A4). The read
+      // schema describes the read model's own fields (no top-level `id`); passing the metadata `id`
+      // in would be rejected by a STRICT schema (`z.strictObject` / `.strict()`) as an unrecognized
+      // key. Parse only the read data (Zod transforms/coercions apply), then re-attach the id.
+      const { id, ...readData } = data as Record<string, unknown> & { id: ID };
+      const parsed = readSchema.parse(readData) as Record<string, unknown>;
+      return { ...parsed, id } as FirestoreDocument<T>;
     } catch (err) {
       if (err instanceof z.ZodError) {
         throw new ValidationError(err.issues);
@@ -994,10 +1336,19 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
   /**
    * Safe-parse a single read value through `schemas.read`, normalizing failures to ValidationError.
    */
-  private safeParseReadValue(readSchema: z.ZodObject<any>, data: T & { id: ID }): SafeResult<T> {
-    const result = readSchema.safeParse(data);
+  private safeParseReadValue(
+    readSchema: z.ZodObject<any>,
+    data: FirestoreDocument<T>,
+  ): SafeResult<T> {
+    // Separate the repository-owned `id` before parsing (review A4 — strict schemas reject it as an
+    // unrecognized key), then re-attach it on success.
+    const { id, ...readData } = data as Record<string, unknown> & { id: ID };
+    const result = readSchema.safeParse(readData);
     if (result.success) {
-      return { success: true, data: result.data as T & { id: ID } };
+      return {
+        success: true,
+        data: { ...(result.data as Record<string, unknown>), id } as FirestoreDocument<T>,
+      };
     }
     return { success: false, error: new ValidationError(result.error.issues) };
   }
@@ -1046,7 +1397,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
     id: ID,
     data: UpdateInput<W>,
     options: UpdateOptions & { returnDoc: true },
-  ): Promise<T & { id: ID }>;
+  ): Promise<FirestoreDocument<T>>;
   async update(
     id: ID,
     data: UpdateInput<W>,
@@ -1056,10 +1407,17 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
     id: ID,
     data: UpdateInput<W>,
     options?: UpdateOptions,
-  ): Promise<{ id: ID } | (T & { id: ID })> {
+  ): Promise<{ id: ID } | FirestoreDocument<T>> {
+    this.validateId(id);
     try {
       const docRef = this.writeCol().doc(id);
-      const toUpdate = { ...(data as Record<string, any>), id } as UpdateInput<W> & { id: ID };
+      // The `id` is non-writable on the before-hook payload (review R2): a hook may mutate data
+      // fields but cannot repoint identity or forge the id a later hook observes. The write target is
+      // `docRef` (captured from the method arg), never this payload.
+      const toUpdate = FirestoreRepository.withReadonlyId(
+        { ...(data as Record<string, any>) },
+        id,
+      ) as UpdateInput<W> & { readonly id: ID };
 
       await this.runHooks('beforeUpdate', toUpdate);
       // In merge mode, normalize nested objects into field paths BEFORE validating so each leaf is
@@ -1074,7 +1432,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
 
       this.assertNonEmptyUpdatePayload(writePayload as Record<string, any>);
       await docRef.update(writePayload as any);
-      await this.runHooks('afterUpdate', { id });
+      await this.runHooks('afterUpdate', Object.freeze({ id }));
 
       // When returnDoc is enabled, we re-read the document after write completion.
       // This guarantees callers receive the persisted document shape from Firestore.
@@ -1095,13 +1453,17 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * Convenience alias for merge-style partial updates.
    * Equivalent to update(id, data, { merge: true }).
    */
-  async patch(id: ID, data: UpdateInput<W>, options: { returnDoc: true }): Promise<T & { id: ID }>;
+  async patch(
+    id: ID,
+    data: UpdateInput<W>,
+    options: { returnDoc: true },
+  ): Promise<FirestoreDocument<T>>;
   async patch(id: ID, data: UpdateInput<W>, options?: { returnDoc?: false }): Promise<{ id: ID }>;
   async patch(
     id: ID,
     data: UpdateInput<W>,
     options?: { returnDoc?: boolean },
-  ): Promise<{ id: ID } | (T & { id: ID })> {
+  ): Promise<{ id: ID } | FirestoreDocument<T>> {
     if (options?.returnDoc === true) {
       return this.update(id, data, { merge: true, returnDoc: true });
     }
@@ -1150,14 +1512,32 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
       updates.map(u => u.id),
       merge ? 'bulkPatch' : 'bulkUpdate',
     );
+    updates.forEach(u => this.validateId(u.id));
+    // Stable pre-hook work list (review A1): pair each captured id with its update ENTRY object
+    // before the hook runs. A beforeBulkUpdate hook may mutate an entry's `data` in place
+    // (documented), but reordering, splicing, replacing entries, or changing an `id` cannot redirect
+    // a write or desync data from its target — the loop iterates THIS list, taking the id from the
+    // captured value and the data from the captured entry.
+    const work = updates.map(entry => ({ id: entry.id, entry }));
+    // The hook sees a FROZEN view (review R2/S3): the array (membership/order), each entry's `id`,
+    // AND each entry wrapper are frozen — so a hook can neither reorder/splice nor REPLACE an entry's
+    // `data` object. The referenced `data` object is left mutable (shared with `work`), so a
+    // documented in-place `data.field = …` mutation still reaches the write, but `entry.data = {…}`
+    // now throws instead of silently being dropped. Built from a shallow copy so the caller's own
+    // array/entries are never mutated.
+    const hookView = Object.freeze(
+      updates.map(entry =>
+        Object.freeze(FirestoreRepository.withReadonlyId({ data: entry.data }, entry.id)),
+      ),
+    );
     try {
-      await this.runHooks('beforeBulkUpdate', updates);
+      await this.runHooks('beforeBulkUpdate', hookView);
       const actions: ((batch: FirebaseFirestore.WriteBatch) => void)[] = [];
       const ids: ID[] = [];
 
-      for (const { id, data } of updates) {
+      for (const { id, entry } of work) {
         const docRef = this.writeCol().doc(id);
-        const normalizedData = merge ? this.normalizeUpdateDataForMerge(data) : data;
+        const normalizedData = merge ? this.normalizeUpdateDataForMerge(entry.data) : entry.data;
         const validData = this.validateUpdateData(normalizedData);
         const writePayload = this.sanitizeUpdateData(validData);
 
@@ -1167,7 +1547,9 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
       }
 
       await this.commitInChunks(actions);
-      await this.runHooks('afterBulkUpdate', { ids });
+      // Freeze the whole envelope (review R2): the `ids` property cannot be reassigned to a forged
+      // array, so a first hook cannot corrupt what a second hook observes.
+      await this.runHooks('afterBulkUpdate', Object.freeze({ ids: Object.freeze([...ids]) }));
       return ids.map(id => ({ id }));
     } catch (error: any) {
       if (error instanceof z.ZodError) throw new ValidationError(error.issues);
@@ -1224,13 +1606,18 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    *   notifications: true
    * });
    */
-  async upsert(id: ID, data: CreateInput<W>, options: { returnDoc: true }): Promise<T & { id: ID }>;
+  async upsert(
+    id: ID,
+    data: CreateInput<W>,
+    options: { returnDoc: true },
+  ): Promise<FirestoreDocument<T>>;
   async upsert(id: ID, data: CreateInput<W>, options?: { returnDoc?: false }): Promise<{ id: ID }>;
   async upsert(
     id: ID,
     data: CreateInput<W>,
     options?: { returnDoc?: boolean },
-  ): Promise<{ id: ID } | (T & { id: ID })> {
+  ): Promise<{ id: ID } | FirestoreDocument<T>> {
+    this.validateId(id);
     try {
       // upsert would behave inconsistently with dot-notation keys — the create path (new doc) writes
       // a literal dot-in-name field, while the update path (existing doc) merges the field path. The
@@ -1251,19 +1638,20 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
         return await this.update(id, data as unknown as UpdateInput<W>);
       }
 
-      const docToCreate = {
-        ...(data as Record<string, any>),
+      // The `id` is non-writable on the before-hook payload (review R2): a hook may mutate data but
+      // cannot repoint identity. The write target is `writeCol().doc(id)`, captured from the arg.
+      const docToCreate = FirestoreRepository.withReadonlyId(
+        { ...(data as Record<string, any>) },
         id,
-      } as Record<string, any>;
+      );
       await this.runHooks('beforeCreate', docToCreate);
       const validData = this.validateCreateData(docToCreate as CreateInput<W>);
-      const validatedDocToCreate = { ...(validData as Record<string, any>) };
 
       const docRef = this.writeCol().doc(id);
-      await docRef.set(validatedDocToCreate as any);
-      const created = { ...validatedDocToCreate, id };
+      await docRef.set(validData as any);
 
-      await this.runHooks('afterCreate', created);
+      // After-create hooks observe the parsed output + id in a frozen envelope (review R4/R2).
+      await this.emitAfterCreate(validData, id);
       if (shouldReturnDoc) {
         return await this.getByIdOrThrow(id);
       }
@@ -1299,16 +1687,20 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * }
    */
   async delete(id: ID): Promise<void> {
+    this.validateId(id);
     try {
       const docRef = this.readCol().doc(id);
       const snapshot = await docRef.get();
 
       if (!snapshot.exists) throw new NotFoundError(`Document with id ${id} not found`);
 
-      const docData = { ...(snapshot.data() as T), id };
+      // Deep-freeze the delete envelope (review R2) so neither hook can forge the id OR nested data
+      // the other (or an audit log) observes; after-delete gets a SEPARATE top-level object over the
+      // same deeply-frozen data. Delete payloads are observe-only (no data-mutation contract).
+      const docData = deepFreeze({ ...(snapshot.data() as T), id: snapshot.id });
       await this.runHooks('beforeDelete', docData);
       await docRef.delete();
-      await this.runHooks('afterDelete', docData);
+      await this.runHooks('afterDelete', deepFreeze({ ...docData }));
     } catch (error: any) {
       throw parseFirestoreError(error);
     }
@@ -1339,36 +1731,44 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * await userRepo.bulkDelete(testUserIds);
    */
   async bulkDelete(ids: ID[]): Promise<number> {
+    ids.forEach(id => this.validateId(id));
     this.assertNoDuplicateIds(ids, 'bulkDelete');
     try {
       const snapshots = await Promise.all(ids.map(id => this.readCol().doc(id).get()));
+      const existing = snapshots.filter(snapshot => snapshot.exists);
 
-      const docsData: (T & { id: ID })[] = snapshots
-        .filter(snapshot => snapshot.exists)
-        .map(snapshot => ({
-          ...(snapshot.data() as T),
-          id: snapshot.id,
-        }));
+      if (existing.length === 0) return 0;
 
-      if (docsData.length == 0) return 0;
+      // Capture the delete targets and ids from the resolved snapshots BEFORE running the hook
+      // (review A1/B2): a `beforeBulkDelete` hook must not be able to redirect a delete, change
+      // membership, or corrupt the count. The write refs come from `targetRefs`; the event arrays are
+      // FROZEN (and each document is frozen) so a hook cannot splice/reorder/repoint them, and the
+      // returned count comes from a captured number. Before- and after-hooks get separate (frozen)
+      // event objects so the after-event is never a hook-observed before-event.
+      const targetRefs = existing.map(snapshot => this.writeCol().doc(snapshot.id));
+      const capturedIds = Object.freeze(existing.map(snapshot => snapshot.id));
+      // deepFreeze (not shallow) so a beforeBulkDelete hook cannot mutate NESTED document data that a
+      // later afterBulkDelete hook observes (review R2). Delete documents are observe-only.
+      const docsData = Object.freeze(
+        existing.map(snapshot => deepFreeze({ ...(snapshot.data() as T), id: snapshot.id })),
+      ) as readonly FirestoreDocument<T>[];
+      const deletedCount = capturedIds.length;
 
-      await this.runHooks('beforeBulkDelete', {
-        ids: docsData.map(d => d.id),
-        documents: docsData,
-      });
+      await this.runHooks(
+        'beforeBulkDelete',
+        Object.freeze({ ids: capturedIds, documents: docsData }),
+      );
 
-      const actions: ((batch: FirebaseFirestore.WriteBatch) => void)[] = [];
-      for (const doc of docsData) {
-        const docRef = this.writeCol().doc(doc.id);
-        actions.push(batch => batch.delete(docRef));
-      }
+      const actions = targetRefs.map(
+        ref => (batch: FirebaseFirestore.WriteBatch) => batch.delete(ref),
+      );
 
       await this.commitInChunks(actions);
-      await this.runHooks('afterBulkDelete', {
-        ids: docsData.map(d => d.id),
-        documents: docsData,
-      });
-      return docsData.length;
+      await this.runHooks(
+        'afterBulkDelete',
+        Object.freeze({ ids: capturedIds, documents: docsData }),
+      );
+      return deletedCount;
     } catch (error: any) {
       throw parseFirestoreError(error);
     }
@@ -1390,7 +1790,10 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * // Find orders by status
    * const pendingOrders = await orderRepo.findByField('status', 'pending');
    */
-  async findByField(field: FieldPaths<T> | FieldPath, value: unknown): Promise<(T & { id: ID })[]> {
+  async findByField(
+    field: FieldPaths<Omit<S, 'id'>> | FieldPath,
+    value: unknown,
+  ): Promise<FirestoreDocument<T>[]> {
     try {
       const snapshot = await this.readCol()
         .where(field as string | FieldPath, '==', value)
@@ -1426,9 +1829,9 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * }
    */
   async getOneByField(
-    field: FieldPaths<T> | FieldPath,
+    field: FieldPaths<Omit<S, 'id'>> | FieldPath,
     value: unknown,
-  ): Promise<(T & { id: ID }) | null> {
+  ): Promise<FirestoreDocument<T> | null> {
     try {
       // We add `limit(1)` so Firestore only returns one document even if multiple matches exist.
       // This keeps reads/costs low and makes the method intentionally "first-match" oriented.
@@ -1460,9 +1863,9 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * @throws {ConflictError} If more than one document matches the provided field/value
    */
   async getOneByFieldOrThrow(
-    field: FieldPaths<T> | FieldPath,
+    field: FieldPaths<Omit<S, 'id'>> | FieldPath,
     value: unknown,
-  ): Promise<T & { id: ID }> {
+  ): Promise<FirestoreDocument<T>> {
     try {
       // We query with limit(2) so we can efficiently detect duplicate matches
       // without paying for an unbounded query read.
@@ -1499,9 +1902,10 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    */
   listenOne(
     id: ID,
-    callback: (item: T & { id: ID }) => void,
+    callback: (item: FirestoreDocument<T>) => void,
     onError?: (error: Error) => void,
   ): () => void {
+    this.validateId(id);
     try {
       return this.readCol()
         .doc(id)
@@ -1545,7 +1949,7 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * // Fetch the entire users collection
    * const users = await userRepo.getAll();
    */
-  async getAll(): Promise<(T & { id: ID })[]> {
+  async getAll(): Promise<FirestoreDocument<T>[]> {
     try {
       const snapshot = await this.readCol().get();
       return snapshot.docs.map(doc => ({ ...(doc.data() as T), id: doc.id }));
@@ -1582,15 +1986,45 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    *   .orderBy('price', 'desc')
    *   .paginate(20, lastCursor);
    */
-  query(): FirestoreQueryBuilder<T, W> {
-    return new FirestoreQueryBuilder<T, W>(
+  query(): FirestoreQueryBuilder<T, W, S> {
+    return new FirestoreQueryBuilder<T, W, S>(
       this.readCol(),
       this.readCol(),
       this.db,
       this.commitInChunks.bind(this),
       this.runHooks.bind(this),
       this.validateUpdateData.bind(this),
+      this.allowLegacyDatastoreIds,
     );
+  }
+
+  /**
+   * Validate an untrusted string as a document id for this repository, returning it for use with the
+   * repository's id-taking methods. This is the explicit trust boundary for ids arriving from outside
+   * (route params, queue payloads, external references): it throws {@link InvalidDocumentIdError} for
+   * anything Firestore would reject, so callers can validate once at the edge.
+   *
+   * @example
+   * const id = userRepo.id(req.params.userId); // throws InvalidDocumentIdError if malformed
+   * const user = await userRepo.getById(id);
+   */
+  id(raw: string): ID {
+    return this.validateId(raw);
+  }
+
+  /**
+   * Generate a new, validated auto-id **without** writing a document. The id is independent of any
+   * later write — `create()` (via `add()`) and `createInTransaction()` each generate their **own**
+   * fresh id — so persist under this id explicitly with `upsert(id, …)` or a transaction `set`.
+   * Useful when you need the id before the write, e.g. to reference it elsewhere in the same
+   * transaction.
+   *
+   * @example
+   * const id = userRepo.newId();
+   * await userRepo.upsert(id, { name: 'Ada' }); // writes under exactly `id`
+   */
+  newId(): ID {
+    return this.validateId(this.writeCol().doc().id);
   }
 
   /**
@@ -1660,22 +2094,28 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * });
    */
   async runInTransaction<R>(
-    fn: (tx: FirebaseFirestore.Transaction, repo: FirestoreRepository<T, W>) => Promise<R>,
+    fn: (tx: FirebaseFirestore.Transaction, repo: FirestoreRepository<T, W, S, WO>) => Promise<R>,
   ): Promise<R> {
     try {
       return await this.db.runTransaction(async tx => {
-        const txRepo = new FirestoreRepository<T, W>(
+        // Clone this repository for the transaction. The args cast mirrors `raw()`:
+        // `RepositoryConstructorArgs<T, W, WO>` is a deferred conditional under generic params, and
+        // this clone is sound by construction — a `WO !== W` repository necessarily already has a
+        // validator (the S1 invariant the constructor enforced), which is carried over here.
+        const txArgs = [
           this.db,
           this.collectionPath,
           this.validator,
           this.parentPath,
           this.readConverter,
           this.schemasInternal,
-        );
+          this.allowLegacyDatastoreIds,
+        ] as unknown as RepositoryConstructorArgs<T, W, WO>;
+        const txRepo = new FirestoreRepository<T, W, S, WO>(...txArgs);
         // Preserve registered hooks so transactional operations follow the same lifecycle behavior.
         txRepo.hooks = Object.fromEntries(
           Object.entries(this.hooks).map(([event, handlers]) => [event, [...(handlers ?? [])]]),
-        ) as { [K in HookEvent]?: AnyHookFn<T, W>[] };
+        ) as { [K in HookEvent]?: AnyHookFn<T, W, WO>[] };
         // txRepo is a full instance: its readCol()/writeCol() already resolve the same
         // converter-wrapped read ref and raw write ref. Transaction semantics come from tx.*.
         // pass transaction + repo to user callback
@@ -1707,12 +2147,13 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
   async getForUpdateInTransaction(
     tx: FirebaseFirestore.Transaction,
     id: ID,
-  ): Promise<(T & { id: ID }) | null> {
+  ): Promise<FirestoreDocument<T> | null> {
+    this.validateId(id);
     const docRef = this.readCol().doc(id);
     const snapshot = await tx.get(docRef);
 
     if (!snapshot.exists) return null;
-    return { ...(snapshot.data() as T), id };
+    return { ...(snapshot.data() as T), id: snapshot.id };
   }
 
   /**
@@ -1765,10 +2206,15 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
     // mirrors `createInTransaction`, which also excludes `returnDoc`.
     options?: { merge?: boolean },
   ): Promise<void> {
+    this.validateId(id);
     try {
       const docRef = this.writeCol().doc(id);
 
-      const toUpdate = { ...(data as Record<string, any>), id } as UpdateInput<W> & { id: ID };
+      // Non-writable `id` on the before-hook payload (review R2); the write target is `docRef`.
+      const toUpdate = FirestoreRepository.withReadonlyId(
+        { ...(data as Record<string, any>) },
+        id,
+      ) as UpdateInput<W> & { readonly id: ID };
 
       await this.runHooks('beforeUpdate', toUpdate);
       // In merge mode, normalize nested objects into field paths BEFORE validating so each leaf is
@@ -1832,10 +2278,11 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
   ): Promise<{ id: ID }> {
     try {
       const docRef = this.writeCol().doc();
-      const docData = {
-        ...(data as Record<string, any>),
-        id: docRef.id,
-      } as Record<string, any>;
+      // Non-writable `id` on the before-hook payload (review R2); the write target is `docRef`.
+      const docData = FirestoreRepository.withReadonlyId(
+        { ...(data as Record<string, any>) },
+        docRef.id,
+      );
 
       await this.runHooks('beforeCreate', docData);
       const validData = this.validateCreateData(docData as CreateInput<W>);
@@ -1869,13 +2316,16 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
    * });
    */
   async deleteInTransaction(tx: FirebaseFirestore.Transaction, id: ID): Promise<void> {
+    this.validateId(id);
     try {
       const docRef = this.readCol().doc(id);
       const snapshot = await tx.get(docRef);
 
       if (!snapshot.exists) throw new NotFoundError(`Document with ID ${id} not found`);
 
-      const docData = { ...(snapshot.data() as T), id };
+      // Deep-freeze the delete envelope (review R2) so the hook cannot forge the observed id or
+      // nested data. Delete payloads are observe-only.
+      const docData = deepFreeze({ ...(snapshot.data() as T), id: snapshot.id });
       await this.runHooks('beforeDelete', docData);
       tx.delete(docRef);
     } catch (error: any) {
@@ -1883,3 +2333,31 @@ export class FirestoreRepository<T extends { id?: ID }, W = T> {
     }
   }
 }
+
+/**
+ * Extracts a repository's **read data** type (`T`) — the application/read shape, with the synthetic
+ * top-level `id` removed (review R5). `Omit<'id'>` normalizes a legacy/raw repository whose generic
+ * argument still carries `id`; it is a no-op for validated (schema-inferred) repositories.
+ */
+export type DataOf<R> =
+  R extends FirestoreRepository<infer T, any, any, any> ? Omit<T, 'id'> : never;
+
+/**
+ * Extracts a repository's **stored data** type (`S`) — the at-rest Firestore shape that query field
+ * paths derive from, with the synthetic top-level `id` removed (review R5). `Omit<'id'>` normalizes a
+ * legacy/raw repository whose generic argument still carries `id`; it is a no-op for validated repos.
+ */
+export type StoredDataOf<R> =
+  R extends FirestoreRepository<any, any, infer S, any> ? Omit<S, 'id'> : never;
+
+/**
+ * Extracts a repository's **document** result type — {@link FirestoreDocument}`<DataOf<R>>` (read
+ * data plus the authoritative, read-only `id`). Name a returned document type without spelling the
+ * repository generics.
+ *
+ * @example
+ * const users = FirestoreRepository.withSchema(db, 'users', userSchema);
+ * type User = DocumentOf<typeof users>;
+ */
+export type DocumentOf<R> =
+  R extends FirestoreRepository<infer T, any, any, any> ? FirestoreDocument<T> : never;

@@ -202,7 +202,6 @@ describe('Vector validation integration', () => {
 
     it('should reject invalid embeddings through schema-validated repository writes', async () => {
       const schema = z.object({
-        id: z.string(),
         name: z.string(),
         embedding: vectorEmbeddingSchema(3),
       });

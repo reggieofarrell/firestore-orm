@@ -57,6 +57,4 @@ if (violations.length > 0) {
   process.exit(1);
 }
 
-console.log(
-  '✓ Manifest and lockfile root peerDependencies/engines/peerDependenciesMeta agree.',
-);
+console.log('✓ Manifest and lockfile root peerDependencies/engines/peerDependenciesMeta agree.');

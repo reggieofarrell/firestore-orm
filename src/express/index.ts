@@ -2,13 +2,15 @@ import { Request, Response, NextFunction } from 'express';
 import {
   ConflictError,
   FirestoreIndexError,
+  InvalidDocumentIdError,
   NotFoundError,
   ValidationError,
 } from '../core/Errors.js';
 
 /**
  * Express middleware that maps repository errors to appropriate HTTP responses.
- * Automatically handles ValidationError, NotFoundError, ConflictError, and generic errors.
+ * Automatically handles ValidationError (400), InvalidDocumentIdError (400), NotFoundError (404),
+ * FirestoreIndexError (503), ConflictError (409), and generic errors (500).
  *
  * Imported from the optional `@reggieofarrell/firestore-orm/express` subpath so `express` stays out
  * of the core package's type graph. `express` is declared as an optional peer dependency — install
@@ -65,6 +67,16 @@ export function errorHandler(err: any, req: Request, res: Response, _next: NextF
     return res.status(400).json({
       error: 'ValidationError',
       details: err.issues,
+    });
+  }
+
+  if (err instanceof InvalidDocumentIdError) {
+    // A malformed caller-supplied id is a client request error (400), not a server failure. The
+    // stable machine-readable `reason` is safe to return; the raw (possibly malicious) id is not
+    // reflected back.
+    return res.status(400).json({
+      error: 'InvalidDocumentIdError',
+      reason: err.reason,
     });
   }
 

@@ -7,7 +7,6 @@ import { FirestoreRepository } from '../../core/FirestoreRepository.js';
 import { createUserRepoHarness } from './helpers/firestoreIntegrationHarness.js';
 
 const orderSchema = z.object({
-  id: z.string(),
   total: z.number(),
   status: z.string(),
 });

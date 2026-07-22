@@ -29,7 +29,6 @@ interface WidgetDoc {
 }
 
 const widgetSchema = z.object({
-  id: z.string(),
   name: z.string().min(1),
   value: z.number(),
 });
@@ -44,7 +43,13 @@ const COLLECTION = `test_read_only_converter_${Date.now()}`;
 
 describe('read-only converters: writes bypass the converter (issue #11)', () => {
   const db = getIntegrationDb();
-  const repo = FirestoreRepository.withSchema(db, COLLECTION, widgetSchema, { readConverter });
+  // A readConverter is present, so storedSchema is required (ADR-0018 / A3). This converter only
+  // uppercases `name` on read — it does not restructure fields — so the at-rest shape equals the
+  // read schema.
+  const repo = FirestoreRepository.withSchema(db, COLLECTION, widgetSchema, {
+    readConverter,
+    storedSchema: widgetSchema,
+  });
 
   /** Read a document via a raw, converter-free ref to observe exactly what was stored. */
   async function rawName(id: string): Promise<unknown> {
@@ -134,6 +139,24 @@ describe('read-only converters: writes bypass the converter (issue #11)', () => 
     expect(streamed).toEqual(['QB-LO', 'QB-HI']);
   });
 
+  it('distinctValues() reads the read model consistently with its type (review A9)', async () => {
+    // A9: distinctValues() is typed and executed against the READ model. With a value-transforming
+    // converter (uppercasing `name`), the returned distinct values are the CONVERTED read values —
+    // never an empty array from reading a field that the converter renamed away. `value` is untouched
+    // by the converter and returns its raw distinct set.
+    await repo.bulkCreate([
+      { name: 'dup', value: 100 },
+      { name: 'dup', value: 100 },
+      { name: 'uniq', value: 101 },
+    ]);
+
+    const names = await repo.query().where('value', '>=', 100).distinctValues('name');
+    expect([...names].sort()).toEqual(['DUP', 'UNIQ']);
+
+    const values = await repo.query().where('value', '>=', 100).distinctValues('value');
+    expect([...values].sort((a, b) => a - b)).toEqual([100, 101]);
+  });
+
   it('getForUpdateInTransaction() applies the converter on a transactional read', async () => {
     const created = await repo.create({ name: 'zeta', value: 7 });
 
@@ -150,6 +173,7 @@ describe('read-only converters: writes bypass the converter (issue #11)', () => 
     const seen: string[] = [];
     const hookRepo = FirestoreRepository.withSchema(db, COLLECTION, widgetSchema, {
       readConverter,
+      storedSchema: widgetSchema,
     });
     hookRepo.on('beforeDelete', doc => seen.push((doc as WidgetDoc).name));
     hookRepo.on('afterDelete', doc => seen.push((doc as WidgetDoc).name));

@@ -205,6 +205,24 @@ describe('Validation utilities', () => {
       expect(validator.parseUpdate({ name: 'Allowed' })).toEqual({ name: 'Allowed' });
     });
 
+    it('accepts an input/output-compatible custom update schema and applies its runtime refinement (review S2/T1)', () => {
+      // The repository has a single write shape, so a custom update schema must be input AND output
+      // compatible with the create/read schema (an input- or output-divergent one is rejected at
+      // makeValidator — see the identity type-test). A coercion is compatible: its input accepts the
+      // shared numeric input and its output is the same `number`.
+      const readSchema = z.object({ score: z.number() });
+      const updateSchema = z.object({ score: z.coerce.number() });
+      const validator = makeValidator(readSchema, updateSchema);
+
+      // The SHARED numeric input inhabits the update schema — no cast needed (this is the honest
+      // contract assertion the T1 review asked for: the accepted input is the declared input).
+      expect(validator.parseUpdate({ score: 7 })).toEqual({ score: 7 });
+      // parseCreate follows the create/read schema.
+      expect(validator.parseCreate({ score: 7 })).toEqual({ score: 7 });
+      // The coercion's runtime refinement still runs for a widened value (documented as a coercion).
+      expect(validator.parseUpdate({ score: '42' as unknown as number })).toEqual({ score: 42 });
+    });
+
     it('permissive: allows vector sentinel-only validation failures on update (opt-in)', () => {
       const vectorSchema = z.object({
         id: z.string(),

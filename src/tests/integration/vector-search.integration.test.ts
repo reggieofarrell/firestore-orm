@@ -20,7 +20,6 @@ describe('Vector search extension', () => {
   const { db, vectorRepo, prefilterRepo, cleanupVectorCollections } = harness;
 
   const vectorDocSchema = z.object({
-    id: z.string(),
     name: z.string(),
     category: z.string().optional(),
     embedding: vectorEmbeddingSchema(3).optional(),

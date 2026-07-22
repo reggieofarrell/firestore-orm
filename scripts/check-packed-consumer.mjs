@@ -24,7 +24,8 @@ const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url),
 const PKG = pkg.name;
 // The firebase-admin major to test against. Defaults to the dev version, but CI parametrizes it
 // (FIRESTORE_ORM_ADMIN_VERSION=^12 / ^13 / ^14) to exercise every declared peer major honestly.
-const ADMIN_VERSION = process.env.FIRESTORE_ORM_ADMIN_VERSION || pkg.devDependencies['firebase-admin'];
+const ADMIN_VERSION =
+  process.env.FIRESTORE_ORM_ADMIN_VERSION || pkg.devDependencies['firebase-admin'];
 const ADMIN = `firebase-admin@${ADMIN_VERSION}`;
 const ZOD = `zod@${pkg.devDependencies['zod']}`;
 const TS = `typescript@${pkg.devDependencies['typescript']}`;
@@ -128,7 +129,10 @@ try {
   const cjs = join(work, 'cjs');
   mkdirSync(cjs);
   writeFileSync(join(cjs, 'package.json'), JSON.stringify({ type: 'commonjs' }));
-  writeFileSync(join(cjs, 'tsconfig.json'), tsconfig({ module: 'node16', moduleResolution: 'node16' }));
+  writeFileSync(
+    join(cjs, 'tsconfig.json'),
+    tsconfig({ module: 'node16', moduleResolution: 'node16' }),
+  );
   writeFileSync(
     join(cjs, 'consumer.ts'),
     `import {${ROOT_IMPORTS}} from '${PKG}';\n` +

@@ -18,7 +18,6 @@ import { FirestoreRepository } from '../../core/FirestoreRepository.js';
 import { getIntegrationDb } from './helpers/firestoreIntegrationHarness.js';
 
 const userSchema = z.object({
-  id: z.string(),
   name: z.string().min(1),
   role: z.string().optional(),
   // A top-level scalar default. Seeded to a non-default value so re-injection of the default is an

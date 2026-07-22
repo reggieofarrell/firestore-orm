@@ -5,7 +5,11 @@ export type {
   UpdateOptions,
   ReadConverter,
   SafeResult,
+  DataOf,
+  StoredDataOf,
+  DocumentOf,
 } from './core/FirestoreRepository.js';
+export type { FirestoreDocument } from './core/DocumentId.js';
 export { FirestoreQueryBuilder } from './core/QueryBuilder.js';
 export type { PaginatedResult } from './core/QueryBuilder.js';
 
@@ -14,7 +18,9 @@ export {
   ValidationError,
   ConflictError,
   FirestoreIndexError,
+  InvalidDocumentIdError,
 } from './core/Errors.js';
+export type { InvalidDocumentIdReason } from './core/Errors.js';
 
 export { parseFirestoreError } from './core/ErrorParser.js';
 // NOTE: `errorHandler` is intentionally NOT exported from the root — it lives in the optional
@@ -35,6 +41,7 @@ export {
 export type {
   UpdateInput,
   CreateInput,
+  CreateOutput,
   Validator,
   RepositorySchemaSet,
   SentinelPolicy,

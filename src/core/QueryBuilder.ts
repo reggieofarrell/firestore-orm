@@ -1,8 +1,11 @@
 import { parseFirestoreError } from './ErrorParser.js';
 import { HookEvent, ID } from './FirestoreRepository.js';
+import { FirestoreDocument } from './DocumentId.js';
 import { ValidationError } from './Errors.js';
 import { UpdateInput } from './Validation.js';
 import { DeepPartial, FieldPaths, NumericFieldPaths } from '../utils/pathTypes.js';
+import { validateDocumentId } from '../utils/documentId.js';
+import { deepFreeze } from '../utils/safeObject.js';
 import {
   AggregateField,
   CollectionReference,
@@ -21,21 +24,43 @@ type FirestoreWriteBatch = (
 type RunHook = (event: HookEvent, data: any) => Promise<void>;
 type ValidateUpdate<W> = (data: UpdateInput<W>) => UpdateInput<W>;
 
-export type PaginatedResult<T extends { id?: string }> = {
-  items: (T & { id: ID })[];
+/**
+ * Defines the repository-owned `id` as non-writable/non-configurable on a before-hook payload so a
+ * hook may mutate documented `data` fields but cannot repoint identity or forge the id a later hook
+ * observes (review R2). Mirrors `FirestoreRepository.withReadonlyId`.
+ */
+function withReadonlyId<O extends Record<string, any>>(obj: O, id: ID): O {
+  Object.defineProperty(obj, 'id', {
+    value: id,
+    writable: false,
+    configurable: false,
+    enumerable: true,
+  });
+  return obj;
+}
+
+export type PaginatedResult<T extends object> = {
+  items: FirestoreDocument<T>[];
   nextCursor: string | null;
   hasMore: boolean;
 };
 
 /**
- * @template T - The document (read model) type
- * @template W - The write model type (for `update`)
- * @template R - The current result shape of terminal reads. Defaults to the full `T & { id }`;
- *   `select(...)` narrows it to `DeepPartial<T> & { id }` (nested map properties optional too) so
- *   fields projected away — at any depth — become compile errors when accessed (Firestore returns
- *   only the selected fields at runtime).
+ * @template T - **read data** (no `id`); terminal reads return {@link FirestoreDocument}`<T>`.
+ * @template W - **write model** (for `update`).
+ * @template S - **stored data** — the source of query FIELD PATHS (`where` / `orderBy` / `select` /
+ *   aggregations). Defaults to `T`. Query operand VALUES stay `unknown` in v3 (typed operands are
+ *   deferred — see ADR-0018); document-name queries use `whereId` / `orderById`.
+ * @template R - the current result shape of terminal reads. Defaults to `FirestoreDocument<T>`;
+ *   `select(...)` narrows it to `FirestoreDocument<DeepPartial<T>>` (nested map properties optional
+ *   too) so fields projected away — at any depth — become compile errors when accessed.
  */
-export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { id: ID }> {
+export class FirestoreQueryBuilder<
+  T extends object,
+  W extends object = T,
+  S extends object = T,
+  R = FirestoreDocument<T>,
+> {
   private query: Query<any>;
   private hasOrderBy = false;
   // True once select() has applied a field mask. A projected query cannot be used with onSnapshot()
@@ -49,6 +74,7 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { i
     private commitInChunks: FirestoreWriteBatch,
     private runHooks: RunHook,
     private validateUpdate?: ValidateUpdate<W>,
+    private allowLegacyDatastoreIds = false,
   ) {
     this.query = baseQuery;
   }
@@ -187,7 +213,7 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { i
    *
    * @returns The query builder instance
    */
-  where(field: FieldPaths<T> | FieldPath, op: WhereFilterOp, value: unknown): this {
+  where(field: FieldPaths<Omit<S, 'id'>> | FieldPath, op: WhereFilterOp, value: unknown): this {
     this.query = this.query.where(field as string | FieldPath, op, value);
     return this;
   }
@@ -214,13 +240,13 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { i
    * @returns The query builder instance
    */
   select(
-    ...fields: (FieldPaths<T> | FieldPath)[]
-  ): FirestoreQueryBuilder<T, W, DeepPartial<T> & { id: ID }> {
+    ...fields: (FieldPaths<Omit<S, 'id'>> | FieldPath)[]
+  ): FirestoreQueryBuilder<T, W, S, FirestoreDocument<DeepPartial<T>>> {
     // Return a NEW builder rather than mutating and re-casting `this`. Mutating in place left any
     // pre-select alias of this builder statically typed for the full model while its shared runtime
     // query had a projection applied — an unsound gap. A fresh builder narrows the result type at
     // exactly the reference the projection applies to; the original builder is untouched.
-    const next = new FirestoreQueryBuilder<T, W, DeepPartial<T> & { id: ID }>(
+    const next = new FirestoreQueryBuilder<T, W, S, FirestoreDocument<DeepPartial<T>>>(
       this.baseQuery,
       this.collectionRef,
       this.db,
@@ -280,31 +306,54 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { i
         return 0;
       }
 
-      const updates = snapshot.docs.map(doc => ({
+      const updates = snapshot.docs.map(doc =>
+        // Freeze each entry wrapper (review S3) so a hook cannot REPLACE `entry.data` (which the repo
+        // bulk path silently drops) — only in-place `entry.data.field = …` mutation is honored, the
+        // same contract on both surfaces. `id` is non-writable; the referenced `data` stays mutable.
+        Object.freeze(
+          withReadonlyId(
+            { id: doc.id, data: { ...(data as Record<string, any>) } as UpdateInput<W> },
+            doc.id,
+          ),
+        ),
+      );
+
+      // Stable pre-hook work list (review A1): each matched doc's authoritative ref + id is paired
+      // with its update ENTRY before the hook runs. A beforeBulkUpdate hook may mutate an entry's
+      // `data` in place (per-doc customization), but reordering/splicing/replacing the array or
+      // changing an `id` cannot redirect which doc receives which data or suppress a write — the loop
+      // iterates THIS list, taking the target from the snapshot and the data from the captured entry.
+      const work = snapshot.docs.map((doc, index) => ({
+        ref: doc.ref,
         id: doc.id,
-        data: { ...(data as Record<string, any>) } as UpdateInput<W>,
+        entry: updates[index],
       }));
 
+      // Freeze the array the hook sees (review R2): membership/order is immutable and each entry's
+      // `id` is non-writable, while `data` stays mutable (shared with `work`) so documented per-doc
+      // data mutation still reaches the write.
+      Object.freeze(updates);
       await this.runHooks('beforeBulkUpdate', updates);
-      const updatesById = new Map(updates.map(update => [update.id, update.data]));
       const actions: ((batch: FirebaseFirestore.WriteBatch) => void)[] = [];
       const writtenIds: ID[] = [];
 
-      for (const doc of snapshot.docs) {
-        const updateData = updatesById.get(doc.id);
-        if (!updateData) continue;
-
-        const validData = this.validateUpdate ? this.validateUpdate(updateData) : updateData;
+      for (const { ref, id, entry } of work) {
+        const validData = this.validateUpdate ? this.validateUpdate(entry.data) : entry.data;
         const sanitizedData = this.sanitizeUpdateData(validData);
         // Reject an empty patch (consistent with the repository update surfaces). Because the same
         // data is applied to every matched doc, this is uniform across the result set.
         this.assertNonEmptyUpdatePayload(sanitizedData as Record<string, any>);
-        actions.push(batch => batch.update(doc.ref, sanitizedData as any));
-        writtenIds.push(doc.id);
+        actions.push(batch => batch.update(ref, sanitizedData as any));
+        writtenIds.push(id);
       }
 
       await this.commitInChunks(actions);
-      await this.runHooks('afterBulkUpdate', { ids: writtenIds });
+      // Freeze the whole envelope (review R2): a first hook cannot reassign `ids` to a forged array
+      // that a second hook would then observe.
+      await this.runHooks(
+        'afterBulkUpdate',
+        Object.freeze({ ids: Object.freeze([...writtenIds]) }),
+      );
       return writtenIds.length;
     } catch (error: any) {
       if (error instanceof z.ZodError) {
@@ -337,10 +386,49 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { i
    *
    * @returns The query builder instance
    */
-  orderBy(field: FieldPaths<T> | FieldPath, direction: 'asc' | 'desc' = 'asc'): this {
+  orderBy(field: FieldPaths<Omit<S, 'id'>> | FieldPath, direction: 'asc' | 'desc' = 'asc'): this {
     this.query = this.query.orderBy(field as string | FieldPath, direction);
     // Cursor pagination depends on deterministic ordering across pages.
     // We track explicit ordering so paginate() can enforce this guarantee.
+    this.hasOrderBy = true;
+    return this;
+  }
+
+  /**
+   * Filter by the native Firestore **document id** (the document name), via `FieldPath.documentId()`.
+   *
+   * This is the correct way to query by id — distinct from `where('id', ...)`, which would query a
+   * *stored* field named `id` (not a valid field path, since `id` is repository metadata). Operands
+   * are validated with the same `InvalidDocumentIdError` boundary as CRUD ids (review A7); only the
+   * document-id-meaningful operators are accepted (comparison for a single id, `in`/`not-in` for an
+   * id array — array-contains operators are intentionally excluded).
+   *
+   * @example
+   * await userRepo.query().whereId('==', 'user-123').getOne();
+   * await userRepo.query().whereId('in', ['a', 'b', 'c']).get();
+   */
+  whereId(op: '<' | '<=' | '==' | '!=' | '>=' | '>', value: string): this;
+  whereId(op: 'in' | 'not-in', value: readonly string[]): this;
+  whereId(op: WhereFilterOp, value: string | readonly string[]): this {
+    const values = Array.isArray(value) ? value : [value as string];
+    values.forEach(v =>
+      validateDocumentId(v, 'whereId value', {
+        allowLegacyDatastoreIds: this.allowLegacyDatastoreIds,
+      }),
+    );
+    this.query = this.query.where(FieldPath.documentId(), op, value);
+    return this;
+  }
+
+  /**
+   * Order by the native Firestore **document id** (the document name), via `FieldPath.documentId()` —
+   * the id-aware counterpart to `orderBy(...)`. Useful as a stable tiebreaker for cursor pagination.
+   *
+   * @example
+   * await userRepo.query().orderById().paginate(20);
+   */
+  orderById(direction: 'asc' | 'desc' = 'asc'): this {
+    this.query = this.query.orderBy(FieldPath.documentId(), direction);
     this.hasOrderBy = true;
     return this;
   }
@@ -392,22 +480,46 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { i
    *   .delete();
    */
   async delete(): Promise<number> {
+    // Destructive-after-projection guard (review D2): a projected query only materializes the
+    // selected fields, so the delete hooks would observe incomplete documents. Reject locally.
+    if (this.hasSelect) {
+      throw new Error(
+        'delete() is not supported after select(): a projected query would pass incomplete ' +
+          'documents to the beforeBulkDelete/afterBulkDelete hooks. Call delete() on an unprojected ' +
+          'query.',
+      );
+    }
     try {
-      const docsData: (T & { id: ID })[] = [];
       const snapshot = await this.query.get();
-
       if (snapshot.empty) return 0;
-      for (const doc of snapshot.docs) docsData.push({ ...(doc.data() as T), id: doc.id });
 
-      const ids = docsData.map(doc => doc.id);
-      await this.runHooks('beforeBulkDelete', { ids, documents: docsData });
+      // Delete targets come from the snapshot refs (never from hook-observed data). The event arrays
+      // are frozen (each document frozen too) so a hook cannot splice/reorder/repoint them, and the
+      // count comes from the snapshot; before/after get separate frozen event objects (review A1).
+      const deleteRefs = snapshot.docs.map(doc => doc.ref);
+      const capturedIds = Object.freeze(snapshot.docs.map(doc => doc.id));
+      // deepFreeze (not shallow) so a beforeBulkDelete hook cannot mutate NESTED document data that a
+      // later afterBulkDelete hook observes (review R2). Delete documents are observe-only.
+      const docsData = Object.freeze(
+        snapshot.docs.map(doc => deepFreeze({ ...(doc.data() as T), id: doc.id })),
+      ) as readonly FirestoreDocument<T>[];
+      const deletedCount = snapshot.size;
 
-      const actions: ((batch: FirebaseFirestore.WriteBatch) => void)[] = [];
-      for (const doc of snapshot.docs) actions.push(batch => batch.delete(doc.ref));
+      await this.runHooks(
+        'beforeBulkDelete',
+        Object.freeze({ ids: capturedIds, documents: docsData }),
+      );
+
+      const actions = deleteRefs.map(
+        ref => (batch: FirebaseFirestore.WriteBatch) => batch.delete(ref),
+      );
 
       await this.commitInChunks(actions);
-      await this.runHooks('afterBulkDelete', { ids, documents: docsData });
-      return snapshot.size;
+      await this.runHooks(
+        'afterBulkDelete',
+        Object.freeze({ ids: capturedIds, documents: docsData }),
+      );
+      return deletedCount;
     } catch (error: any) {
       throw parseFirestoreError(error);
     }
@@ -650,7 +762,7 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { i
    *   .where('status', '==', 'completed')
    *   .sum('total');
    */
-  async sum(field: NumericFieldPaths<T> | FieldPath): Promise<number> {
+  async sum(field: NumericFieldPaths<Omit<S, 'id'>> | FieldPath): Promise<number> {
     try {
       const snapshot = await this.query
         .aggregate({ sum: AggregateField.sum(field as string | FieldPath) })
@@ -677,7 +789,7 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { i
    *   .where('productId', '==', productId)
    *   .average('rating');
    */
-  async average(field: NumericFieldPaths<T> | FieldPath): Promise<number> {
+  async average(field: NumericFieldPaths<Omit<S, 'id'>> | FieldPath): Promise<number> {
     try {
       const snapshot = await this.query
         .aggregate({ average: AggregateField.average(field as string | FieldPath) })
@@ -715,7 +827,19 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { i
    *   .where('createdAt', '>', lastMonth)
    *   .distinctValues('status');
    */
-  async distinctValues<K extends keyof T>(field: K): Promise<T[K][]> {
+  async distinctValues<K extends keyof Omit<T, 'id'>>(field: K): Promise<T[K][]> {
+    // Typed against the READ model (review A9): this terminal reads `doc.data()`, which is the
+    // converter-applied read shape `T`, not the stored shape `S` — a converter can rename a stored
+    // field, so typing against `S` would let a correctly-typed call read an absent read-model
+    // property. `id` is excluded (it is repository metadata, not stored/read data).
+    if (this.hasSelect) {
+      // A projected (select) query only materializes the selected fields, so distinct over an
+      // unselected field would silently observe nothing. Reject the combination locally (review D2).
+      throw new Error(
+        'distinctValues() is not supported after select(): a projected query does not materialize ' +
+          'unselected fields. Call distinctValues() on an unprojected query.',
+      );
+    }
     try {
       const snapshot = await this.query.get();
       const values = snapshot.docs.map(doc => doc.data()[field as string]);
@@ -893,8 +1017,6 @@ export class FirestoreQueryBuilder<T extends { id?: string }, W = T, R = T & { i
  * Returns the underlying Firestore Query for package-internal composition.
  * Used by the vector search extension (`@reggieofarrell/firestore-orm/vector`).
  */
-export function getQueryRef<T extends { id?: string }, W = T>(
-  builder: FirestoreQueryBuilder<T, W>,
-): Query<any> {
+export function getQueryRef(builder: FirestoreQueryBuilder<any, any, any, any>): Query<any> {
   return builder.getUnderlyingQuery();
 }

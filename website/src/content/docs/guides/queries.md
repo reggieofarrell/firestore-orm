@@ -8,9 +8,9 @@ builder.
 
 ## Query builder
 
-Call `repo.query()` to get a `FirestoreQueryBuilder<T, W>`. It exposes a fluent, type-safe interface
-for composing filters, ordering, projections, aggregations, pagination, streaming, and real-time
-listeners. Chain the builder methods and then call a terminal method (`get()`, `getOne()`,
+Call `repo.query()` to get a `FirestoreQueryBuilder<T, W, S>`. It exposes a fluent, type-safe
+interface for composing filters, ordering, projections, aggregations, pagination, streaming, and
+real-time listeners. Chain the builder methods and then call a terminal method (`get()`, `getOne()`,
 `exists()`, `count()`, `paginate()`, and so on) to execute the query.
 
 ```typescript
@@ -26,13 +26,17 @@ const results = await orderRepo
 
 The chainable builder methods are:
 
-- `where(field, op, value)` — add a filter clause.
+- `where(field, op, value)` — add a filter clause. `where('id', …)` is a compile error — the
+  synthetic `id` is not a queryable field path; use `whereId(...)` instead.
+- `whereId(op, value)` — query by document name. Scalar operators take a `string`; `in`/`not-in`
+  take a `readonly string[]`.
 - `select(...fields)` — project only the named fields.
 - `orderBy(field, dir = 'asc')` — sort results (required before `paginate()`).
+- `orderById(dir = 'asc')` — order by document name.
 - `limit(n)` — cap the number of documents returned.
 
 Terminal methods that execute the query include `get()`, `getOne()`, `exists()`, `count()`,
-`totalCount()`, `sum()`, `average()`, `distinctValues()`, `paginate()`, `offsetPaginate()`,
+`collectionCount()`, `sum()`, `average()`, `distinctValues()`, `paginate()`, `offsetPaginate()`,
 `paginateWithCount()`, `stream()`, `onSnapshot()`, `update()`, and `delete()`. There is no public
 `.startAfter()` chaining — cursor pagination is handled entirely through
 `paginate(pageSize, cursor)`.
@@ -112,25 +116,27 @@ document.
 // Sum a numeric field across matching documents
 const totalRevenue = await orderRepo.query().where('status', '==', 'completed').sum('total');
 
-// Average a numeric field across matching documents
+// Average a numeric field — returns null (not 0) when there are no numeric values
 const avgRating = await reviewRepo.query().where('productId', '==', 'prod-123').average('rating');
 
 // Count matching documents
 const activeCount = await userRepo.query().where('status', '==', 'active').count();
 
 // Total collection count — ignores any accumulated where() clauses
-const totalUsers = await userRepo.query().where('status', '==', 'active').totalCount();
+const totalUsers = await userRepo.query().where('status', '==', 'active').collectionCount();
 
 // Existence check
 const hasOrders = await orderRepo.query().where('userId', '==', 'user-123').exists();
 
-// Distinct values for a field
+// Distinct values for a field — drops undefined but preserves stored null
 const categories = await productRepo.query().distinctValues('category');
 ```
 
-`count()` respects the query's filters, whereas `totalCount()` counts the entire collection and
+`count()` respects the query's filters, whereas `collectionCount()` counts the entire collection and
 ignores any `where()` clauses on the builder. `sum(field)` and `average(field)` operate on numeric
-fields, and `distinctValues(field)` returns the unique values for a field.
+fields; `average(field)` returns `number | null`, yielding `null` (distinct from `0`) when there are
+no numeric values. `distinctValues(field)` returns the unique values for a field, dropping
+`undefined` but preserving stored `null`.
 
 ## Selecting fields
 
@@ -146,10 +152,10 @@ const userEmails = await userRepo
 ```
 
 `select()` returns a **new** query builder (it does not mutate the one you called it on), and the
-result type narrows to `DeepPartial<T> & { id }` — every property, including nested map properties,
-is optional, so a field you projected away (at any depth) is a compile error to access without a
-guard. A `readConverter` written for full documents may throw on a projected result. Note that a
-projected query cannot be used with `onSnapshot()` (see below).
+result type narrows to `FirestoreDocument<DeepPartial<T>>` — every property, including nested map
+properties, is optional, so a field you projected away (at any depth) is a compile error to access
+without a guard. A `readConverter` written for full documents may throw on a projected result. Note
+that a projected query cannot be used with `onSnapshot()` (see below).
 
 ## Bulk query operations
 

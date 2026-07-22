@@ -23,8 +23,8 @@ In this guide:
 This example shows a full order lifecycle: validating inventory in a `beforeCreate` hook, reducing
 stock and sending confirmation email in `afterCreate`, guarding shipped orders in `beforeUpdate`,
 cancelling via a [transaction](./transactions/), and computing revenue with `sum()` / `average()`
-[aggregations](./queries/). Note that every schema declares a required top-level `id: z.string()`,
-which `withSchema` requires at construction time.
+[aggregations](./queries/). Note that no schema declares a top-level `id` — `withSchema` rejects it
+at construction, and the document name is the sole source of `id`.
 
 ```typescript
 // schemas/order.schema.ts
@@ -40,7 +40,6 @@ export const orderItemSchema = z.object({
 });
 
 export const orderSchema = z.object({
-  id: z.string(),
   userId: z.string(),
   items: z.array(orderItemSchema),
   total: z.number().positive(),
@@ -225,9 +224,10 @@ export class OrderService {
 }
 ```
 
-Reads use `getById(id)`, which returns `T & { id }` or `null` — there is no `repo.get(id)`. The
-cancellation path uses `runInTransaction`, which hands you a transaction-scoped `repo`; inside it,
-`getForUpdateInTransaction` locks the row and `updateInTransaction` stages the write.
+Reads use `getById(id)`, which returns `FirestoreDocument<T>` or `null` — there is no
+`repo.get(id)`. The cancellation path uses `runInTransaction`, which hands you a transaction-scoped
+`repo`; inside it, `getForUpdateInTransaction` locks the row and `updateInTransaction` stages the
+write.
 
 ## Example 2: Multi-tenant SaaS application
 
@@ -238,7 +238,6 @@ concurrent invites cannot oversell seats.
 ```typescript
 // schemas/tenant.schema.ts
 export const tenantSchema = z.object({
-  id: z.string(),
   name: z.string(),
   slug: z.string().regex(/^[a-z0-9-]+$/),
   plan: z.enum(['free', 'pro', 'enterprise']),
@@ -389,7 +388,6 @@ paginated backfill (via `paginate`) of published posts from followed authors. Se
 import { z } from 'zod';
 
 export const postSchema = z.object({
-  id: z.string(),
   authorId: z.string(),
   status: z.enum(['draft', 'published']),
   content: z.string(),
@@ -399,7 +397,6 @@ export const postSchema = z.object({
 export type Post = z.infer<typeof postSchema>;
 
 export const followSchema = z.object({
-  id: z.string(),
   followerId: z.string(),
   followingId: z.string(),
 });

@@ -12,7 +12,7 @@ a clean, shareable type), then `.extend` the temporal field with `zDateWrite()` 
 validation, and convert `Timestamp -> number` on read with `createMillisTimestampConverter`:
 
 ```typescript
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import {
   FirestoreRepository,
   zDateWrite,
@@ -21,10 +21,10 @@ import {
 import { z } from 'zod';
 
 // Base schema = the read shape. `happenedAt` reads as an ms number. This is zod-only, so its
-// inferred type is a clean API-contract type you can share (e.g. with a front-end). The required
-// top-level `id: z.string()` is mandatory — the factory throws at construction without it.
+// inferred type is a clean API-contract type you can share (e.g. with a front-end). It declares no
+// top-level `id` — the factory throws at construction if one is present; the document name is the
+// sole source of `id`.
 const eventBase = z.object({
-  id: z.string(),
   name: z.string().min(1),
   happenedAt: z.number(), // ms since epoch on read
 });
@@ -40,6 +40,11 @@ const eventWrite = eventBase.extend({
 // `id` (the repository overlays the document id afterward); its toFirestore is a never-invoked
 // pass-through (converters are read-only).
 const readConverter = createMillisTimestampConverter<EventDoc>();
+
+// The at-rest shape query field paths derive from: `happenedAt` is stored as a Timestamp (the
+// converter maps it to an ms number on read). A `storedSchema` is required whenever a
+// `readConverter` is set.
+const eventStored = eventBase.extend({ happenedAt: z.instanceof(Timestamp) });
 ```
 
 Build the repository with `eventBase` as the read schema and `eventWrite` as the `writeSchema`
@@ -49,6 +54,7 @@ overlay — a `Date` / `serverTimestamp()` is then accepted with **no cast**, wh
 ```typescript
 const events = FirestoreRepository.withSchema(db, 'events', eventBase, {
   writeSchema: eventWrite,
+  storedSchema: eventStored,
   readConverter,
 });
 
@@ -75,12 +81,12 @@ Notes:
   `readConverter` is only a `fromFirestore` mapper (writes go through a raw ref), so there is no
   write-side conversion by design.
 - Pass the combinator schema as the `writeSchema` overlay
-  (`withSchema(db, 'events', eventBase, { writeSchema: eventWrite, readConverter })`): it infers the
-  write type from `eventWrite`, so a `Date` is accepted on `create`/`update` with no cast, while
-  reads stay typed as `EventDoc`. Without an overlay, write inputs are typed by the read type
-  (`happenedAt: number`), so `zDateWrite()` only widens _runtime_ validation — a `FieldValue` such
-  as `serverTimestamp()` is still accepted without a cast (`WithFieldValue` widens every field to
-  `| FieldValue`), but a `Date` needs one. See
+  (`withSchema(db, 'events', eventBase, { writeSchema: eventWrite, storedSchema: eventStored, readConverter })`):
+  it infers the write type from `eventWrite`, so a `Date` is accepted on `create`/`update` with no
+  cast, while reads stay typed as `EventDoc`. Without an overlay, write inputs are typed by the read
+  type (`happenedAt: number`), so `zDateWrite()` only widens _runtime_ validation — a `FieldValue`
+  such as `serverTimestamp()` is still accepted without a cast (`WithFieldValue` widens every field
+  to `| FieldValue`), but a `Date` needs one. See
   [Per-Field Sentinel Approval](./field-value-sentinels/#per-field-sentinel-approval) for the full
   contract.
 

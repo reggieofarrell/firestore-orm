@@ -11,7 +11,6 @@ enforces on `create`, `update`, and `patch`.
 
 ```typescript
 const userSchema = z.object({
-  id: z.string(),
   name: z.string().min(1),
   email: z.string().email(),
   age: z.number().int().positive().optional(),
@@ -38,21 +37,23 @@ try {
 ```
 
 The `message` text on each issue is produced by Zod, so the exact wording depends on your Zod
-version (this package supports both Zod 3 and Zod 4) and any custom messages you pass to your schema
-(e.g. `z.string().min(1, 'Name is required')`). The `path` array is what you should branch on.
+version (this package requires Zod 4) and any custom messages you pass to your schema (e.g.
+`z.string().min(1, 'Name is required')`). The `path` array is what you should branch on.
 
-## Required top-level `id`
+## No top-level `id`
 
-Every schema you pass to `withSchema(...)` (and to a subcollection with a schema) **must** declare a
-required top-level `id: z.string()`. The repository asserts this at construction and throws if the
-`id` field is missing. This is the read shape — it does not force `id` onto write inputs.
+No schema you pass to `withSchema(...)` (or to a subcollection with a schema) may declare a
+top-level `id` field. The repository asserts this at construction and throws if a top-level `id` is
+present. Schemas describe the document's own data; the document name is the sole source of `id`,
+overlaid onto every read.
 
 ## Validation behavior
 
-- Include a required top-level `id` field in schemas passed to `withSchema(...)`.
-- `create()` validates against an internal write schema derived from `schema.omit({ id: true })`.
-- `update()` validates against an internal update schema derived from
-  `schema.omit({ id: true }).partial()`.
+- Do NOT include a top-level `id` field in schemas passed to `withSchema(...)` — it is rejected at
+  construction; the id comes from the document name.
+- `create()` validates against the write schema (the read schema, or the `writeSchema` overlay when
+  supplied).
+- `update()` validates against that write schema made `.partial()`.
 - **Zod `.default(...)` values are applied on `create`, but never injected on `update`.** A partial
   update writes only the keys you actually provide — an omitted field that has a schema default is
   left untouched (its stored value is preserved, not silently reset to the default). This holds at
@@ -60,12 +61,13 @@ required top-level `id: z.string()`. The repository asserts this at construction
   and `update(id, { config: {} })` writes `{}` rather than re-injecting a nested `count` default.
   Defaults remain the right behavior on `create`, where every field is being written for the first
   time.
-- Top-level `id` is ignored/stripped from `create`/`update`/`patch` payloads before validation and
-  writes.
+- A top-level `id` is never part of a `create`/`update`/`patch` payload — the document id comes from
+  the document name (auto-generated on `create`) or the method's `id` argument (`update(id, …)`,
+  `upsert(id, …)`).
 - `create()` therefore does **not** require `id` in its input type — the id is auto-generated (or,
   for `upsert`, taken from the explicit `id` argument); reads always include `id`.
-- Only the document-level top-level `id` is stripped; nested IDs (for example `items[].id`) are
-  treated as normal domain data.
+- This applies only to a document-level top-level `id`; nested IDs (for example `items[].id`) are
+  normal domain data and are written like any other field.
 - Write operations follow this sequence: `before*` hook -> validation -> Firestore write -> `after*`
   hook.
 - Validation errors are thrown after `before*` hooks run and before any Firestore write occurs.
@@ -80,17 +82,16 @@ required top-level `id: z.string()`. The repository asserts this at construction
 > **Where `id` lives (and why a `writeSchema` overlay doesn't change it).** There are three separate
 > `id` contexts, and it's easy to conflate them:
 >
-> - **In the schema** — a required top-level `id` (e.g. `id: z.string()`) is **required**; the
->   repository throws at construction otherwise. It describes the _read_ shape.
-> - **On write inputs** (`create` / `update` / `upsert` / `patch`) — `id` is **never** required and
->   is always stripped. The document id comes from Firestore (auto-generated on `create`) or from
+> - **In the schema** — a top-level `id` is **forbidden**; the repository throws at construction if
+>   one is declared. The schema describes the document's own read data (no `id`).
+> - **On write inputs** (`create` / `update` / `upsert` / `patch`) — `id` is **not part of the write
+>   payload type** at all. The document id comes from Firestore (auto-generated on `create`) or from
 >   the method's `id` argument (`update(id, …)`, `upsert(id, …)`).
-> - **On reads** — `id` is always present (results are typed `T & { id }`).
+> - **On reads** — `id` is always present (results are typed `FirestoreDocument<T>`).
 >
 > A **`writeSchema` overlay** changes _only_ the write value types of non-`id` fields
-> (`W = z.infer<writeSchema>`, enabling cast-free combinator writes). All three `id` rules above are
-> identical whether or not a `writeSchema` is supplied — only `readSchema` must carry a required
-> top-level `id`.
+> (`W = z.input<writeSchema>`, enabling cast-free combinator writes). All three `id` rules above are
+> identical whether or not a `writeSchema` is supplied — no schema may declare a top-level `id`.
 
 ## Accessing derived schemas
 
@@ -100,11 +101,11 @@ validation.
 ```typescript
 const userRepo = FirestoreRepository.withSchema(db, 'users', userSchema);
 
-// Canonical read schema (includes required id)
+// Canonical read schema (no top-level id)
 const readSchema = userRepo.schemas?.read;
 
 // Internal write schemas used by repository validation
-const createSchema = userRepo.schemas?.create; // userSchema without id
+const createSchema = userRepo.schemas?.create; // the write schema (read schema, or writeSchema overlay)
 const updateSchema = userRepo.schemas?.update; // create schema made partial
 ```
 

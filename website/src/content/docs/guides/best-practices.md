@@ -105,12 +105,11 @@ use per-document `update` instead. See [Lifecycle hooks](./lifecycle-hooks/).
 
 ## 5. Add timestamps consistently
 
-Always add `createdAt` and `updatedAt` timestamps to track the data lifecycle. Note the required
-top-level `id: z.string()` in the schema — every firestore-orm schema must declare it.
+Always add `createdAt` and `updatedAt` timestamps to track the data lifecycle. Note that the schema
+does not declare a top-level `id` — the repository sources `doc.id` from the document name.
 
 ```typescript
 const userSchema = z.object({
-  id: z.string(),
   name: z.string(),
   email: z.string().email(),
   createdAt: z.string().datetime(),
@@ -171,6 +170,11 @@ Any operation requiring consistency across multiple documents should use a trans
 await accountRepo.runInTransaction(async (tx, repo) => {
   const from = await repo.getForUpdateInTransaction(tx, fromId);
   const to = await repo.getForUpdateInTransaction(tx, toId);
+
+  // getForUpdateInTransaction returns FirestoreDocument<Account> | null — guard before use.
+  if (!from || !to) {
+    throw new Error('Account not found');
+  }
 
   if (from.balance < amount) {
     throw new Error('Insufficient funds');

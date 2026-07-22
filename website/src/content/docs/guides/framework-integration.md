@@ -16,9 +16,10 @@ see [Schema validation](./schema-validation/).
 
 ### Basic setup
 
-Construct the repository once and export it. Because `withSchema` requires a top-level
-`id: z.string()` in the schema (see the [NestJS schema](#shared-schema-strategy) below for the full
-definition), the returned repository is fully typed and validated on every write.
+Construct the repository once and export it. Your schema must **not** declare a top-level `id` — it
+is rejected at construction, and the document name is the sole source of `id` (see the
+[NestJS schema](#shared-schema-strategy) below for the full definition). The returned repository is
+fully typed and validated on every write.
 
 ```typescript
 // repositories/user.repository.ts
@@ -42,11 +43,14 @@ const router = express.Router();
 
 router.post('/users', async (req, res, next) => {
   try {
-    const user = await userRepo.create({
-      ...req.body,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
+    const user = await userRepo.create(
+      {
+        ...req.body,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      { returnDoc: true },
+    );
     res.status(201).json(user);
   } catch (error) {
     next(error); // errorHandler middleware will process this
@@ -137,8 +141,8 @@ app.listen(3000, () => {
 
 > Notes on the API used above:
 >
-> - Reads use `getById(id)`, which returns `(User & { id }) | null` — check for `null` (or use
->   `getByIdOrThrow(id)` to get a `NotFoundError` instead).
+> - Reads use `getById(id)`, which returns `FirestoreDocument<User> | null` — check for `null` (or
+>   use `getByIdOrThrow(id)` to get a `NotFoundError` instead).
 > - Offset pagination is `offsetPaginate(page, pageSize)`. Cursor pagination is
 >   `paginate(pageSize, cursor?)` and requires a prior `orderBy()`; there is no `.startAfter()`
 >   chaining method. See [Queries](./queries/).
@@ -152,15 +156,14 @@ schemas so a single schema drives both the DTOs and the repository's runtime val
 
 ### Shared schema strategy
 
-Define one Zod schema — including the **required** top-level `id: z.string()` — then derive the
-create/update DTOs from it with `.omit()` and `.partial()`:
+Define one Zod schema — which must **not** declare a top-level `id` (the document name is the sole
+source of `id`) — then derive the create/update DTOs from it with `.omit()` and `.partial()`:
 
 ```typescript
 // schemas/user.schema.ts
 import { z } from 'zod';
 
 export const userSchema = z.object({
-  id: z.string(),
   name: z.string().min(1),
   email: z.string().email(),
   age: z.number().int().positive().optional(),
@@ -172,7 +175,7 @@ export const userSchema = z.object({
 export type User = z.infer<typeof userSchema>;
 
 // DTOs for NestJS (derived from same schema)
-export const createUserSchema = userSchema.omit({ id: true, createdAt: true, updatedAt: true });
+export const createUserSchema = userSchema.omit({ createdAt: true, updatedAt: true });
 export const updateUserSchema = createUserSchema.partial();
 
 export type CreateUserDto = z.infer<typeof createUserSchema>;
@@ -210,7 +213,7 @@ export class DatabaseModule {}
 ```
 
 Wrap the ORM repository in an injectable provider. Construct it with `withSchema(...)` (which
-enforces the required `id`) and register any lifecycle hooks in the constructor:
+validates every write against the schema) and register any lifecycle hooks in the constructor:
 
 ```typescript
 // modules/user/user.repository.ts
@@ -236,12 +239,15 @@ export class UserRepository {
     });
   }
 
-  async create(data: Omit<User, 'id' | 'createdAt' | 'updatedAt'>) {
-    return this.repo.create({
-      ...data,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
+  async create(data: Omit<User, 'createdAt' | 'updatedAt'>) {
+    return this.repo.create(
+      {
+        ...data,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      { returnDoc: true },
+    );
   }
 
   async findById(id: string) {
@@ -457,7 +463,7 @@ bootstrap();
 ## See also
 
 - [Error handling](./error-handling/) — the error classes and the Express `errorHandler` middleware
-- [Schema validation](./schema-validation/) — deriving DTOs and the required `id` field
+- [Schema validation](./schema-validation/) — deriving DTOs and the no-top-level-`id` schema rule
 - [Lifecycle hooks](./lifecycle-hooks/) — the `afterCreate` and related events
 - [Queries](./queries/) — pagination (`paginate`, `offsetPaginate`) and the query builder
 - [CRUD operations](./crud-operations/) — `create`, `update`, `delete`, and bulk methods

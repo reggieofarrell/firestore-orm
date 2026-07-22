@@ -28,10 +28,10 @@ read: it applies the repository's `readConverter` (the `fromFirestore` mapper) w
 configured, then overlays `id` from `snapshot.id`.
 
 ```typescript
-fromSnapshot(snapshot: DocumentSnapshot): (T & { id: ID }) | null;
+fromSnapshot(snapshot: DocumentSnapshot): FirestoreDocument<T> | null;
 ```
 
-- Returns the **read model** `T & { id }` (never the write model `W`).
+- Returns the **read model** `FirestoreDocument<T>` (never the write model `W`).
 - Returns `null` when the snapshot does not exist.
 - Does **no** Firestore I/O — it operates purely on the snapshot you pass in.
 
@@ -44,7 +44,7 @@ import { userRepo } from './repositories'; // your configured FirestoreRepositor
 export const onUserCreated = onDocumentCreated('users/{userId}', event => {
   const user = event.data && userRepo.fromSnapshot(event.data);
   if (!user) return;
-  // `user` is a fully reconstructed `User & { id }` — converter applied, id overlaid.
+  // `user` is a fully reconstructed `FirestoreDocument<User>` — converter applied, id overlaid.
 });
 
 export const onUserUpdated = onDocumentUpdated('users/{userId}', event => {
@@ -78,7 +78,7 @@ if (!result.success) {
   console.error(result.error.issues);
   return;
 }
-// result.data is the parsed User & { id }
+// result.data is the parsed FirestoreDocument<User>
 ```
 
 Both methods require a schema-configured repository (`withSchema`). Failures are normalized to

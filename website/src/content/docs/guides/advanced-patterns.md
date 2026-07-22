@@ -10,8 +10,8 @@ points into larger architectural patterns.
 
 Most of these recipes lean on two building blocks: [lifecycle hooks](./lifecycle-hooks/) to react to
 writes, and [transactions](./transactions/) to keep connected writes atomic. Where a recipe uses the
-`withSchema` factory, remember that the schema **must** include a required top-level
-`id: z.string()` or the factory throws at construction — see
+`withSchema` factory, remember that the schema **must not** declare a top-level `id` — the factory
+rejects it at construction, because the document name is the sole source of `id`. See
 [schema validation](./schema-validation/) for details.
 
 The recipes below are independent; jump to whichever one fits your problem:
@@ -43,7 +43,6 @@ import { Firestore } from 'firebase-admin/firestore';
 import { z } from 'zod';
 
 const userSchema = z.object({
-  id: z.string(),
   email: z.string().email(),
   active: z.boolean(),
 });
@@ -74,7 +73,7 @@ Design constraints for subclasses:
 - Build custom logic on the **public** API (`create`, `getById`, `findByField`, `query()`,
   transactions, hooks, and so on). Collection refs, validators, and other internals are `private`
   and are not available to subclasses.
-- Prefer composition (below) when you want `withSchema`'s construction-time `id` check and options
+- Prefer composition (below) when you want `withSchema`'s no-top-level-`id` assertion and options
   bag (`writeSchema`, `readConverter`, `sentinelPolicy`) without re-wiring them through
   `super(...)`.
 - Override write entry points only when you must enforce extra behavior on every path — see
@@ -171,7 +170,7 @@ class CachedUserRepository {
   private cache = new Redis(process.env.REDIS_URL);
   private cacheTTL = 300; // 5 minutes
 
-  async getById(id: string): Promise<User | null> {
+  async getById(id: string): Promise<FirestoreDocument<User> | null> {
     // Check cache first
     const cached = await this.cache.get(`user:${id}`);
     if (cached) {
@@ -187,14 +186,14 @@ class CachedUserRepository {
     return user;
   }
 
-  async update(id: string, data: Partial<User>): Promise<User | null> {
+  async update(id: string, data: Partial<User>): Promise<FirestoreDocument<User> | null> {
     await this.repo.update(id, data);
     // Invalidate cache
     await this.cache.del(`user:${id}`);
     return this.repo.getById(id);
   }
 
-  async create(data: Omit<User, 'id' | 'createdAt' | 'updatedAt'>): Promise<User & { id: string }> {
+  async create(data: Omit<User, 'createdAt' | 'updatedAt'>): Promise<{ id: ID }> {
     return this.repo.create({
       ...data,
       createdAt: new Date().toISOString(),
@@ -211,8 +210,8 @@ class CachedUserRepository {
 export const cachedUserRepo = new CachedUserRepository();
 ```
 
-`userSchema` here must include a required top-level `id: z.string()`, since
-`FirestoreRepository.withSchema` throws at construction otherwise.
+`userSchema` here must **not** declare a top-level `id`, since `FirestoreRepository.withSchema`
+rejects it at construction — the document name is the sole source of `id`.
 
 ## Full-Text Search
 
@@ -232,7 +231,7 @@ class SearchService {
   private usersIndex = this.client.initIndex('users');
   private productsIndex = this.client.initIndex('products');
 
-  async indexUser(user: User & { id: string }) {
+  async indexUser(user: FirestoreDocument<User>) {
     await this.usersIndex.saveObject({
       objectID: user.id,
       name: user.name,
@@ -355,7 +354,7 @@ collection. The generic helper works against any repository.
 class ArchivingService {
   private archiveRepo = new FirestoreRepository<ArchivedDocument>(db, 'archived_documents');
 
-  async archiveAndDelete<T extends { id?: ID }>(
+  async archiveAndDelete<T extends object>(
     repo: FirestoreRepository<T>,
     id: string,
   ): Promise<void> {
@@ -384,9 +383,9 @@ export const archivingService = new ArchivingService();
 await archivingService.archiveAndDelete(userRepo, 'user-123');
 ```
 
-The generic parameter is constrained with `T extends { id?: ID }` to match `FirestoreRepository`'s
-own constraint. For stronger guarantees you can run the read, the archive write, and the delete
-inside a single [transaction](./transactions/).
+The generic parameter is constrained with `T extends object` to match `FirestoreRepository`'s own
+constraint. For stronger guarantees you can run the read, the archive write, and the delete inside a
+single [transaction](./transactions/).
 
 ## Rate Limiting
 
@@ -397,7 +396,7 @@ before each call.
 // decorators/rate-limited-repository.ts
 import { RateLimiterMemory } from 'rate-limiter-flexible';
 
-class RateLimitedRepository<T extends { id?: ID }> {
+class RateLimitedRepository<T extends object> {
   private rateLimiter = new RateLimiterMemory({
     points: 100, // 100 requests
     duration: 60, // per 60 seconds
@@ -405,12 +404,12 @@ class RateLimitedRepository<T extends { id?: ID }> {
 
   constructor(private repo: FirestoreRepository<T>) {}
 
-  async create(data: T, userId: string): Promise<T & { id: string }> {
+  async create(data: CreateInput<T>, userId: string): Promise<{ id: ID }> {
     await this.rateLimiter.consume(userId);
     return this.repo.create(data);
   }
 
-  async update(id: string, data: Partial<T>, userId: string): Promise<{ id: string }> {
+  async update(id: ID, data: UpdateInput<T>, userId: string): Promise<{ id: ID }> {
     await this.rateLimiter.consume(userId);
     return this.repo.update(id, data);
   }
@@ -421,8 +420,8 @@ class RateLimitedRepository<T extends { id?: ID }> {
 export const rateLimitedUserRepo = new RateLimitedRepository(userRepo);
 ```
 
-As with the archiving helper, the generic parameter is constrained with `T extends { id?: ID }` so
-it satisfies `FirestoreRepository`'s type bound.
+As with the archiving helper, the generic parameter is constrained with `T extends object` so it
+satisfies `FirestoreRepository`'s type bound.
 
 ## Subclassing for Enforced Denormalization
 
@@ -434,6 +433,7 @@ constraints apply here.
 
 ```typescript
 import {
+  FirestoreDocument,
   FirestoreRepository,
   ID,
   NotFoundError,
@@ -443,14 +443,12 @@ import {
 import { Firestore } from 'firebase-admin/firestore';
 
 type Order = {
-  id: string;
   userId: string;
   status: 'pending' | 'processing' | 'cancelled';
   updatedAt: string;
 };
 
 type User = {
-  id: string;
   lastOrderId?: string;
   lastOrderStatus?: string;
   lastOrderAt?: string;
@@ -469,7 +467,7 @@ class OrderRepository extends FirestoreRepository<Order> {
     id: ID,
     data: UpdateInput<Order>,
     options?: UpdateOptions,
-  ): Promise<{ id: ID } | (Order & { id: ID })> {
+  ): Promise<{ id: ID } | FirestoreDocument<Order>> {
     return this.runInTransaction(async (tx, repo) => {
       const order = await repo.getForUpdateInTransaction(tx, id);
       if (!order) {
@@ -489,9 +487,9 @@ class OrderRepository extends FirestoreRepository<Order> {
       );
 
       if (options?.returnDoc === true) {
-        const updated = await repo.getForUpdateInTransaction(tx, id);
-        if (!updated) throw new NotFoundError(`Order with id ${id} not found after update`);
-        return updated;
+        // A transaction requires all reads before all writes, so we cannot re-read the document
+        // here — build the returned value from the pre-write read (`order`) overlaid with the patch.
+        return { ...order, ...(data as Partial<Order>) };
       }
 
       return { id };
@@ -503,7 +501,7 @@ class OrderRepository extends FirestoreRepository<Order> {
     id: ID,
     data: UpdateInput<Order>,
     options?: { returnDoc?: boolean },
-  ): Promise<{ id: ID } | (Order & { id: ID })> {
+  ): Promise<{ id: ID } | FirestoreDocument<Order>> {
     if (options?.returnDoc === true) {
       return this.update(id, data, { merge: true, returnDoc: true });
     }

@@ -18,6 +18,7 @@ import {
   NotFoundError,
   ConflictError,
   FirestoreIndexError,
+  InvalidDocumentIdError,
 } from '@reggieofarrell/firestore-orm';
 
 try {
@@ -28,6 +29,9 @@ try {
     error.issues.forEach(issue => {
       console.log(`${issue.path}: ${issue.message}`);
     });
+  } else if (error instanceof InvalidDocumentIdError) {
+    // Handle a malformed document id
+    console.log(`Invalid document id (${error.reason})`);
   } else if (error instanceof NotFoundError) {
     // Handle not found
     console.log('Document not found');
@@ -56,6 +60,18 @@ Properties:
 - `message: string` — a formatted summary built from the issues (each rendered as `path: message`,
   comma-joined), e.g. `email: Invalid email address, age: Too small: expected number to be >0`. The
   message text is produced by Zod, so it varies by Zod version and any custom messages you set.
+
+### `InvalidDocumentIdError`
+
+Thrown when a document id is malformed. Every id-taking surface validates its id before touching
+Firestore — `repo.id(raw)`, `getById`, `update`, `patch`, `upsert`, `delete`, the `bulk*` methods,
+their `*InTransaction` equivalents, and `whereId` — and rejects an id that contains `/`, is `.` or
+`..`, is wrapped in `__…__`, is empty, or exceeds 1500 bytes.
+
+Properties:
+
+- `reason: InvalidDocumentIdReason` — a discriminant describing why the id was rejected
+- `message: string` — error description
 
 ### `NotFoundError`
 
@@ -99,7 +115,7 @@ Properties:
 import { parseFirestoreError } from '@reggieofarrell/firestore-orm';
 ```
 
-**`parseFirestoreError(error: any): Error`**
+**`parseFirestoreError(error: unknown): Error`**
 
 Normalizes a raw error thrown by the Firestore SDK into one of the ORM's typed errors. The
 repository and query builder call this internally on every operation, so you normally never invoke
@@ -108,7 +124,8 @@ it directly — the errors you catch are already normalized. It maps:
 - a Firestore `not-found` error (gRPC code `5`) → `NotFoundError`
 - an index-required error (gRPC code `9` whose details mention `requires an index`) →
   `FirestoreIndexError`, with `indexUrl` and `fields` extracted from the error details
-- anything else → returned unchanged
+- any other `Error` → returned unchanged; a non-`Error` value (a string or plain object) is wrapped
+  in a new `Error`
 
 ## Express error handler
 
@@ -131,10 +148,13 @@ app.use(errorHandler);
 This automatically maps errors to HTTP status codes:
 
 - `ValidationError` → 400 Bad Request
+- `InvalidDocumentIdError` → 400 Bad Request (a malformed caller-supplied id; the body carries the
+  machine-readable `reason`, never the raw id)
 - `NotFoundError` → 404 Not Found
 - `ConflictError` → 409 Conflict
 - `FirestoreIndexError` → 503 Service Unavailable (a missing index is a server/config failure; the
-  response includes the index-creation URL)
+  index-creation URL is deliberately **not** returned to the client — it stays server-side on the
+  caught error's `indexUrl` for logging)
 - Others → 500 Internal Server Error
 
 For a fuller Express integration walkthrough, see [Framework integration](./framework-integration/).
@@ -149,13 +169,14 @@ it) so it can process the error.
 
 Maps errors to HTTP status codes and JSON bodies:
 
-| Error                 | Status | Response body                                                       |
-| --------------------- | ------ | ------------------------------------------------------------------- |
-| `ValidationError`     | 400    | `{ error: 'ValidationError', details: issues }`                     |
-| `NotFoundError`       | 404    | `{ error: 'NotFoundError', message }`                               |
-| `FirestoreIndexError` | 503    | `{ error: 'Query needs an index', message, url: indexUrl }`         |
-| `ConflictError`       | 409    | `{ error: 'ConflictError', message }`                               |
-| Anything else         | 500    | `{ error: 'InternalServerError', message: 'Something went wrong' }` |
+| Error                    | Status | Response body                                                       |
+| ------------------------ | ------ | ------------------------------------------------------------------- |
+| `ValidationError`        | 400    | `{ error: 'ValidationError', details: issues }`                     |
+| `InvalidDocumentIdError` | 400    | `{ error: 'InvalidDocumentIdError', reason }`                       |
+| `NotFoundError`          | 404    | `{ error: 'NotFoundError', message }`                               |
+| `FirestoreIndexError`    | 503    | `{ error: 'Query needs an index', message }`                        |
+| `ConflictError`          | 409    | `{ error: 'ConflictError', message }`                               |
+| Anything else            | 500    | `{ error: 'InternalServerError', message: 'Something went wrong' }` |
 
 The generic 500 branch intentionally hides the underlying message so internal details are not leaked
 to clients.

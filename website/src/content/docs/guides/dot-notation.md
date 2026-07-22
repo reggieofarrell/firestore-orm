@@ -257,10 +257,10 @@ Paths into a dynamic map field (`z.record(...)`) can't be resolved to a leaf sch
 through as-is. Malformed paths (`a..b`, `.a`, `a.`) are rejected up front via
 `validateDotNotationPath`.
 
-**Querying into a dynamic map.** The typed query paths (`FieldPaths<T>` for `where` / `orderBy` /
-`select`) are generated from the schema's declared fields, so they do **not** include arbitrary
-subpaths of a `z.record(...)` map (or paths deeper than the type's depth bound). To filter or order
-by a dynamic map key, pass a `FieldPath`:
+**Querying into a dynamic map.** The typed query paths (`FieldPaths<S>`, from the stored shape `S`,
+for `where` / `orderBy` / `select`) are generated from the schema's declared fields, so they do
+**not** include arbitrary subpaths of a `z.record(...)` map (or paths deeper than the type's depth
+bound). To filter or order by a dynamic map key, pass a `FieldPath`:
 
 ```typescript
 import { FieldPath } from 'firebase-admin/firestore';
@@ -310,10 +310,11 @@ await repo.runInTransaction(async (tx, repo) => {
 
 **3. Schema Validation with Sentinels**
 
-When using repositories created with `withSchema(...)`, the default `sentinelPolicy: 'permissive'`
-ignores fields assigned to `FieldValue` sentinels during Zod validation while still validating all
-other fields in the payload. To restrict which sentinels a field may receive, declare fields with
-the write combinators and use `sentinelPolicy: 'strict'` — see
+When using repositories created with `withSchema(...)`, the default `sentinelPolicy: 'strict'`
+restricts which sentinels a field may receive: declare fields with the write combinators to approve
+sentinels per field. Opt into `sentinelPolicy: 'permissive'` (the opt-in, pre-v3 default) to instead
+ignore any field assigned to a `FieldValue` sentinel during Zod validation while still validating
+all other fields in the payload — see
 [Per-Field Sentinel Approval](./field-value-sentinels/#per-field-sentinel-approval).
 
 ## Dot-Notation Utilities

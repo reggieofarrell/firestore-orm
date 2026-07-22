@@ -17,7 +17,6 @@ import { z } from 'zod';
 import { FirestoreRepository } from '@reggieofarrell/firestore-orm';
 
 const orderSchema = z.object({
-  id: z.string(),
   product: z.string(),
   price: z.number(),
   status: z.enum(['pending', 'completed', 'cancelled']),
@@ -43,23 +42,30 @@ const fetched = await userOrders.getById(order.id);
 ### Signature
 
 `subcollection` mirrors [`withSchema`](./schema-validation/#schema-validation): read/write types are
-inferred from schema values, and a trailing options object carries `writeSchema`, `readConverter`,
-and `sentinelPolicy`.
+inferred from schema values, and a trailing options object carries `writeSchema`, `storedSchema`,
+`readConverter`, `sentinelPolicy`, and `allowLegacyDatastoreIds`. As with `withSchema`,
+`storedSchema` is required whenever a `readConverter` is set.
 
 ```typescript
-subcollection<RS extends z.ZodObject<any>, WS extends z.ZodObject<any> = RS>(
+subcollection<
+  RS extends z.ZodObject<any>,
+  WS extends z.ZodObject<any> = RS,
+  SS extends z.ZodObject<any> = RS,
+>(
   parentId: ID,
-  name: string,
+  subcollectionName: string,
   readSchema: RS,
   options?: {
     writeSchema?: WS;
-    readConverter?: ReadConverter<z.infer<RS>>;
-    sentinelPolicy?: 'permissive' | 'strict';
+    storedSchema?: SS;
+    readConverter?: ReadConverter<z.output<RS>>;
+    sentinelPolicy?: SentinelPolicy;
+    allowLegacyDatastoreIds?: boolean;
   },
-): FirestoreRepository<z.infer<RS>, z.infer<WS>>;
+): FirestoreRepository<z.output<RS>, z.input<WS>, z.output<SS>, z.output<WS>>;
 ```
 
-The read type is `z.infer<readSchema>`; the write type is `z.infer<writeSchema>` when a
+The read type is `z.output<readSchema>`; the write-input type is `z.input<writeSchema>` when a
 `writeSchema` overlay is supplied (otherwise it equals the read type). Pass a `writeSchema` built
 from the write combinators for cast-free sentinel/combinator writes:
 
@@ -72,15 +78,15 @@ const userOrders = userRepo.subcollection('user-123', 'orders', orderSchema, {
 await userOrders.update('o1', { price: FieldValue.increment(5) }); // no cast needed
 ```
 
-`options.sentinelPolicy` defaults to `'permissive'`. See
+`options.sentinelPolicy` defaults to `'strict'` (`'permissive'` is the opt-in, pre-v3 default). See
 [field-value sentinels](./field-value-sentinels/#per-field-sentinel-approval) for what strict mode
 enforces.
 
-> The `readSchema` **must include a required top-level `id: z.string()`**. If it does not, the
-> repository throws at construction (the `writeSchema` overlay need not). See
-> [schema validation](./schema-validation/#schema-validation) for the rules on `id` handling. For an
-> **unvalidated** subcollection, construct a repository directly against the full path:
-> `new FirestoreRepository<Order>(db, 'users/user-123/orders')`.
+> No schema passed to `subcollection()` may declare a top-level `id` — the document name is the sole
+> source of `id`. A top-level `id` in the `readSchema` (or any overlay) is **rejected at
+> construction**. See [schema validation](./schema-validation/#schema-validation) for the rules on
+> `id` handling. For an **unvalidated** subcollection, construct a repository directly against the
+> full path: `new FirestoreRepository<Order>(db, 'users/user-123/orders')`.
 
 ## Querying a subcollection
 
@@ -104,11 +110,9 @@ Because `subcollection()` returns a full repository, you can chain calls to desc
 
 ```typescript
 const commentSchema = z.object({
-  id: z.string(),
   body: z.string(),
 });
 const replySchema = z.object({
-  id: z.string(),
   body: z.string(),
 });
 type Comment = z.infer<typeof commentSchema>;
@@ -130,7 +134,6 @@ repository. If a child collection needs converter behavior, pass the converter e
 import { ReadConverter } from '@reggieofarrell/firestore-orm';
 
 const userSchema = z.object({
-  id: z.string(),
   name: z.string(),
 });
 type User = z.infer<typeof userSchema>;
@@ -142,11 +145,13 @@ const orderReadConverter: ReadConverter<Order> = snapshot => snapshot.data() as 
 
 const users = FirestoreRepository.withSchema(db, 'users', userSchema, {
   readConverter: userReadConverter,
+  storedSchema: userSchema, // required with a readConverter; here the mapper doesn't reshape
 });
 
 // No converter inheritance: pass the child converter explicitly.
 const userOrders = users.subcollection('user-123', 'orders', orderSchema, {
   readConverter: orderReadConverter,
+  storedSchema: orderSchema,
 });
 ```
 
@@ -170,8 +175,8 @@ topLevel.isSubcollection(); // false
 ```
 
 `FirestoreRepository`'s constructor is
-`new FirestoreRepository(db, collectionPath, validator?, parentPath?, readConverter?, schemas?)` —
-there is no options/config/logging bag. In practice, prefer `subcollection()` and the
+`new FirestoreRepository(db, collectionPath, validator?, parentPath?, readConverter?, schemas?, allowLegacyDatastoreIds?)`
+— there is no options/config/logging bag. In practice, prefer `subcollection()` and the
 [`withSchema`](./schema-validation/#schema-validation) factory over constructing repositories by
 hand.
 
@@ -179,6 +184,6 @@ hand.
 
 - [CRUD operations](./crud-operations/) — create, read, update, delete on the child repository
 - [Queries](./queries/) — filtering, aggregations, pagination, and streaming
-- [Schema validation](./schema-validation/) — required `id`, derived schemas
+- [Schema validation](./schema-validation/) — no top-level `id`, derived schemas
 - [Field-value sentinels](./field-value-sentinels/) — `sentinelPolicy` and strict mode
 - [Core concepts](./core-concepts/) — repository pattern and converter behavior

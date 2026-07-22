@@ -1,11 +1,19 @@
 import { z } from 'zod';
-import { isVectorFieldValue, VECTOR_MAX_DIMENSIONS } from './VectorSearch.js';
+import { VECTOR_MAX_DIMENSIONS } from './VectorSearch.js';
+import { areFiniteVectorComponents, genuineVectorComponents } from '../utils/vectorValue.js';
+import type { VectorValueLike } from '../utils/pathTypes.js';
 
 /**
  * Zod schema for a vector embedding field on create/update payloads.
- * Accepts plain number arrays (tests, pre-write transforms) and `FieldValue.vector()` sentinels.
+ * Accepts plain number arrays (tests, pre-write transforms) and genuine `FieldValue.vector()` values.
  *
- * @param dimensions - When provided, plain arrays must match this exact length. Must itself be a
+ * The same constraints apply to BOTH representations: non-empty, all-finite components, no more than
+ * Firestore's maximum embedding dimension, and — when `dimensions` is given — exactly that length. A
+ * native vector's components are read from its public `toArray()`, so a native vector cannot bypass
+ * the dimension/finite checks a plain array is held to (review T3). A forged plain `{ _values }` map
+ * is not a genuine `VectorValue`, so it falls through to the array path and is rejected (finding B7).
+ *
+ * @param dimensions - When provided, values must have exactly this many components. Must itself be a
  *   positive integer no greater than Firestore's maximum embedding dimension.
  */
 export function vectorEmbeddingSchema(dimensions?: number) {
@@ -18,22 +26,24 @@ export function vectorEmbeddingSchema(dimensions?: number) {
     );
   }
 
-  return z.custom<number[] | ReturnType<typeof Object>>(
+  return z.custom<number[] | VectorValueLike>(
     value => {
-      if (isVectorFieldValue(value)) {
-        return true;
-      }
-
-      if (!Array.isArray(value) || value.length === 0) {
-        return false;
-      }
+      // Components from a genuine VectorValue (via toArray()) or a plain number[]; anything else
+      // (incl. a forged { _values } map) yields null and is rejected.
+      const components = genuineVectorComponents(value) ?? (Array.isArray(value) ? value : null);
 
       // Number.isFinite rejects NaN AND +/-Infinity (Number.isNaN would let infinities through).
-      if (value.some(entry => typeof entry !== 'number' || !Number.isFinite(entry))) {
+      if (!areFiniteVectorComponents(components)) {
         return false;
       }
 
-      if (dimensions !== undefined && value.length !== dimensions) {
+      // Firestore rejects embeddings above its maximum component count; enforce it on input for both
+      // representations rather than deferring to the backend.
+      if (components.length > VECTOR_MAX_DIMENSIONS) {
+        return false;
+      }
+
+      if (dimensions !== undefined && components.length !== dimensions) {
         return false;
       }
 
@@ -42,8 +52,10 @@ export function vectorEmbeddingSchema(dimensions?: number) {
     {
       message:
         dimensions === undefined
-          ? 'Expected a non-empty number array or FieldValue.vector() sentinel.'
-          : `Expected a number array with exactly ${dimensions} values or FieldValue.vector().`,
+          ? 'Expected a non-empty finite number array or FieldValue.vector() value ' +
+            `(at most ${VECTOR_MAX_DIMENSIONS} components).`
+          : `Expected a number array or FieldValue.vector() value with exactly ${dimensions} ` +
+            'finite components.',
     },
   );
 }

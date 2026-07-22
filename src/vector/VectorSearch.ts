@@ -1,6 +1,6 @@
 import { FieldValue, Query } from 'firebase-admin/firestore';
 import { FirestoreDocument } from '../core/DocumentId.js';
-import { hasFiniteVectorValues, hasVectorValuesShape } from '../utils/vectorValue.js';
+import { areFiniteVectorComponents, genuineVectorComponents } from '../utils/vectorValue.js';
 
 /**
  * Supported Firestore vector distance measures for KNN similarity search.
@@ -97,26 +97,25 @@ export function isVectorFieldValue(value: unknown): boolean {
     return false;
   }
 
-  // A value carrying a `VectorValue`-shaped `_values` array is judged SOLELY on that array: it is a
-  // valid vector sentinel only when every component is a finite number. This is terminal — a
-  // shaped-but-invalid vector (e.g. containing Infinity) must be rejected here, not fall through to
-  // the looser `instanceof FieldValue` / `toString` heuristics below (which would wrongly accept it).
-  if (hasVectorValuesShape(value)) {
-    return hasFiniteVectorValues(value);
+  // Only a GENUINE VectorValue (instanceof the constructor `FieldValue.vector()` produces) is
+  // accepted; a forged plain `{ _values: [...] }` map — even with spoofed toArray()/isEqual() —
+  // keeps `Object.prototype` and is rejected, so it cannot masquerade as a vector sentinel, bypass
+  // schema validation, and be stored as an ordinary map (review T2 / finding B7). Components come
+  // from the public `toArray()` and must be finite — a `FieldValue.vector([Infinity])` is authentic
+  // but invalid and is rejected here.
+  const components = genuineVectorComponents(value);
+  if (components !== null) {
+    return areFiniteVectorComponents(components);
   }
 
+  // Defensive fallback for SDK shapes that model a vector as a `FieldValue` subclass whose
+  // serialization names it (rather than a standalone `VectorValue`).
   if (value instanceof FieldValue) {
     const serialized = String(value.toString()).toLowerCase();
     return serialized.includes('vector');
   }
 
-  const sentinel = value as { isEqual?: unknown; toString?: unknown };
-  if (typeof sentinel.isEqual !== 'function' || typeof sentinel.toString !== 'function') {
-    return false;
-  }
-
-  const serialized = String(sentinel.toString()).toLowerCase();
-  return serialized.includes('vector');
+  return false;
 }
 
 /**
@@ -217,15 +216,49 @@ export function validateFindNearestOptions(
 }
 
 /**
- * Ensures the connected Firestore SDK exposes vector search APIs.
+ * Ensures the connected Firestore SDK supports the **object-form** `findNearest({ ... })` this
+ * library issues (see {@link VectorQueryBuilder}), which requires `@google-cloud/firestore >= 7.10`
+ * (guaranteed by `firebase-admin >= 13`; on `firebase-admin 12` only when the resolved
+ * `@google-cloud/firestore` is `>= 7.10`).
+ *
+ * Detection is **capability-based**, not error-based. It (1) rejects a totally absent `findNearest`
+ * (`<= 7.5`), then (2) probes the object form by constructing a throwaway `findNearest` with valid
+ * minimal arguments. The positional-only `7.6`–`7.9` signature rejects a single object argument, so
+ * the probe throws there and a deterministic compatibility error is surfaced; `7.10+` constructs the
+ * probe and returns. Because this runs BEFORE the real `findNearest` call, a genuine construction
+ * error from the real call (e.g. an invalid vector field path on a supported SDK) is **not** relabeled
+ * as a version incompatibility — it propagates as an ordinary SDK error (review R1). The probe builds
+ * a throwaway query object only (no I/O); the builder's guards ensure the query reaching this point
+ * is findNearest-compatible, so on a supported SDK the valid-args probe constructs.
  */
 export function assertVectorSearchSupported(query: Query<unknown>): void {
   const findNearest = (query as Query<unknown> & { findNearest?: unknown }).findNearest;
   if (typeof findNearest !== 'function') {
     throw new Error(
-      'Vector search is not available in the installed firebase-admin SDK. ' +
-        'Upgrade to firebase-admin >= 12 (basic findNearest) or >= 13 ' +
-        '(distanceResultField and distanceThreshold).',
+      'Vector search is not available: the installed Firestore SDK does not expose findNearest(). ' +
+        'The object-form findNearest() this library uses requires @google-cloud/firestore >= 7.10 ' +
+        '(guaranteed by firebase-admin >= 13; on firebase-admin 12 only when the resolved ' +
+        '@google-cloud/firestore is >= 7.10). Upgrade firebase-admin (or @google-cloud/firestore).',
     );
+  }
+
+  try {
+    // Capability probe with valid minimal args on a throwaway query (result discarded, no I/O). The
+    // positional-only 7.6-7.9 signature rejects this single object argument and throws here.
+    (query as unknown as { findNearest(options: Record<string, unknown>): unknown }).findNearest({
+      vectorField: '__firestore_orm_vector_support_probe__',
+      queryVector: [0],
+      limit: 1,
+      distanceMeasure: VectorDistanceMeasure.EUCLIDEAN,
+    });
+  } catch (error) {
+    const compat = new Error(
+      'Vector search requires the object-form findNearest(), i.e. @google-cloud/firestore >= 7.10 ' +
+        '(guaranteed by firebase-admin >= 13; on firebase-admin 12 only when the resolved ' +
+        '@google-cloud/firestore is >= 7.10). The installed SDK rejected the object form — ' +
+        '@google-cloud/firestore 7.6-7.9 expose a positional-only findNearest. Upgrade to >= 7.10.',
+    );
+    (compat as { cause?: unknown }).cause = error;
+    throw compat;
   }
 }

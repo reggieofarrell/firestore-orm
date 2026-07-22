@@ -5,6 +5,7 @@
 import { FieldValue, FieldPath, GeoPoint, Timestamp } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import {
+  collectDeleteSentinelPaths,
   collectSentinelPaths,
   isFieldValueSentinel,
   makeValidator,
@@ -145,6 +146,50 @@ describe('Validation utilities', () => {
       });
 
       expect(paths).toEqual(expect.arrayContaining([['embedding']]));
+    });
+  });
+
+  describe('collectDeleteSentinelPaths (B8, ADR-0019)', () => {
+    it('collects only delete-sentinel paths, resolving through objects and array indices', () => {
+      const paths = collectDeleteSentinelPaths({
+        name: 'Alice', // plain value — not a sentinel
+        profile: {
+          updatedAt: FieldValue.serverTimestamp(), // sentinel, but not delete
+          bio: FieldValue.delete(), // nested delete (object path)
+        },
+        tags: [FieldValue.arrayUnion('a'), FieldValue.delete()], // delete at an array index
+        count: FieldValue.increment(1), // sentinel, but not delete
+      });
+
+      // Only the two delete sentinels are returned; increment/serverTimestamp/arrayUnion are excluded.
+      expect(paths).toEqual(
+        expect.arrayContaining([
+          ['profile', 'bio'],
+          ['tags', 1],
+        ]),
+      );
+      expect(paths).toHaveLength(2);
+    });
+
+    it('returns an empty array when there are no delete sentinels', () => {
+      expect(
+        collectDeleteSentinelPaths({
+          count: FieldValue.increment(1),
+          when: FieldValue.serverTimestamp(),
+          nested: { tags: FieldValue.arrayUnion('a') },
+        }),
+      ).toEqual([]);
+    });
+
+    it('detects a delete sentinel at the root (empty path)', () => {
+      // Exercises the root-path branch of the resolver: the whole input IS the sentinel.
+      expect(collectDeleteSentinelPaths(FieldValue.delete())).toEqual([[]]);
+    });
+
+    it('returns an empty array for non-object inputs', () => {
+      expect(collectDeleteSentinelPaths(null)).toEqual([]);
+      expect(collectDeleteSentinelPaths('x')).toEqual([]);
+      expect(collectDeleteSentinelPaths(42)).toEqual([]);
     });
   });
 

@@ -27,6 +27,12 @@ const PKG = pkg.name;
 const ADMIN_VERSION =
   process.env.FIRESTORE_ORM_ADMIN_VERSION || pkg.devDependencies['firebase-admin'];
 const ADMIN = `firebase-admin@${ADMIN_VERSION}`;
+// Optional: force the TRANSITIVE @google-cloud/firestore to a specific version via an npm override,
+// to exercise the vector object-form floor (B3). firebase-admin 12 can resolve a firestore below the
+// >= 7.10 that the object-form findNearest() requires, so CI pins e.g. 7.9.0 and proves the packed
+// library still installs, compiles, and loads against it. Unset (the default) uses whatever the
+// chosen firebase-admin resolves.
+const FIRESTORE_VERSION = process.env.FIRESTORE_ORM_FIRESTORE_VERSION;
 const ZOD = `zod@${pkg.devDependencies['zod']}`;
 const TS = `typescript@${pkg.devDependencies['typescript']}`;
 
@@ -78,9 +84,19 @@ try {
   // Slice from the first JSON bracket in case the prepare lifecycle printed to stdout.
   tarball = join(process.cwd(), JSON.parse(packJson.slice(packJson.indexOf('[')))[0].filename);
 
-  // Root project: install the tarball + declared peers only (no express).
-  writeFileSync(join(work, 'package.json'), JSON.stringify({ name: 'consumer', private: true }));
-  console.log(`Installing packed tarball + peers (${ADMIN}, ${ZOD}) — no express...`);
+  // Root project: install the tarball + declared peers only (no express). When a firestore version
+  // is pinned, force it transitively with an npm `overrides` entry so firebase-admin resolves it.
+  const rootPkg = { name: 'consumer', private: true };
+  if (FIRESTORE_VERSION) {
+    rootPkg.overrides = { '@google-cloud/firestore': FIRESTORE_VERSION };
+  }
+  writeFileSync(join(work, 'package.json'), JSON.stringify(rootPkg));
+  const firestoreNote = FIRESTORE_VERSION
+    ? `, @google-cloud/firestore@${FIRESTORE_VERSION} override`
+    : '';
+  console.log(
+    `Installing packed tarball + peers (${ADMIN}, ${ZOD}${firestoreNote}) — no express...`,
+  );
   run('npm', ['install', '--no-audit', '--no-fund', tarball, ADMIN, ZOD, TS], work);
 
   const tsconfig = (extra = {}) =>
@@ -107,9 +123,21 @@ try {
   writeFileSync(join(esm, 'tsconfig.json'), tsconfig());
   writeFileSync(
     join(esm, 'consumer.ts'),
-    `import {${ROOT_IMPORTS}} from '${PKG}';\n` +
-      `import { withVectorSearch } from '${PKG}/vector';\n` +
-      `export const used = [FirestoreRepository, FirestoreQueryBuilder, NotFoundError, ValidationError, ConflictError, FirestoreIndexError, parseFirestoreError, makeValidator, zNumberWrite, zDateWrite, zArrayWrite, zSentinel, withDelete, isDotNotation, expandDotNotation, mergeDotNotationUpdate, convertTimestampsToMillis, createMillisTimestampConverter, withVectorSearch];\n`,
+    `import { z } from 'zod';\n` +
+      `import {${ROOT_IMPORTS}} from '${PKG}';\n` +
+      `import { withVectorSearch, vectorEmbeddingSchema } from '${PKG}/vector';\n` +
+      // T5: the named vector value type must be importable through the public /vector specifier...
+      `import type { VectorValueLike } from '${PKG}/vector';\n` +
+      `const vvl: VectorValueLike = { toArray: () => [1, 2, 3], isEqual: () => false };\n` +
+      // ...and the schema input must be number[] | VectorValueLike, NOT `any` (which would silently
+      // accept a string). A string assignment must be a compile error, or this @ts-expect-error is
+      // unused and tsc fails — catching a regression back to an `any`-typed embedding field.
+      `const embSchema = vectorEmbeddingSchema(3);\n` +
+      `type EmbInput = z.input<typeof embSchema>;\n` +
+      `const goodEmb: EmbInput = [1, 2, 3];\n` +
+      `// @ts-expect-error vector embedding input is number[] | VectorValueLike, not any/string\n` +
+      `const badEmb: EmbInput = 'not-a-vector';\n` +
+      `export const used = [FirestoreRepository, FirestoreQueryBuilder, NotFoundError, ValidationError, ConflictError, FirestoreIndexError, parseFirestoreError, makeValidator, zNumberWrite, zDateWrite, zArrayWrite, zSentinel, withDelete, isDotNotation, expandDotNotation, mergeDotNotationUpdate, convertTimestampsToMillis, createMillisTimestampConverter, withVectorSearch, vectorEmbeddingSchema, vvl, goodEmb, badEmb];\n`,
   );
   tscExpectOk(esm, 'ESM root+vector consumer (express NOT installed)');
 
@@ -124,6 +152,45 @@ try {
       `if (typeof vector.withVectorSearch !== 'function') { console.error('missing vector export'); process.exit(1); }\n`,
   );
   nodeRunExpectOk(esm, 'smoke.mjs', 'ESM root+vector import()');
+
+  // 1c. Vector object-form FLOOR probe (only on the pinned-firestore legs). Import/load alone can't
+  // guard B3, so this constructs the object-form findNearest() against the RESOLVED
+  // @google-cloud/firestore and asserts the promised behavior: it must construct on >= 7.10, and on
+  // 7.6-7.9 (positional-only) it must fail with the library's deterministic object-form compatibility
+  // error — not a raw SDK argument error (review T4). No network: building the query is lazy.
+  if (FIRESTORE_VERSION) {
+    writeFileSync(
+      join(esm, 'vector-probe.mjs'),
+      `import { createRequire } from 'node:module';\n` +
+        `import { initializeApp } from 'firebase-admin/app';\n` +
+        `import { getFirestore } from 'firebase-admin/firestore';\n` +
+        `import { FirestoreRepository } from '${PKG}';\n` +
+        `import { withVectorSearch } from '${PKG}/vector';\n` +
+        `const requireCjs = createRequire(import.meta.url);\n` +
+        `const version = requireCjs('@google-cloud/firestore/package.json').version;\n` +
+        `const [maj, min] = version.split('.').map(Number);\n` +
+        `const objectFormSupported = maj > 7 || (maj === 7 && min >= 10);\n` +
+        `const db = getFirestore(initializeApp({ projectId: 'floor-probe' }, 'floorprobe'));\n` +
+        `const vrepo = withVectorSearch(new FirestoreRepository(db, 'things'));\n` +
+        `let constructed = false; let message = null;\n` +
+        `try {\n` +
+        `  vrepo.vectorQuery().findNearest({ vectorField: 'embedding', queryVector: [0.1, 0.2, 0.3], limit: 1, distanceMeasure: 'COSINE' });\n` +
+        `  constructed = true;\n` +
+        `} catch (e) { message = e && e.message; }\n` +
+        `if (objectFormSupported) {\n` +
+        `  if (!constructed) { console.error('expected object-form findNearest to construct on @google-cloud/firestore ' + version + ', but it threw: ' + message); process.exit(1); }\n` +
+        `} else {\n` +
+        `  if (constructed) { console.error('expected object-form findNearest to be REJECTED on @google-cloud/firestore ' + version + ' (positional-only), but it constructed'); process.exit(1); }\n` +
+        `  if (!/object-form findNearest/.test(message || '')) { console.error('expected the ORM object-form compatibility error on ' + version + ', got: ' + message); process.exit(1); }\n` +
+        `}\n` +
+        `console.log('  vector object-form probe OK on @google-cloud/firestore ' + version + ' (objectFormSupported=' + objectFormSupported + ')');\n`,
+    );
+    nodeRunExpectOk(
+      esm,
+      'vector-probe.mjs',
+      `Vector object-form floor probe (@google-cloud/firestore ${FIRESTORE_VERSION})`,
+    );
+  }
 
   // 2. CJS consumer (no express installed).
   const cjs = join(work, 'cjs');
@@ -181,7 +248,8 @@ try {
   nodeRunExpectOk(exp, 'smoke.cjs', 'Express subpath require()');
 
   console.log(
-    `✓ Packed-consumer check passed for ${ADMIN} (ESM + CJS root express-free, compile + runtime load; /express subpath OK).`,
+    `✓ Packed-consumer check passed for ${ADMIN}${firestoreNote} (ESM + CJS root express-free, ` +
+      `compile + runtime load; /express subpath OK).`,
   );
 } finally {
   rmSync(work, { recursive: true, force: true });

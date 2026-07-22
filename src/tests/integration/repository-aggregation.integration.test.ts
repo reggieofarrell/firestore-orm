@@ -56,20 +56,23 @@ describe('FirestoreRepository aggregation query behavior', () => {
     }
   });
 
-  it('should return 0 for empty sum and average results', async () => {
+  it('should return 0 for an empty sum but null for an empty average', async () => {
     const repo = createValidatedRepo(db);
 
     try {
       const emptyQuery = repo.query().where('name', '==', 'No matching documents');
       expect(await emptyQuery.count()).toBe(0);
+      // sum keeps the empty-set identity 0 (SDK types it non-nullable).
       expect(await emptyQuery.sum('score')).toBe(0);
-      expect(await emptyQuery.average('score')).toBe(0);
+      // average returns null when there are no numeric values to average — not 0 (ADR-0020, B9).
+      // A conflated `?? 0` would report the same value as a set whose average is genuinely 0.
+      expect(await emptyQuery.average('score')).toBeNull();
     } finally {
       await cleanupValidatedRepo(repo);
     }
   });
 
-  it('should keep count, sum, average, and totalCount semantics consistent', async () => {
+  it('should keep count, sum, average, and collectionCount semantics consistent', async () => {
     const repo = createValidatedRepo(db);
 
     try {
@@ -81,10 +84,10 @@ describe('FirestoreRepository aggregation query behavior', () => {
       expect(await repo.query().sum('score')).toBe(70);
       expect(await repo.query().average('score')).toBeCloseTo(70 / 3);
 
-      // totalCount() ignores user where clauses and always counts the base collection.
-      expect(await repo.query().where('name', '==', first.name).totalCount()).toBe(3);
-      expect(await repo.query().where('name', '==', second.name).totalCount()).toBe(3);
-      expect(await repo.query().where('name', '==', third.name).totalCount()).toBe(3);
+      // collectionCount() ignores user where clauses and always counts the base collection.
+      expect(await repo.query().where('name', '==', first.name).collectionCount()).toBe(3);
+      expect(await repo.query().where('name', '==', second.name).collectionCount()).toBe(3);
+      expect(await repo.query().where('name', '==', third.name).collectionCount()).toBe(3);
     } finally {
       await cleanupValidatedRepo(repo);
     }

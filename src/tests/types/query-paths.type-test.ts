@@ -162,6 +162,20 @@ export function numericAggregationPaths() {
   numRepo.findByField('nope', 1);
 }
 
+// Aggregate return-type contracts (ADR-0020, D11): average is nullable, sum/count terminals are not,
+// and the collection-wide count is named collectionCount (not totalCount).
+export async function aggregateReturnTypes() {
+  const avg: number | null = await numRepo.query().average('score');
+  // @ts-expect-error average returns `number | null` — a null-unaware assignment must not compile.
+  const avgNonNull: number = await numRepo.query().average('score');
+  const summed: number = await numRepo.query().sum('score');
+  const counted: number = await numRepo.query().count();
+  const collectionWide: number = await numRepo.query().collectionCount();
+  // @ts-expect-error totalCount() was renamed to collectionCount() in v3 (D11).
+  await numRepo.query().totalCount();
+  return { avg, avgNonNull, summed, counted, collectionWide };
+}
+
 // `PathValue` resolves the read-model type at a (possibly dotted) path.
 const city: PathValue<Doc, 'address.city'> = 'x'; // string
 const email: PathValue<Doc, 'settings.notifications.email'> = true; // boolean

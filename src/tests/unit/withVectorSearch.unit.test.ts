@@ -28,10 +28,20 @@ describe('withVectorSearch', () => {
     expect(created).toEqual({ id: 'doc-1', name: 'proxied' });
   });
 
-  it('should throw when the Firestore SDK does not support findNearest', () => {
+  it('should throw from vectorQuery() when the Firestore SDK does not support findNearest', () => {
     const repo = createMockRepo({});
 
-    expect(() => withVectorSearch(repo).query()).toThrow(/not available/i);
+    expect(() => withVectorSearch(repo).vectorQuery()).toThrow(/not available/i);
+  });
+
+  it('should leave query() as the normal builder — no SDK guard, delegates to the core repo (D4)', () => {
+    // query() is not overridden by the wrapper, so it returns the underlying core builder and does
+    // NOT run the vector-support guard even when the SDK lacks findNearest (ADR-0021, D4).
+    const repo = createMockRepo({});
+    const wrapped = withVectorSearch(repo);
+
+    expect(() => wrapped.query()).not.toThrow();
+    expect(repo.query).toHaveBeenCalledTimes(1);
   });
 
   it('should proxy non-function repository properties', () => {

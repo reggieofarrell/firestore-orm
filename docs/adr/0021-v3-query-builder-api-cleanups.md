@@ -1,6 +1,7 @@
 # ADR-0021: v3 query-builder and packaging API cleanups
 
-- **Status:** Accepted (v3) — implementing on branch `v3-release-hardening-part-2`
+- **Status:** Accepted (v3) — implemented in the Track B hardening series (D7/D13/D14 landed with
+  Workstream A; D4/D11 in Track B)
 - **Date:** 2026-07-21
 - **Deciders:** Reggie O'Farrell
 - **Related:** the v3 pre-release codebase review (maintainer-local; decisions D4, D7, D11, D13,

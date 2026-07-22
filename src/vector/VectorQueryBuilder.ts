@@ -128,6 +128,10 @@ export class VectorQueryBuilder<T extends object, S extends object = T, R = Fire
     }
 
     const query = getQueryRef(this.coreBuilder);
+    // Capability-checks the object-form findNearest and throws a deterministic compatibility error on
+    // a positional-only 7.6-7.9 SDK BEFORE the real call (review R1/T4). The real call below is left
+    // unwrapped so a genuine SDK construction error (e.g. an invalid vector field path on a supported
+    // SDK) propagates as an ordinary input error rather than being relabeled a version issue.
     assertVectorSearchSupported(query);
 
     this.vectorQuery = query.findNearest({

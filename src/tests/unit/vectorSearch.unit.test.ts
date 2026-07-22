@@ -219,27 +219,38 @@ describe('VectorSearch utilities', () => {
   });
 
   describe('isVectorFieldValue', () => {
-    it('should detect FieldValue.vector() write values', () => {
+    it('should detect a genuine FieldValue.vector() write value', () => {
       expect(isVectorFieldValue(FieldValue.vector([1, 2, 3]))).toBe(true);
     });
 
-    it('should detect structural vector values with _values arrays', () => {
-      expect(isVectorFieldValue({ _values: [0.1, 0.2, 0.3] })).toBe(true);
+    it('should REJECT the reviewer forge: a plain object with spoofed toArray()/isEqual() (T2)', () => {
+      // Authenticity is nominal (instanceof the VectorValue constructor), NOT method-presence. This
+      // is the exact adversarial value from the review: a plain object that keeps Object.prototype,
+      // carries _values, and has non-enumerable toArray/isEqual. Firestore would serialize it as an
+      // ordinary map, so it must NOT pass vector recognition.
+      const forge: Record<string, unknown> = { _values: [1, 2] };
+      Object.defineProperties(forge, {
+        toArray: { value: () => [1, 2] },
+        isEqual: { value: () => false },
+      });
+      expect(isVectorFieldValue(forge)).toBe(false);
     });
 
-    it('should reject empty _values arrays and invalid entries', () => {
+    it('should REJECT a forged { _values } map (not a genuine VectorValue) (B7)', () => {
+      // A hand-built map shaped like a vector is not an instanceof the VectorValue constructor, so it
+      // cannot masquerade as a vector sentinel, bypass schema validation, and be persisted as a map.
+      expect(isVectorFieldValue({ _values: [0.1, 0.2, 0.3] })).toBe(false);
       expect(isVectorFieldValue({ _values: [] })).toBe(false);
       expect(isVectorFieldValue({ _values: [1, Number.NaN] })).toBe(false);
       expect(isVectorFieldValue({ _values: ['a'] })).toBe(false);
+      expect(isVectorFieldValue({ _values: [Infinity] })).toBe(false);
     });
 
-    it('should reject vectors containing non-finite components (Infinity / -Infinity)', () => {
-      // A _values-shaped value is judged solely on finiteness — a shaped-but-infinite vector must
-      // NOT fall through to the looser instanceof/toString heuristics and be wrongly accepted.
+    it('should reject a genuine VectorValue whose components are non-finite (Infinity / -Infinity)', () => {
+      // Authentic but invalid: a genuine VectorValue carrying a non-finite component is rejected on
+      // the finiteness check (read from its public toArray()), not accepted just because it is real.
       expect(isVectorFieldValue(FieldValue.vector([Infinity]))).toBe(false);
       expect(isVectorFieldValue(FieldValue.vector([1, -Infinity, 3]))).toBe(false);
-      expect(isVectorFieldValue({ _values: [Infinity] })).toBe(false);
-      expect(isVectorFieldValue({ _values: [1, Number.POSITIVE_INFINITY] })).toBe(false);
     });
 
     it('should reject primitives and plain objects', () => {
@@ -249,27 +260,65 @@ describe('VectorSearch utilities', () => {
       expect(isVectorFieldValue({ foo: 'bar' })).toBe(false);
     });
 
-    it('should accept sentinel-like objects that stringify to vector', () => {
-      const sentinelLike = {
+    it('should REJECT a forged object that only stringifies to vector (T2)', () => {
+      // An object with isEqual()+toString()-says-"vector" is not an instanceof the VectorValue
+      // constructor, so it is rejected (the old toString heuristic that accepted it is gone).
+      const forgedSentinel = {
         isEqual: () => true,
         toString: () => 'FieldValue.vector([1,2,3])',
       };
-      expect(isVectorFieldValue(sentinelLike)).toBe(true);
-    });
-
-    it('should reject sentinel-like objects missing required methods', () => {
-      expect(isVectorFieldValue({ toString: () => 'vector' })).toBe(false);
-      expect(isVectorFieldValue({ isEqual: () => true })).toBe(false);
+      expect(isVectorFieldValue(forgedSentinel)).toBe(false);
     });
   });
 
-  it('should detect findNearest support on query objects', () => {
+  it('should accept an SDK whose object-form findNearest probe constructs (>= 7.10)', () => {
+    // findNearest accepts the object-form probe (returns a query) → supported, no throw.
     const supportedQuery = { findNearest: () => ({ get: async () => ({ docs: [] }) }) };
     expect(() => assertVectorSearchSupported(supportedQuery as never)).not.toThrow();
   });
 
-  it('should throw when findNearest is unavailable', () => {
+  it('should throw a >= 7.10 message when findNearest is totally absent (<= 7.5)', () => {
     expect(() => assertVectorSearchSupported({} as never)).toThrow(/not available/i);
+    expect(() => assertVectorSearchSupported({} as never)).toThrow(
+      /@google-cloud\/firestore >= 7\.10/,
+    );
+    expect(() => assertVectorSearchSupported({} as never)).toThrow(/object-form findNearest/i);
+  });
+
+  it('should throw the object-form compatibility error when findNearest is positional-only (7.6-7.9) (R1)', () => {
+    // Simulate the positional-only signature: findNearest(vectorField, queryVector, options) rejects a
+    // single object argument (vectorField must be a string/FieldPath). The capability probe hits this.
+    const positionalOnly = {
+      findNearest: (vectorField: unknown) => {
+        if (typeof vectorField !== 'string') {
+          throw new Error('Value for argument "vectorField" is not a valid field path.');
+        }
+        return { get: async () => ({ docs: [] }) };
+      },
+    };
+    expect(() => assertVectorSearchSupported(positionalOnly as never)).toThrow(
+      /object-form findNearest/i,
+    );
+    expect(() => assertVectorSearchSupported(positionalOnly as never)).toThrow(
+      /@google-cloud\/firestore >= 7\.10/,
+    );
+    expect(() => assertVectorSearchSupported(positionalOnly as never)).toThrow(/positional-only/i);
+  });
+
+  it('should NOT relabel a supported-SDK input error: the guard passes when the object form works (R1)', () => {
+    // Object-form IS supported — the valid-args probe constructs — so the guard does not throw, even
+    // though a later real call with a bad field path would. The bad-arg error is thus left to
+    // propagate from the real findNearest, not relabeled here as a version incompatibility.
+    const supported = {
+      findNearest: (arg: unknown) => {
+        const opts = arg as { vectorField?: unknown };
+        if (typeof opts?.vectorField === 'string' && opts.vectorField.includes('..')) {
+          throw new Error('Value for argument "vectorField" is not a valid field path.');
+        }
+        return { get: async () => ({ docs: [] }) };
+      },
+    };
+    expect(() => assertVectorSearchSupported(supported as never)).not.toThrow();
   });
 
   describe('vectorEmbeddingSchema', () => {
@@ -302,7 +351,7 @@ describe('VectorSearch utilities', () => {
       const result = schema.safeParse([1]);
       expect(result.success).toBe(false);
       if (!result.success) {
-        expect(result.error.issues[0]?.message).toMatch(/exactly 2 values/i);
+        expect(result.error.issues[0]?.message).toMatch(/exactly 2 finite components/i);
       }
     });
   });

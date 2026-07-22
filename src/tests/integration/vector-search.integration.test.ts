@@ -13,6 +13,7 @@ import {
   vectorEmbeddingSchema,
 } from '../../vector/index.js';
 import { VectorQueryBuilder } from '../../vector/VectorQueryBuilder.js';
+import { FirestoreQueryBuilder } from '../../core/QueryBuilder.js';
 import { createVectorDocRepoHarness, VectorDoc } from './helpers/firestoreIntegrationHarness.js';
 
 describe('Vector search extension', () => {
@@ -44,10 +45,17 @@ describe('Vector search extension', () => {
     } as VectorDoc);
   }
 
-  it('should wrap a repository and return a VectorQueryBuilder from query()', () => {
+  it('adds vectorQuery() for findNearest while leaving query() as the normal builder (D4)', () => {
     const wrapped = withVectorSearch(vectorRepo);
-    const builder = wrapped.query();
-    expect(builder).toBeInstanceOf(VectorQueryBuilder);
+
+    // vectorQuery() is the new vector-search entry point.
+    expect(wrapped.vectorQuery()).toBeInstanceOf(VectorQueryBuilder);
+
+    // query() is NOT overridden — it still returns the normal query builder (ADR-0021, D4). The
+    // capability wrapper adds vector search rather than replacing core query behavior.
+    const normal = wrapped.query();
+    expect(normal).toBeInstanceOf(FirestoreQueryBuilder);
+    expect(normal).not.toBeInstanceOf(VectorQueryBuilder);
   });
 
   it('should create documents with a top-level FieldValue.vector embedding', async () => {
@@ -100,7 +108,7 @@ describe('Vector search extension', () => {
 
     const wrapped = withVectorSearch(vectorRepo);
     const results = await wrapped
-      .query()
+      .vectorQuery()
       .findNearest({
         vectorField: 'embedding',
         queryVector: [1, 0, 0],
@@ -128,7 +136,7 @@ describe('Vector search extension', () => {
 
     const wrapped = withVectorSearch(prefilterRepo);
     const results = await wrapped
-      .query()
+      .vectorQuery()
       .where('category', '==', 'books')
       .findNearest({
         vectorField: 'embedding',
@@ -147,7 +155,7 @@ describe('Vector search extension', () => {
 
     const wrapped = withVectorSearch(vectorRepo);
     const results = await wrapped
-      .query()
+      .vectorQuery()
       .findNearest({
         vectorField: 'embedding',
         queryVector: [1, 0, 0],
@@ -166,7 +174,7 @@ describe('Vector search extension', () => {
 
     const wrapped = withVectorSearch(vectorRepo);
     const results = await wrapped
-      .query()
+      .vectorQuery()
       .findNearest({
         vectorField: 'embedding',
         queryVector: [1, 0, 0],
@@ -186,7 +194,7 @@ describe('Vector search extension', () => {
 
     const wrapped = withVectorSearch(vectorRepo);
     const nearest = await wrapped
-      .query()
+      .vectorQuery()
       .findNearest({
         vectorField: 'embedding',
         queryVector: [1, 0, 0],
@@ -205,7 +213,7 @@ describe('Vector search extension', () => {
     // Select only stored fields — the computed distanceResultField is appended by findNearest() and
     // must NOT be listed in select() (it is not a stored document field).
     const results = await wrapped
-      .query()
+      .vectorQuery()
       .select('name')
       .findNearest({
         vectorField: 'embedding',
@@ -228,7 +236,7 @@ describe('Vector search extension', () => {
     // select() with no fields is a valid ID-only projection; the configured distanceResultField must
     // still be returned (findNearest widens the mask to include it), not dropped.
     const results = await withVectorSearch(vectorRepo)
-      .query()
+      .vectorQuery()
       .select()
       .findNearest({
         vectorField: 'embedding',
@@ -249,7 +257,7 @@ describe('Vector search extension', () => {
   it('select() is immutable: a pre-select vector alias returns the full model', async () => {
     await seedBasicVectors();
 
-    const query = withVectorSearch(vectorRepo).query();
+    const query = withVectorSearch(vectorRepo).vectorQuery();
     query.select('name'); // returned narrowed builder intentionally ignored
 
     // The original alias was not projected, so findNearest on it returns full documents.
@@ -274,7 +282,7 @@ describe('Vector search extension', () => {
     // value — so a collision with `name` (a string field) yields a number at runtime. The result type
     // models this as replacement (number), not intersection.
     const results = await withVectorSearch(vectorRepo)
-      .query()
+      .vectorQuery()
       .findNearest({
         vectorField: 'embedding',
         queryVector: [1, 0, 0],
@@ -291,7 +299,7 @@ describe('Vector search extension', () => {
   it('rejects distanceResultField "id" before touching Firestore', () => {
     expect(() =>
       withVectorSearch(vectorRepo)
-        .query()
+        .vectorQuery()
         .findNearest({
           vectorField: 'embedding',
           queryVector: [1, 0, 0],
@@ -304,7 +312,7 @@ describe('Vector search extension', () => {
 
   it('should throw when orderBy() is called after findNearest()', () => {
     const wrapped = withVectorSearch(vectorRepo);
-    const builder = wrapped.query().findNearest({
+    const builder = wrapped.vectorQuery().findNearest({
       vectorField: 'embedding',
       queryVector: [1, 0, 0],
       limit: 1,
@@ -316,7 +324,7 @@ describe('Vector search extension', () => {
 
   it('should throw when onSnapshot() is called after findNearest()', async () => {
     const wrapped = withVectorSearch(vectorRepo);
-    const builder = wrapped.query().findNearest({
+    const builder = wrapped.vectorQuery().findNearest({
       vectorField: 'embedding',
       queryVector: [1, 0, 0],
       limit: 1,
@@ -330,7 +338,7 @@ describe('Vector search extension', () => {
 
   it('should expose vector barrel helpers for SDK detection and sentinel checks', () => {
     const wrapped = withVectorSearch(vectorRepo);
-    const query = wrapped.query();
+    const query = wrapped.vectorQuery();
     expect(query).toBeInstanceOf(VectorQueryBuilder);
     expect(isVectorFieldValue(FieldValue.vector([1, 0, 0]))).toBe(true);
     expect(VectorDistanceMeasure.COSINE).toBe('COSINE');
@@ -342,7 +350,7 @@ describe('Vector search extension', () => {
   it('should return null from getOne() when the collection is empty', async () => {
     const wrapped = withVectorSearch(vectorRepo);
     const nearest = await wrapped
-      .query()
+      .vectorQuery()
       .findNearest({
         vectorField: 'embedding',
         queryVector: [1, 0, 0],
@@ -359,7 +367,7 @@ describe('Vector search extension', () => {
 
     const wrapped = withVectorSearch(vectorRepo);
     const results = await wrapped
-      .query()
+      .vectorQuery()
       .findNearest({
         vectorField: 'embedding',
         queryVector: [1, 0, 0],
@@ -377,7 +385,7 @@ describe('Vector search extension', () => {
 
     const wrapped = withVectorSearch(vectorRepo);
     const results = await wrapped
-      .query()
+      .vectorQuery()
       .findNearest({
         vectorField: 'embedding',
         queryVector: [1, 0, 0],
@@ -418,12 +426,12 @@ describe('Vector search extension', () => {
 
   it('should throw when get() is called before findNearest()', async () => {
     const wrapped = withVectorSearch(vectorRepo);
-    await expect(wrapped.query().get()).rejects.toThrow(/requires findNearest\(\)/i);
+    await expect(wrapped.vectorQuery().get()).rejects.toThrow(/requires findNearest\(\)/i);
   });
 
   it('should throw when findNearest() is called twice on the same builder', () => {
     const wrapped = withVectorSearch(vectorRepo);
-    const builder = wrapped.query().findNearest({
+    const builder = wrapped.vectorQuery().findNearest({
       vectorField: 'embedding',
       queryVector: [1, 0, 0],
       limit: 1,
@@ -443,11 +451,11 @@ describe('Vector search extension', () => {
   it('should throw when stream() is called on a vector query builder', () => {
     const wrapped = withVectorSearch(vectorRepo);
 
-    expect(() => wrapped.query().stream()).toThrow(
+    expect(() => wrapped.vectorQuery().stream()).toThrow(
       /stream\(\) is not supported on vector queries/i,
     );
 
-    const afterFindNearest = wrapped.query().findNearest({
+    const afterFindNearest = wrapped.vectorQuery().findNearest({
       vectorField: 'embedding',
       queryVector: [1, 0, 0],
       limit: 1,
@@ -460,14 +468,14 @@ describe('Vector search extension', () => {
 
   it('should throw when orderBy() is called before findNearest()', () => {
     const wrapped = withVectorSearch(vectorRepo);
-    expect(() => wrapped.query().orderBy()).toThrow(
+    expect(() => wrapped.vectorQuery().orderBy()).toThrow(
       /orderBy\(\) is not supported on VectorQueryBuilder/i,
     );
   });
 
   it('should throw when select() is called after findNearest()', () => {
     const wrapped = withVectorSearch(vectorRepo);
-    const builder = wrapped.query().findNearest({
+    const builder = wrapped.vectorQuery().findNearest({
       vectorField: 'embedding',
       queryVector: [1, 0, 0],
       limit: 1,
@@ -479,7 +487,7 @@ describe('Vector search extension', () => {
 
   it('should throw when where() is called after findNearest()', () => {
     const wrapped = withVectorSearch(vectorRepo);
-    const builder = wrapped.query().findNearest({
+    const builder = wrapped.vectorQuery().findNearest({
       vectorField: 'embedding',
       queryVector: [1, 0, 0],
       limit: 1,
@@ -515,7 +523,7 @@ describe('Vector search extension', () => {
   it('should reject invalid findNearest options through the builder', () => {
     const wrapped = withVectorSearch(vectorRepo);
     expect(() =>
-      wrapped.query().findNearest({
+      wrapped.vectorQuery().findNearest({
         vectorField: 'embedding',
         queryVector: [],
         limit: 1,

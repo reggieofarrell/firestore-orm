@@ -20,7 +20,7 @@ const vectorRepo = withVectorSearch(repo);
 
 export async function distanceFieldAppearsInResult() {
   const withDistance = await vectorRepo
-    .query()
+    .vectorQuery()
     .findNearest({
       vectorField: 'embedding',
       queryVector: [0.1, 0.2, 0.3],
@@ -38,7 +38,7 @@ export async function distanceFieldAppearsInResult() {
 
 export async function noDistanceFieldWhenNotRequested() {
   const plain = await vectorRepo
-    .query()
+    .vectorQuery()
     .findNearest({
       vectorField: 'embedding',
       queryVector: [0.1, 0.2, 0.3],
@@ -57,7 +57,7 @@ export async function noDistanceFieldWhenNotRequested() {
 // selected field and the configured distance field remain present.
 export async function selectComposesThroughFindNearest() {
   const rows = await vectorRepo
-    .query()
+    .vectorQuery()
     .select('name')
     .findNearest({
       vectorField: 'embedding',
@@ -78,7 +78,7 @@ export async function selectComposesThroughFindNearest() {
 // Regression: vector select() is an immutable transition, so a pre-select alias keeps the full model
 // at both type and runtime (they no longer disagree).
 export async function vectorSelectIsImmutableForAliases() {
-  const q = vectorRepo.query();
+  const q = vectorRepo.vectorQuery();
   const projected = q.select('name'); // returned narrowed builder
 
   // The ignored original alias `q` is still the full model — safe to access any field.
@@ -108,7 +108,7 @@ export async function vectorSelectIsImmutableForAliases() {
 // field in its result type.
 export async function emptyVectorProjectionIncludesDistanceField() {
   const rows = await vectorRepo
-    .query()
+    .vectorQuery()
     .select()
     .findNearest({
       vectorField: 'embedding',
@@ -130,7 +130,7 @@ export async function emptyVectorProjectionIncludesDistanceField() {
 // intersecting to `never` (which was assignable to both string and number, an unsound gap).
 export async function distanceFieldReplacesCollidingModelField() {
   const rows = await vectorRepo
-    .query()
+    .vectorQuery()
     .findNearest({
       vectorField: 'embedding',
       queryVector: [0.1, 0.2, 0.3],
@@ -149,7 +149,7 @@ export async function distanceFieldReplacesCollidingModelField() {
 // A dotted / computed distance-field name is a fresh key (not part of T), added as-is.
 export async function distanceFieldDottedName() {
   const rows = await vectorRepo
-    .query()
+    .vectorQuery()
     .findNearest({
       vectorField: 'embedding',
       queryVector: [0.1, 0.2, 0.3],
@@ -168,7 +168,7 @@ export async function distanceFieldDottedName() {
 // exposes arbitrary keys as `unknown` — so unsound numeric assumptions are compile errors.
 export async function dynamicDistanceFieldIsConservative(distanceField: string) {
   const rows = await vectorRepo
-    .query()
+    .vectorQuery()
     .findNearest({
       vectorField: 'embedding',
       queryVector: [0.1, 0.2, 0.3],
@@ -191,7 +191,7 @@ export async function dynamicDistanceFieldIsConservative(distanceField: string) 
 // A `string | undefined` field name behaves like the broad case (conservative), not the empty case.
 export async function optionalStringDistanceField(distanceField: string | undefined) {
   const rows = await vectorRepo
-    .query()
+    .vectorQuery()
     .findNearest({
       vectorField: 'embedding',
       queryVector: [0.1, 0.2, 0.3],
@@ -209,7 +209,7 @@ export async function optionalStringDistanceField(distanceField: string | undefi
 // did not fall into the `string`-widened branch (where it would be `string | number`).
 export async function unionLiteralDistanceField(useScore: boolean) {
   const rows = await vectorRepo
-    .query()
+    .vectorQuery()
     .findNearest({
       vectorField: 'embedding',
       queryVector: [0.1, 0.2, 0.3],
@@ -267,4 +267,32 @@ export async function transformedRepoWrapsAndPreservesOutputTyping() {
     const bad: string = v.score;
     void bad;
   });
+}
+
+// D4: the wrapper ADDS vectorQuery() (which exposes findNearest) and leaves query() as the normal
+// builder. findNearest must therefore be reachable via vectorQuery() but NOT via query().
+export async function d4QueryIsNormalVectorQueryIsVector() {
+  // vectorQuery() exposes findNearest (positive path).
+  await vectorRepo
+    .vectorQuery()
+    .findNearest({
+      vectorField: 'embedding',
+      queryVector: [0.1, 0.2, 0.3],
+      limit: 1,
+      distanceMeasure: 'COSINE',
+    })
+    .get();
+
+  // query() is the normal builder — findNearest is not part of it.
+  // @ts-expect-error findNearest() is exposed by vectorQuery(), not by the normal query() builder (D4)
+  vectorRepo.query().findNearest({
+    vectorField: 'embedding',
+    queryVector: [0.1, 0.2, 0.3],
+    limit: 1,
+    distanceMeasure: 'COSINE',
+  });
+
+  // query() still exposes the normal terminals, e.g. a query-aware count.
+  const n: number = await vectorRepo.query().count();
+  return n;
 }

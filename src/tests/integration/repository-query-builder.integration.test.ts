@@ -100,6 +100,29 @@ describe('FirestoreRepository QueryBuilder', () => {
     expect(categories.sort()).toEqual(['books', 'games']);
   });
 
+  it('distinctValues preserves a stored null but drops an absent (undefined) field', async () => {
+    // Seed three docs: a real value, an explicit stored null, and one where the field is absent.
+    const created = await userRepo.bulkCreate(
+      [
+        { name: 'has-value', tier: 'gold' },
+        { name: 'explicit-null', tier: null },
+        { name: 'absent-field' }, // `tier` omitted -> the field does not exist on the document
+      ] as any[],
+      { returnDoc: true },
+    );
+    created.forEach(item => trackUser(item.id));
+
+    const tiers = await userRepo.query().distinctValues('tier' as any);
+
+    // `null` is a genuine, stored, distinct value and must survive dedup; only `undefined` (the
+    // absent field) is dropped. The old loose `!= undefined` filter also stripped `null` (because
+    // `null == undefined`), collapsing this set to just ['gold'] — this asserts against that (B9).
+    expect(tiers).toContain('gold');
+    expect(tiers).toContain(null);
+    expect(tiers).not.toContain(undefined);
+    expect(tiers).toHaveLength(2);
+  });
+
   it('should return getOne for first match', async () => {
     await seedCatalog();
 

@@ -554,16 +554,19 @@ export class FirestoreQueryBuilder<
   }
 
   /**
-   * Get total count of all documents in the collection.
-   * Ignores any where clauses and counts directly from the base collection.
+   * Count every document in the collection, ignoring the builder's `where` clauses.
+   *
+   * Named `collectionCount()` (not `totalCount()`) precisely because it counts the whole
+   * collection and disregards any filters chained onto this builder — use {@link QueryBuilder.count}
+   * for a query-aware count that honors the `where`/`orderBy` chain.
    *
    * @returns Total number of documents in the collection
    *
    * @example
-   * // Get total user count
-   * const total = await userRepo.query().totalCount();
+   * // Get total user count (ignores any where clauses)
+   * const total = await userRepo.query().collectionCount();
    */
-  async totalCount(): Promise<number> {
+  async collectionCount(): Promise<number> {
     try {
       const snapshot = await this.collectionRef.count().get();
       return snapshot.data().count;
@@ -781,23 +784,26 @@ export class FirestoreQueryBuilder<
    * This executes on the Firestore backend and returns only the aggregate result.
    *
    * @param field - The numeric field to average
-   * @returns The average value for matching documents
+   * @returns The average value for matching documents, or `null` when there are no numeric values
+   *   to average (an empty match set). This is distinct from an average that genuinely computes to
+   *   `0` — callers must handle `null` explicitly.
    *
    * @example
    * // Calculate average product rating
    * const avgRating = await reviewRepo.query()
    *   .where('productId', '==', productId)
-   *   .average('rating');
+   *   .average('rating'); // number | null
    */
-  async average(field: NumericFieldPaths<Omit<S, 'id'>> | FieldPath): Promise<number> {
+  async average(field: NumericFieldPaths<Omit<S, 'id'>> | FieldPath): Promise<number | null> {
     try {
       const snapshot = await this.query
         .aggregate({ average: AggregateField.average(field as string | FieldPath) })
         .get();
 
-      // Firestore can return null when no matching numeric values exist.
-      // Normalize to 0 to preserve expected numeric behavior for callers.
-      return snapshot.data().average ?? 0;
+      // Firestore (and the Admin SDK's AggregateField.average typing) returns null when there are
+      // no numeric values to average. Return it verbatim so "no values" (null) stays distinct from
+      // "the average is 0" — collapsing them with `?? 0` would invent data (ADR-0020).
+      return snapshot.data().average;
     } catch (error: any) {
       throw parseFirestoreError(error);
     }
@@ -843,7 +849,10 @@ export class FirestoreQueryBuilder<
     try {
       const snapshot = await this.query.get();
       const values = snapshot.docs.map(doc => doc.data()[field as string]);
-      return [...new Set(values)].filter(val => val != undefined) as T[K][];
+      // Drop only `undefined` (an absent field), not `null`: `null` is a real, stored, distinct
+      // field value and must survive deduplication. A loose `!= undefined` would also strip `null`
+      // (since `null == undefined`), conflating "field absent" with "field is null" (ADR-0020, B9).
+      return [...new Set(values)].filter(val => val !== undefined) as T[K][];
     } catch (error: any) {
       throw parseFirestoreError(error);
     }

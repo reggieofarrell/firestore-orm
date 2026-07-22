@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { FieldValue, UpdateData, WithFieldValue } from 'firebase-admin/firestore';
 import { isDotNotation, validateDotNotationPath } from '../utils/dotNotation.js';
-import { hasFiniteVectorValues } from '../utils/vectorValue.js';
+import { areFiniteVectorComponents, genuineVectorComponents } from '../utils/vectorValue.js';
 
 export type RepositorySchemaSet = Readonly<{
   read: z.ZodObject<any>;
@@ -87,18 +87,21 @@ type Path = PathSegment[];
  * Detects Firestore vector write values produced by `FieldValue.vector()`.
  * In current firebase-admin releases this is a `VectorValue` instance, not a `FieldValue`.
  *
- * NOTE: this is a structural heuristic — any object shaped like `{ _values: number[] }` is
- * treated as a vector sentinel and therefore bypasses schema validation on the permissive
- * escape-hatch path. This breadth is intentionally left in place to stay consistent with the
- * vector module's `isVectorFieldValue`. The precise way to model a vector field is
- * `vectorEmbeddingSchema(dims)` (from `@reggieofarrell/firestore-orm/vector`), which validates
- * on the happy path; under `sentinelPolicy: 'strict'` the escape hatch never runs at all.
+ * A value counts as a vector sentinel only when it is a GENUINE `VectorValue` (structurally: it
+ * exposes callable `toArray()`/`isEqual()` — see {@link isGenuineVectorValue}) AND its components
+ * are finite. This rejects a forged plain `{ _values: number[] }` map, which previously counted as a
+ * sentinel and could bypass schema validation on the permissive escape-hatch path and be stored as
+ * an ordinary map (finding B7). The precise way to model a vector field is `vectorEmbeddingSchema(dims)`
+ * (from `@reggieofarrell/firestore-orm/vector`); under the v3-default `sentinelPolicy: 'strict'` the
+ * escape hatch never runs at all.
  */
 function isVectorWriteValue(value: unknown): boolean {
-  // Delegates to the shared recognizer so the core validator and the vector extension
-  // (src/vector/VectorSearch.ts) apply one definition of a valid vector sentinel — finite
-  // components only (Number.isFinite rejects NaN AND ±Infinity).
-  return hasFiniteVectorValues(value);
+  // Delegates to the shared recognizers so the core validator and the vector extension
+  // (src/vector/VectorSearch.ts) apply one definition of a valid vector sentinel: a genuine
+  // VectorValue (nominal instanceof identity) whose public toArray() components are finite
+  // (Number.isFinite rejects NaN AND ±Infinity).
+  const components = genuineVectorComponents(value);
+  return components !== null && areFiniteVectorComponents(components);
 }
 
 /**
@@ -168,6 +171,38 @@ export function collectSentinelPaths(input: unknown, basePath: Path = []): Path[
 
   return Object.entries(input as Record<string, unknown>).flatMap(([key, value]) =>
     collectSentinelPaths(value, [...basePath, key]),
+  );
+}
+
+/**
+ * Resolves the value at a collected sentinel {@link Path}. Bracket access handles both object keys
+ * (string) and array indices (number); a missing intermediate yields `undefined`. A root path (`[]`)
+ * returns the input itself.
+ */
+function resolveAtPath(input: unknown, path: Path): unknown {
+  return path.reduce<unknown>((acc, segment) => {
+    if (acc === null || typeof acc !== 'object') {
+      return undefined;
+    }
+    return (acc as Record<PathSegment, unknown>)[segment];
+  }, input);
+}
+
+/**
+ * Collects every path in a write payload that holds a `FieldValue.delete()` sentinel.
+ *
+ * Firestore honors a delete sentinel only on update-like writes (`update()`, or
+ * `set(..., { merge: true })`) — never on a plain `create`/`set`. Create chokepoints use this to
+ * reject a delete sentinel *before* any I/O, so the failure is fast, consistent, and specific
+ * instead of a confusing commit-time error whose outcome (for `upsert`) would otherwise depend on
+ * whether the document already exists (ADR-0019). The other sentinel kinds (`increment`,
+ * `arrayUnion`, `arrayRemove`, `serverTimestamp`) are accepted by the backend on `set`/`create` and
+ * are intentionally left untouched. Reuses {@link collectSentinelPaths} to locate sentinels, then
+ * keeps only those {@link whichFieldValue} classifies as `'delete'`.
+ */
+export function collectDeleteSentinelPaths(input: unknown): Path[] {
+  return collectSentinelPaths(input).filter(
+    path => whichFieldValue(resolveAtPath(input, path)) === 'delete',
   );
 }
 

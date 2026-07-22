@@ -1,6 +1,6 @@
 # ADR-0019: Operation-aware sentinel validation (reject delete sentinels on create)
 
-- **Status:** Accepted (v3) — implementing on branch `v3-release-hardening-part-2`
+- **Status:** Accepted (v3) — implemented in the Track B hardening series
 - **Date:** 2026-07-21
 - **Deciders:** Reggie O'Farrell
 - **Related:** Refines [ADR-0002](0002-per-field-sentinel-write-validation.md) (per-field sentinel

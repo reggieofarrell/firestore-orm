@@ -29,7 +29,14 @@ elsewhere. It remains available as an explicit opt-in migration shim
 | `withDelete(schema)`  | the wrapped type or `FieldValue.delete()`                     |
 | `zSentinel(...kinds)` | a sentinel of one of the named kinds (compose with `z.union`) |
 
-Each combinator accepts `{ allowDelete: true }` to additionally permit `FieldValue.delete()`.
+The typed write combinators `zNumberWrite()` / `zArrayWrite()` / `zDateWrite()` also accept
+`{ allowDelete: true }` to additionally permit `FieldValue.delete()`. (`withDelete(schema)` already
+permits it, and `zSentinel(...)` takes `'delete'` as one of its named kinds.)
+
+Even when a field permits `FieldValue.delete()` (via `withDelete` or `{ allowDelete: true }`), a
+`delete()` sentinel is **rejected on `create`, `bulkCreate`, and `upsert`** — clear a field with
+`update()` / `patch()` instead. `increment`, `arrayUnion`, `arrayRemove`, and `serverTimestamp`
+remain valid on create.
 
 ## Enabling strict mode
 
@@ -37,8 +44,9 @@ Declare a **read schema** with plain types and a **write overlay** (`writeSchema
 the combinators. Strict is the default, so no `sentinelPolicy` argument is needed (it is shown
 explicitly below for clarity). Reads stay typed by the clean read schema while writes accept each
 field's declared type or its approved sentinel with **no cast**. A plain field (no combinator)
-accepts **no** sentinel under strict. The `readSchema` needs a required top-level `id: z.string()` —
-the factory throws at construction otherwise; the write overlay need not include `id`.
+accepts **no** sentinel under strict. Neither the `readSchema` nor the write overlay declares a
+top-level `id` — the factory throws at construction if one is present, and the document name is the
+sole source of `id`.
 
 ```typescript
 import {
@@ -52,7 +60,6 @@ import { z } from 'zod';
 
 // Clean read schema — the contract type, no sentinels.
 const userRead = z.object({
-  id: z.string(), // required top-level id
   name: z.string().min(1),
   loginCount: z.number().int(),
   tags: z.array(z.string()),
@@ -77,11 +84,11 @@ await userRepo.update('u1', { loginCount: FieldValue.arrayUnion('x') }); // thro
 await userRepo.update('u1', { name: FieldValue.serverTimestamp() }); // throws ValidationError
 ```
 
-`sentinelPolicy` defaults to `'permissive'` and is fully backwards compatible; `'strict'` disables
-the permissive escape hatch so only combinator-declared sentinels pass, and it is the mode that
-actually **enforces** which sentinel **kind** each field accepts. The combinators are also useful in
-`'permissive'` mode for documentation, but permissive still accepts any sentinel on any field — only
-`'strict'` enforces them.
+`sentinelPolicy` defaults to `'strict'` (the pre-v3 default was `'permissive'`); strict is the mode
+that actually **enforces** which sentinel **kind** each field accepts, so only combinator-declared
+sentinels pass. `'permissive'` remains available as an explicit opt-in migration shim — the
+combinators are still useful there for documentation, but permissive accepts any sentinel on any
+field; only `'strict'` enforces them.
 
 ## Cast-free combinator writes
 
@@ -108,11 +115,11 @@ Everything else is enforced at runtime under `'strict'`:
   `FieldValue` on any field, so `arrayUnion` into a `zNumberWrite()` field compiles and is rejected
   only at runtime under `'strict'`.
 
-The `writeSchema` overlay affects **only** these write value types — `id` handling is unchanged: a
-required `id` in the `readSchema`, never required on write inputs, and stripped from every write
-payload (see [Schema Validation](./schema-validation/#schema-validation)). `subcollection` takes the
-same `writeSchema` option with identical inference. (Converters are not inherited from the parent
-repo.)
+The `writeSchema` overlay affects **only** these write value types — `id` handling is unchanged: no
+schema declares a top-level `id`, write payloads never contain one, and the document name is the
+sole source of `id` (see [Schema Validation](./schema-validation/#schema-validation)).
+`subcollection` takes the same `writeSchema` option with identical inference. (Converters are not
+inherited from the parent repo.)
 
 ## Sharing schema-derived types with a front-end
 
@@ -124,7 +131,6 @@ source of truth for your API-contract types, and apply combinators in a thin **s
 ```typescript
 // shared/user.schema.ts — importable anywhere; depends only on zod
 export const userBase = z.object({
-  id: z.string(),
   name: z.string().min(1),
   loginCount: z.number().int(),
   tags: z.array(z.string()),
@@ -148,5 +154,5 @@ await userRepo.create({ name: 'Ada', loginCount: 0, tags: [] });
 await userRepo.update('u1', { loginCount: FieldValue.increment(1) });
 ```
 
-Because `userWrite` extends `userBase`, both the shared read schema and the server-side write
-overlay carry the required top-level `id`, satisfying the factory's `id` requirement.
+Because `userWrite` extends `userBase`, neither the shared read schema nor the server-side write
+overlay declares a top-level `id`; the repository overlays `doc.id` from the document name.

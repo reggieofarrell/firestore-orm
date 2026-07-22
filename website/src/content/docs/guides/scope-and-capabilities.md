@@ -16,22 +16,24 @@ reach the raw Admin SDK for anything not yet wrapped.
 
 ## Supported (first-class)
 
-| Capability                                      | Notes                                                       |
-| ----------------------------------------------- | ----------------------------------------------------------- |
-| Document create / read / update / delete        | Typed read/write models; `{ id }`-by-default create returns |
-| Auto-generated and explicit IDs (`upsert`)      | `upsert(id, …)` reads-then-writes (not create-only)         |
-| Subcollections                                  | Concrete parent path                                        |
-| Field filters + chained AND (`where`)           | Values typed `unknown` (read-converter divergence)          |
-| Ordering, forward `limit`                       |                                                             |
-| Cursor + offset pagination                      | Opaque, forward-only cursor bound to the collection         |
-| Field projections (`select`)                    | Result type narrows to `DeepPartial<T> & { id }`            |
-| Real-time listeners (`onSnapshot`)              | Full-model arrays; not combinable with `select()`           |
-| Count / sum / average aggregates                | Numeric field-path typing for sum/average                   |
-| Native query streaming (`stream`)               | Backed by the SDK's `Query.stream()`                        |
-| Transactions (read-write)                       | Options/PITR deferred — see below                           |
-| Fixed batch writes (`bulkCreate/Update/Delete`) | 500-op chunks, non-atomic above 500 (documented)            |
-| Field transforms / sentinels                    | Strict per-field approval by default                        |
-| Vector search (`findNearest`)                   | Distance measures, result field, threshold, prefilters      |
+| Capability                                      | Notes                                                                   |
+| ----------------------------------------------- | ----------------------------------------------------------------------- |
+| Document create / read / update / delete        | Typed read/write models; `{ id }`-by-default create returns             |
+| Auto-generated and explicit IDs (`upsert`)      | `upsert(id, …)` reads-then-writes (not create-only)                     |
+| Validated ID boundary (`repo.id()` / `newId()`) | Rejects malformed IDs; `allowLegacyDatastoreIds` opt-in for numeric IDs |
+| Subcollections                                  | Concrete parent path                                                    |
+| Field filters + chained AND (`where`)           | Values typed `unknown` (read-converter divergence)                      |
+| Document-name queries (`whereId` / `orderById`) | Native doc-name filter/order; `where('id', …)` is a compile error       |
+| Ordering, forward `limit`                       |                                                                         |
+| Cursor + offset pagination                      | Opaque, forward-only cursor bound to the collection                     |
+| Field projections (`select`)                    | Result type narrows to `FirestoreDocument<DeepPartial<T>>`              |
+| Real-time listeners (`onSnapshot`)              | Full-model arrays; not combinable with `select()`                       |
+| Count / sum / average aggregates                | Numeric field-path typing for sum/average                               |
+| Native query streaming (`stream`)               | Backed by the SDK's `Query.stream()`                                    |
+| Transactions (read-write)                       | Options/PITR deferred — see below                                       |
+| Fixed batch writes (`bulkCreate/Update/Delete`) | 500-op chunks, non-atomic above 500 (documented)                        |
+| Field transforms / sentinels                    | Strict per-field approval by default                                    |
+| Vector search (`vectorQuery().findNearest()`)   | Distance measures, result field, threshold, prefilters                  |
 
 ## Deferred to v3.x (tracked)
 
@@ -86,7 +88,7 @@ supported getter for a repository's internal `Firestore` instance — keep your 
 
 - **Firestore Enterprise Pipeline operations** (expression-based queries, joins, DML, full-text /
   geo search) — a pre-GA, edition-gated query model incompatible with a builder that always returns
-  `T & { id }`. A separate experimental subpath is tracked in
+  `FirestoreDocument<T>`. A separate experimental subpath is tracked in
   [#41](https://github.com/reggieofarrell/firestore-orm/issues/41).
 - **Firestore with MongoDB compatibility** — a different product mode (MongoDB drivers / BSON /
   MQL); use the MongoDB driver or Mongoose instead.

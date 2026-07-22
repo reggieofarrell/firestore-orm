@@ -113,12 +113,17 @@ pnpm add @reggieofarrell/firestore-orm firebase-admin zod
 
 ### Peer Dependencies
 
-- `firebase-admin`: ^12.0.0 || ^13.0.0 || ^14.0.0 (vector extension: >= 12 basic, >= 13 recommended)
+- Node.js: >= 22 — the supported floor, required by `firebase-admin` 14; the library targets ES2020,
+  so `firebase-admin` 12/13 users can run on Node 18+ (outside the tested/supported window)
+- `firebase-admin`: ^12.0.0 || ^13.0.0 || ^14.0.0 (vector extension: object-form `findNearest`
+  requires `@google-cloud/firestore >= 7.10`, guaranteed by `firebase-admin >= 13`; on admin 12 only
+  when the resolved firestore is >= 7.10)
 - `zod`: ^4.0.0
 
-> **2.0.0** is the first release version for this maintained package under
-> `@reggieofarrell/firestore-orm`. See [CHANGELOG.md](CHANGELOG.md) for migration notes from
-> `@spacelabstech/firestoreorm`.
+> **v3** is the current major line of this maintained package under `@reggieofarrell/firestore-orm`.
+> Upgrading from 2.x? See the
+> [migration guide](https://reggieofarrell.github.io/firestore-orm/guides/migration-v2-to-v3/), and
+> [CHANGELOG.md](CHANGELOG.md) for release notes from `@spacelabstech/firestoreorm` onward.
 
 ## Quick Start
 
@@ -141,7 +146,6 @@ export const db = getFirestore(app);
 import { z } from 'zod';
 
 export const userSchema = z.object({
-  id: z.string(), // required on read models returned by the repository
   name: z.string().min(1, 'Name is required'),
   email: z.string().email('Invalid email address'),
   age: z.number().int().positive().optional(),

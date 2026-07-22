@@ -63,7 +63,7 @@ await sendEmail(result.email);
 // Firestore allows at most 30 values in an `in` / `not-in` / `array-contains-any` filter
 await userRepo
   .query()
-  .where('id', 'in', arrayOf50Ids) // ERROR
+  .whereId('in', arrayOf50Ids) // ERROR: too many values
   .get();
 ```
 
@@ -74,7 +74,7 @@ const chunks = chunkArray(ids, 30);
 const results = [];
 
 for (const chunk of chunks) {
-  const users = await userRepo.query().where('id', 'in', chunk).get();
+  const users = await userRepo.query().whereId('in', chunk).get();
   results.push(...users);
 }
 ```
@@ -103,7 +103,7 @@ documents.
 ```typescript
 import { z } from 'zod';
 
-const orderSchema = z.object({ id: z.string(), total: z.number() });
+const orderSchema = z.object({ total: z.number() });
 const ordersRepo = userRepo.subcollection('user-123', 'orders', orderSchema);
 const parentId = ordersRepo.getParentId(); // 'user-123'
 ```
@@ -124,7 +124,7 @@ await repo.runInTransaction(async (tx, repo) => {
   if (!doc) throw new Error('Document not found');
   await repo.updateInTransaction(tx, 'doc-123', {
     'nested.field': 'value',
-  } as any);
+  });
 });
 ```
 

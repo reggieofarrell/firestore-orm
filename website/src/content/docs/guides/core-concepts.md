@@ -25,12 +25,12 @@ const productRepo = new FirestoreRepository<Product>(db, 'products'); // Without
 ```
 
 The `withSchema` factory attaches a Zod schema for runtime validation. Both the read and write types
-are inferred from schema **values**: the read type is `z.infer<readSchema>`, and the write type is
-`z.infer<writeSchema>` when you pass a `writeSchema` overlay (otherwise it equals the read type). Do
-not pass an explicit read-type generic. Each `readSchema` (`userSchema`, `orderSchema` above)
-**must** declare a required top-level `id: z.string()` — the factory throws at construction if it is
-missing (the `writeSchema` overlay need not). A `writeSchema` built from the write combinators
-enables cast-free combinator writes. Construct a repository directly with
+are inferred from schema **values**: the read type is `z.output<readSchema>`, and the write type is
+`z.input<writeSchema>` when you pass a `writeSchema` overlay (otherwise it equals the read type). Do
+not pass an explicit read-type generic. No `readSchema` (`userSchema`, `orderSchema` above) may
+declare a top-level `id` field — the factory throws at construction if one is present. The document
+name is the sole source of `id`, and reads resolve to `FirestoreDocument<T>`. A `writeSchema` built
+from the write combinators enables cast-free combinator writes. Construct a repository directly with
 `new FirestoreRepository<Product>(db, 'products')` when you don't need validation. See
 [schema validation](./schema-validation/) for the full contract.
 
@@ -40,10 +40,14 @@ wrap a `withSchema` instance — both are supported. See
 (`withSchema` returns a plain repository; subclasses use the public API only).
 
 The full constructor signature is
-`new FirestoreRepository<T, W>(db, collectionPath, validator?, parentPath?, readConverter?, schemas?)`.
-There is no options, config, debug, or logger bag — everything is passed through these positional
-arguments (plus the trailing options object the `withSchema` and `subcollection` factories accept:
-`writeSchema`, `readConverter`, and `sentinelPolicy`).
+`new FirestoreRepository<T, W = T, S = T, WO = W>(db, collectionPath, validator?, parentPath?, readConverter?, schemas?, allowLegacyDatastoreIds?)`,
+where `T` = `z.output<readSchema>` (read data), `W` = `z.input<writeSchema>` (write input), `S` =
+`z.output<storedSchema>` (at-rest shape, the source of query field paths), and `WO` =
+`z.output<writeSchema>` (parsed write data). There is no options, config, debug, or logger bag —
+everything is passed through these positional arguments (plus the trailing options object the
+`withSchema` and `subcollection` factories accept: `writeSchema`, `storedSchema`, `readConverter`,
+`sentinelPolicy`, and `allowLegacyDatastoreIds` — `storedSchema` is required when `readConverter` is
+set).
 
 ## Firestore Converters
 
@@ -60,6 +64,7 @@ optional **`readConverter`**.
 > all write paths) — see [Lifecycle Hooks](./lifecycle-hooks/).
 
 ```typescript
+import { z } from 'zod';
 import { Timestamp } from 'firebase-admin/firestore';
 import { FirestoreRepository, ReadConverter } from '@reggieofarrell/firestore-orm';
 
@@ -70,17 +75,23 @@ const userReadConverter: ReadConverter<User> = snapshot => {
   return { ...data, createdAt: (data.createdAt as Timestamp).toDate() } as User;
 };
 
+// The at-rest shape query field paths derive from — `createdAt` is stored as a Timestamp, not the
+// Date the read model exposes. Required whenever a readConverter restructures fields.
+const userStoredSchema = userSchema.extend({ createdAt: z.instanceof(Timestamp) });
+
 // Write a Date/serverTimestamp() (stored as a Timestamp on every write path); read back a Date.
 const userRepo = FirestoreRepository.withSchema(db, 'users', userSchema, {
+  storedSchema: userStoredSchema,
   readConverter: userReadConverter,
 });
 ```
 
 Because the mapper receives only the stored document body, it must return data **without** an `id`
 field; the repository reads the snapshot's document id and overlays it onto the result afterward.
-This is why reads resolve to `T & { id }` even though the mapper never sets `id` itself. A raw
-snapshot from a trigger cloud function is **not** converter-applied and has no `id` — use
-[`fromSnapshot`](./triggers/) to reconstruct the read shape there.
+This is why reads resolve to `FirestoreDocument<T>` (`Omit<T, 'id'> & { readonly id: ID }`) even
+though the mapper never sets `id` itself. A raw snapshot from a trigger cloud function is **not**
+converter-applied and has no `id` — use [`fromSnapshot`](./triggers/) to reconstruct the read shape
+there.
 
 For the common `Timestamp -> number` case, the built-in
 [`createMillisTimestampConverter`](./timestamps/) returns exactly this mapper (recursive read
@@ -112,16 +123,14 @@ const userReadConverter: ReadConverter<User> = snapshot => {
 };
 ```
 
-For full coercion across every schema revision, parse the raw body through the read schema (minus
-the `id` the repository overlays) so defaults backfill and types coerce on every read. Give evolving
-fields a `.default(...)` so pre-migration documents parse cleanly:
+For full coercion across every schema revision, parse the raw body through the read schema so
+defaults backfill and types coerce on every read. Give evolving fields a `.default(...)` so
+pre-migration documents parse cleanly:
 
 ```typescript
 // userSchema gained: status: z.enum(['active', 'archived']).default('active')
-const userReadShape = userSchema.omit({ id: true });
-
 const userReadConverter: ReadConverter<User> = snapshot =>
-  userReadShape.parse(snapshot.data()) as User;
+  userSchema.parse(snapshot.data()) as User;
 ```
 
 Giving fields a `.default(...)` for read-side backfill is safe for writes: defaults are applied on
@@ -149,6 +158,6 @@ A few details worth knowing:
 
 - `delete(id)` throws `NotFoundError` if the document does not exist.
 - Delete lifecycle hooks (`beforeDelete` / `afterDelete`) receive the full persisted document
-  (`{ ...data, id }`) at runtime, so a hook can inspect what is being removed.
+  (`FirestoreDocument<T>`) at runtime, so a hook can inspect what is being removed.
 - `bulkDelete(ids)` resolves to the count of documents that **actually existed** — not the length of
   the input array — so ids that were already absent are not counted.

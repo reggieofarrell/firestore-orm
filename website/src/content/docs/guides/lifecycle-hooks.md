@@ -39,17 +39,18 @@ these hooks wrap.
 
 ## Hook payloads
 
-| Event                                  | Payload                                                   |
-| -------------------------------------- | --------------------------------------------------------- |
-| `beforeCreate`                         | The create payload (before validation)                    |
-| `afterCreate`                          | The created document, including the generated `id`        |
-| `beforeUpdate`                         | The update payload plus the target `id` (`data & { id }`) |
-| `afterUpdate`                          | `{ id }`                                                  |
-| `beforeDelete` / `afterDelete`         | The full persisted document (`{ ...data, id }`)           |
-| `beforeBulkCreate` / `afterBulkCreate` | An array of created documents (each including `id`)       |
-| `beforeBulkUpdate`                     | `{ id, data }[]`                                          |
-| `afterBulkUpdate`                      | `{ ids: string[] }`                                       |
-| `beforeBulkDelete` / `afterBulkDelete` | `{ ids: string[]; documents: (T & { id })[] }`            |
+| Event                                  | Payload                                                                                               |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `beforeCreate`                         | The create payload (before validation)                                                                |
+| `afterCreate`                          | The parsed write output (`z.output<writeSchema>`, coercions/defaults applied) plus the generated `id` |
+| `beforeUpdate`                         | The update payload plus the target `id` (`data & { id }`)                                             |
+| `afterUpdate`                          | `{ id }`                                                                                              |
+| `beforeDelete` / `afterDelete`         | The full persisted document (`FirestoreDocument<T>`)                                                  |
+| `beforeBulkCreate`                     | An array of create payloads (before validation)                                                       |
+| `afterBulkCreate`                      | An array of parsed write outputs (`z.output<writeSchema>`), each plus its generated `id`              |
+| `beforeBulkUpdate`                     | `{ id, data }[]`                                                                                      |
+| `afterBulkUpdate`                      | `{ ids: ID[] }`                                                                                       |
+| `beforeBulkDelete` / `afterBulkDelete` | `{ ids: ID[]; documents: FirestoreDocument<T>[] }`                                                    |
 
 Delete hooks (single and bulk) receive the full persisted document(s) as they existed before
 deletion, so cleanup logic has access to every field, not just the `id`.

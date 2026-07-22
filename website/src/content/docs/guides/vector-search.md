@@ -11,15 +11,21 @@ The core package API is unchanged — the standard `FirestoreQueryBuilder` behav
 Wrap your repository with `withVectorSearch()` only when you need nearest-neighbor similarity
 search.
 
-> **Version 2.0.0** is the first intentional release under `@reggieofarrell/firestore-orm`, bundling
-> the maintained fork baseline with this vector extension.
+> The `./vector` extension ships as part of v3.
 
 ## Requirements
 
-| Capability                                 | Minimum SDK                                                     |
-| ------------------------------------------ | --------------------------------------------------------------- |
-| Basic `findNearest`                        | `firebase-admin` >= 12                                          |
-| `distanceResultField`, `distanceThreshold` | `firebase-admin` >= 13 (or `@google-cloud/firestore` >= 7.10.0) |
+The library always issues the **object-form** `findNearest`, which requires
+`@google-cloud/firestore` >= 7.10 — guaranteed transitively by `firebase-admin` >= 13, and reachable
+on `firebase-admin` 12 only when the resolved `@google-cloud/firestore` is >= 7.10.
+
+| Capability                                 | Minimum SDK                                                    |
+| ------------------------------------------ | -------------------------------------------------------------- |
+| `findNearest` (all vector queries)         | `@google-cloud/firestore` >= 7.10 (via `firebase-admin` >= 13) |
+| `distanceResultField`, `distanceThreshold` | Same floor — `@google-cloud/firestore` >= 7.10                 |
+
+On `@google-cloud/firestore` 7.6–7.9, `assertVectorSearchSupported` throws a deterministic `>= 7.10`
+compatibility error rather than a raw SDK argument error.
 
 Vector search requires a **vector index** on your embedding field. Create indexes via the Firebase
 Console, `gcloud`, or `firestore.indexes.json` — the ORM does not provision indexes.
@@ -36,7 +42,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { z } from 'zod';
 
 const articleSchema = z.object({
-  id: z.string(),
+  // No top-level `id` — the repository sources it from the document name.
   title: z.string(),
   status: z.enum(['draft', 'published']),
   embedding: vectorEmbeddingSchema(768).optional(),
@@ -52,7 +58,7 @@ await vectorArticleRepo.create({
 });
 
 const neighbors = await vectorArticleRepo
-  .query()
+  .vectorQuery()
   .findNearest({
     vectorField: 'embedding',
     queryVector: queryEmbedding,
@@ -63,9 +69,9 @@ const neighbors = await vectorArticleRepo
 ```
 
 The wrapped repository proxies every core repository method — `create()`, `getById()`, hooks,
-transactions, and so on all work unchanged — and only overrides `query()` to return a
-`VectorQueryBuilder`. The schema still requires a top-level `id: z.string()`, exactly like any
-`withSchema` repository.
+transactions, and `query()` (still the normal `FirestoreQueryBuilder`) all work unchanged — and
+**adds** a `vectorQuery()` entry point returning a `VectorQueryBuilder`. As with any `withSchema`
+repository, the schema must **not** declare a top-level `id`.
 
 ## Top-level embedding fields (recommended)
 
@@ -116,7 +122,7 @@ includes both the filter field(s) and the vector field:
 
 ```typescript
 const results = await vectorArticleRepo
-  .query()
+  .vectorQuery()
   .where('status', '==', 'published')
   .findNearest({
     vectorField: 'embedding',
@@ -149,8 +155,9 @@ All vector exports come from `@reggieofarrell/firestore-orm/vector`.
 
 ### `withVectorSearch(repo)`
 
-Returns a `VectorEnabledRepository` that proxies all repository methods and overrides `query()` to
-return a `VectorQueryBuilder`.
+Returns a `VectorEnabledRepository` that proxies all repository methods unchanged (including
+`query()`, which still returns the normal `FirestoreQueryBuilder`) and **adds** a `vectorQuery()`
+entry point returning a `VectorQueryBuilder`.
 
 ### `VectorQueryBuilder`
 
@@ -190,13 +197,28 @@ throws. Apply ordering implicitly through `findNearest()` and pre-filter with `w
 
 ### `vectorEmbeddingSchema(dimensions?)`
 
-Zod helper accepting `number[]` or `FieldValue.vector()` write values. Pass `dimensions` to
-constrain the embedding length.
+Zod helper whose value type is `number[] | VectorValueLike` — a plain number array or a native
+`FieldValue.vector(...)`. It enforces finite components, the exact `dimensions` length (when given),
+and Firestore's maximum (`VECTOR_MAX_DIMENSIONS`) on **both** forms. A forged plain `{ _values }`
+object — even with spoofed `toArray()`/`isEqual()` methods — is **not** accepted; only a genuine
+vector `FieldValue` (recognized by nominal `instanceof` identity) passes.
 
 ### `isVectorFieldValue(value)`
 
-Type guard that returns `true` when a value is a Firestore vector `FieldValue` (the result of
-`FieldValue.vector(...)`).
+Type guard that returns `true` when a value is a genuine Firestore vector `FieldValue` (the result
+of `FieldValue.vector(...)`), recognized by nominal identity rather than object shape.
+
+### Other exports
+
+Also exported from `@reggieofarrell/firestore-orm/vector`:
+
+- **`VectorValueLike`** — the structural value type accepted by `vectorEmbeddingSchema`
+  (`{ toArray(): number[]; isEqual(other): boolean }`).
+- **`VectorEnabledRepository`** — the return type of `withVectorSearch(repo)`.
+- **`assertVectorSearchSupported(query)`** — throws a deterministic `>= 7.10` compatibility error on
+  an SDK whose `findNearest` is absent or positional-only.
+- **`validateFindNearestOptions(options)`** and the **`FindNearestOptions`**,
+  **`VectorDistanceMeasureValue`**, and **`VectorSearchResult`** types.
 
 ### Constants
 

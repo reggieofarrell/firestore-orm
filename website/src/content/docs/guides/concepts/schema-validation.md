@@ -75,7 +75,7 @@ overlaid onto every read.
   `sentinelPolicy: 'strict'`: only sentinels a field's write combinator permits pass, and the parsed
   Zod output (coercions/defaults/transforms) is always returned. Declare accepted sentinels with the
   per-field combinators (see
-  [Per-Field Sentinel Approval](./field-value-sentinels/#per-field-sentinel-approval)). The pre-v3
+  [Per-Field Sentinel Approval](/firestore-orm/guides/concepts/field-value-sentinels/)). The pre-v3
   `sentinelPolicy: 'permissive'` (any sentinel on any field; writes the raw payload when a
   sentinel-path parse fails) is available as an explicit opt-in.
 
@@ -154,10 +154,11 @@ of the input.
 
 To keep documents written under an older schema in the current shape on **every** read (not only
 where you call `validate`), do the coercion in the `readConverter` — see
-[Normalizing across schema changes](./core-concepts/#normalizing-across-schema-changes). With that
-in place, `validate` / `safeValidate` become pure assertions that pre-migration documents still
-pass.
+[Schema Evolution](/firestore-orm/guides/designing/schema-evolution/#normalizing-across-schema-changes).
+With that in place, `validate` / `safeValidate` become pure assertions that pre-migration documents
+still pass.
 
 For listeners / streams, validate inside the callback (`repo.validate(doc)` /
-`repo.safeValidate(docs)`). See [Using with Firestore triggers](./triggers/) for the
+`repo.safeValidate(docs)`). See
+[Using with Firestore triggers](/firestore-orm/guides/integrations/cloud-functions/) for the
 `fromSnapshot` + `validate` pattern.

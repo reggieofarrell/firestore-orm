@@ -39,7 +39,7 @@ Terminal methods that execute the query include `get()`, `getOne()`, `exists()`,
 `paginate(pageSize, cursor)`.
 
 **Performance note:** Firestore charges per document read. Use `limit()` and pagination to control
-costs on large collections — see [Performance](./performance/) for the full cost model.
+costs on large collections — see [Performance](/firestore-orm/2.0/guides/performance/) for the full cost model.
 
 ## Filtering
 
@@ -152,7 +152,7 @@ const userEmails = await userRepo
 return the **matched count**.
 
 > **Note:** Lifecycle hooks do **not** run for `query().update()` or `query().delete()`. If you need
-> per-document hooks (see [Lifecycle hooks](./lifecycle-hooks/)), iterate and call the
+> per-document hooks (see [Lifecycle hooks](/firestore-orm/2.0/guides/lifecycle-hooks/)), iterate and call the
 > single-document methods instead.
 
 ```typescript

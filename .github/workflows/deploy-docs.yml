@@ -1,15 +1,25 @@
 # Build the Starlight site under website/ and publish to GitHub Pages.
 # Requires Settings → Pages → Source = GitHub Actions (enabled for this repo).
+#
+# Deploy is intentionally NOT tied to pushes on main. Live Pages updates only when:
+#   1. A stable GitHub Release is published (same event as npm publish) — docs are built
+#      from that release tag so the site matches the published package tree; or
+#   2. A manual workflow_dispatch with an explicit git ref (tag or commit SHA).
+# Prereleases skip auto-deploy (mirror publish.yml); use manual dispatch for intentional
+# preview deploys. See website/VERSIONING.md.
 name: Deploy docs
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'website/**'
-      - '.github/workflows/deploy-docs.yml'
-  # Allows a manual run from the Actions tab (e.g. after first enable).
+  # Same event as .github/workflows/publish.yml — Pages tracks the released package tree.
+  release:
+    types: [published]
+  # Manual republish / hotfix / intentional preview from a chosen tag or commit.
   workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git tag or commit SHA to build and deploy'
+        required: true
+        type: string
 
 # Least privilege: the default token is read-only. The write scopes needed to publish Pages
 # (`pages: write`, `id-token: write`) are granted only to the `deploy` job below — the `build` job
@@ -24,9 +34,40 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Stable releases only on the release path (prereleases must not update consumer docs).
+    # Manual dispatch always runs — use it for intentional prerelease/preview deploys.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false }}
     steps:
-      - name: Checkout your repository using git
+      # Resolve the tree that should go live: release tag, or the operator-supplied ref.
+      # Written to GITHUB_OUTPUT + GITHUB_STEP_SUMMARY so logs show exactly what was built.
+      - name: Resolve deploy ref
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          MANUAL_REF: ${{ inputs.ref }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            REF="$MANUAL_REF"
+          else
+            REF="$RELEASE_TAG"
+          fi
+          if [ -z "$REF" ]; then
+            echo "::error::Deploy ref is empty (event=$EVENT_NAME)."
+            exit 1
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Deploy docs"
+            echo ""
+            echo "- **Event:** \`$EVENT_NAME\`"
+            echo "- **Ref:** \`$REF\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Checkout repository at deploy ref
         uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.resolve.outputs.ref }}
 
       - name: Install, build, and upload your site
         uses: withastro/action@v6
@@ -37,6 +78,8 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    # Skip when build was skipped (prerelease release event).
+    if: ${{ needs.build.result == 'success' }}
     # The Pages deployment token is scoped to this job only (see top-level note).
     permissions:
       pages: write

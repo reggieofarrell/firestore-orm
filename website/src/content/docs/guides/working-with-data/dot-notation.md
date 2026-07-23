@@ -201,8 +201,8 @@ await userRepo.runInTransaction(async (tx, repo) => {
 ## FieldValue Sentinels
 
 Dot-notation paths compose with Firestore `FieldValue` sentinels across every write surface. See
-[Field Value Sentinels](./field-value-sentinels/) for the full sentinel model and per-field
-validation.
+[Field Value Sentinels](/firestore-orm/guides/concepts/field-value-sentinels/) for the full sentinel
+model and per-field validation.
 
 ```typescript
 import { FieldValue } from 'firebase-admin/firestore';
@@ -315,7 +315,7 @@ restricts which sentinels a field may receive: declare fields with the write com
 sentinels per field. Opt into `sentinelPolicy: 'permissive'` (the opt-in, pre-v3 default) to instead
 ignore any field assigned to a `FieldValue` sentinel during Zod validation while still validating
 all other fields in the payload — see
-[Per-Field Sentinel Approval](./field-value-sentinels/#per-field-sentinel-approval).
+[Per-Field Sentinel Approval](/firestore-orm/guides/concepts/field-value-sentinels/).
 
 ## Dot-Notation Utilities
 

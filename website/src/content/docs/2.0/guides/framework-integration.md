@@ -10,8 +10,8 @@ module/service/controller stack — with schema-driven validation and error mapp
 The ORM is framework-agnostic: a repository is just an object you construct once and share. The
 patterns below show how to expose it through Express and NestJS while letting the ORM's own Zod
 validation and typed error classes do the heavy lifting. For the error classes themselves and the
-`errorHandler` middleware, see [Error handling](./error-handling/); for the schema and DTO strategy,
-see [Schema validation](./schema-validation/).
+`errorHandler` middleware, see [Error handling](/firestore-orm/2.0/guides/error-handling/); for the schema and DTO strategy,
+see [Schema validation](/firestore-orm/2.0/guides/schema-validation/).
 
 ## Express.js
 
@@ -142,7 +142,7 @@ app.listen(3000, () => {
 >   `getByIdOrThrow(id)` to get a `NotFoundError` instead).
 > * Offset pagination is `offsetPaginate(page, pageSize)`. Cursor pagination is
 >   `paginate(pageSize, cursor?)` and requires a prior `orderBy()`; there is no `.startAfter()`
->   chaining method. See [Queries](./queries/).
+>   chaining method. See [Queries](/firestore-orm/2.0/guides/queries/).
 > * `update(id, data, { returnDoc: true })` returns the updated document. The `id` field is always
 >   stripped from write payloads, so spreading `...req.body` is safe.
 
@@ -271,7 +271,7 @@ export class UserRepository {
 ```
 
 The `afterCreate` hook receives the freshly created document (including its generated `id`). See
-[Lifecycle hooks](./lifecycle-hooks/) for the full event list and payload shapes.
+[Lifecycle hooks](/firestore-orm/2.0/guides/lifecycle-hooks/) for the full event list and payload shapes.
 
 ### Service layer
 
@@ -457,8 +457,8 @@ bootstrap();
 
 ## See also
 
-* [Error handling](./error-handling/) — the error classes and the Express `errorHandler` middleware
-* [Schema validation](./schema-validation/) — deriving DTOs and the required `id` field
-* [Lifecycle hooks](./lifecycle-hooks/) — the `afterCreate` and related events
-* [Queries](./queries/) — pagination (`paginate`, `offsetPaginate`) and the query builder
-* [CRUD operations](./crud-operations/) — `create`, `update`, `delete`, and bulk methods
+* [Error handling](/firestore-orm/2.0/guides/error-handling/) — the error classes and the Express `errorHandler` middleware
+* [Schema validation](/firestore-orm/2.0/guides/schema-validation/) — deriving DTOs and the required `id` field
+* [Lifecycle hooks](/firestore-orm/2.0/guides/lifecycle-hooks/) — the `afterCreate` and related events
+* [Queries](/firestore-orm/2.0/guides/queries/) — pagination (`paginate`, `offsetPaginate`) and the query builder
+* [CRUD operations](/firestore-orm/2.0/guides/crud-operations/) — `create`, `update`, `delete`, and bulk methods

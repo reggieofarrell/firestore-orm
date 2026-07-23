@@ -80,7 +80,7 @@ Thank you to Happy and the original contributors for the foundation this fork bu
   streaming
 - **Vector Search Extension** - Opt-in KNN similarity search via
   `@reggieofarrell/firestore-orm/vector`
-  ([guide](https://reggieofarrell.github.io/firestore-orm/guides/vector-search/))
+  ([guide](https://reggieofarrell.github.io/firestore-orm/guides/advanced/vector-search/))
 - **Transaction Support** - ACID guarantees for critical operations
 - **Subcollection Support** - Navigate document hierarchies naturally
 - **Dot Notation Updates** - Update nested fields without replacing entire objects
@@ -202,48 +202,12 @@ await userRepo.delete(userId);
 
 ## Documentation
 
-[https://reggieofarrell.github.io/firestore-orm/](https://reggieofarrell.github.io/firestore-orm/)
+Full documentation lives at
+**[reggieofarrell.github.io/firestore-orm](https://reggieofarrell.github.io/firestore-orm/)**,
+organized into two pillars: **Guides** (learn) and **Reference** (look up).
 
-Start with [Getting Started](https://reggieofarrell.github.io/firestore-orm/getting-started/)
-
-**Concepts**
-
-- [Core Concepts](https://reggieofarrell.github.io/firestore-orm/guides/core-concepts/) — repository
-  pattern, Firestore converters, delete behavior
-- [Schema Validation](https://reggieofarrell.github.io/firestore-orm/guides/schema-validation/) —
-  Zod write validation, opt-in `validate` / `safeValidate` for reads, derived schemas, `id` handling
-- [Per-Field Sentinel Approval](https://reggieofarrell.github.io/firestore-orm/guides/field-value-sentinels/)
-  — write combinators and `sentinelPolicy: 'strict'`
-- [Timestamps ↔ Millis](https://reggieofarrell.github.io/firestore-orm/guides/timestamps/) — the
-  timestamp/millisecond converter
-- [Lifecycle Hooks](https://reggieofarrell.github.io/firestore-orm/guides/lifecycle-hooks/)
-
-**Operations**
-
-- [CRUD Operations](https://reggieofarrell.github.io/firestore-orm/guides/crud-operations/)
-- [Queries](https://reggieofarrell.github.io/firestore-orm/guides/queries/) — query builder,
-  aggregations, streaming, real-time
-- [Transactions](https://reggieofarrell.github.io/firestore-orm/guides/transactions/)
-- [Subcollections](https://reggieofarrell.github.io/firestore-orm/guides/subcollections/)
-- [Dot Notation for Nested Updates](https://reggieofarrell.github.io/firestore-orm/guides/dot-notation/)
-
-**Reference & integration**
-
-- [API Reference](https://reggieofarrell.github.io/firestore-orm/guides/api-reference/)
-- [Error Handling](https://reggieofarrell.github.io/firestore-orm/guides/error-handling/)
-- [Framework Integration](https://reggieofarrell.github.io/firestore-orm/guides/framework-integration/)
-  — Express, NestJS
-- [Vector Search](https://reggieofarrell.github.io/firestore-orm/guides/vector-search/)
-
-**Guidance**
-
-- [Migrating from v2 to v3](https://reggieofarrell.github.io/firestore-orm/guides/migration-v2-to-v3/)
-  — breaking changes and step-by-step upgrade from 2.x
-- [Best Practices](https://reggieofarrell.github.io/firestore-orm/guides/best-practices/)
-- [Performance](https://reggieofarrell.github.io/firestore-orm/guides/performance/)
-- [Real-World Examples](https://reggieofarrell.github.io/firestore-orm/guides/examples/)
-- [Advanced Patterns](https://reggieofarrell.github.io/firestore-orm/guides/advanced-patterns/)
-- [Troubleshooting](https://reggieofarrell.github.io/firestore-orm/guides/troubleshooting/)
+Start with [Getting Started](https://reggieofarrell.github.io/firestore-orm/getting-started/), then
+browse the Guides and Reference pillars in the sidebar.
 
 ## Testing Strategy
 

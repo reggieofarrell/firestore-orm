@@ -41,10 +41,11 @@ const fetched = await userOrders.getById(order.id);
 
 ### Signature
 
-`subcollection` mirrors [`withSchema`](./schema-validation/#schema-validation): read/write types are
-inferred from schema values, and a trailing options object carries `writeSchema`, `storedSchema`,
-`readConverter`, `sentinelPolicy`, and `allowLegacyDatastoreIds`. As with `withSchema`,
-`storedSchema` is required whenever a `readConverter` is set.
+`subcollection` mirrors
+[`withSchema`](/firestore-orm/guides/concepts/schema-validation/#no-top-level-id): read/write types
+are inferred from schema values, and a trailing options object carries `writeSchema`,
+`storedSchema`, `readConverter`, `sentinelPolicy`, and `allowLegacyDatastoreIds`. As with
+`withSchema`, `storedSchema` is required whenever a `readConverter` is set.
 
 ```typescript
 subcollection<
@@ -79,14 +80,15 @@ await userOrders.update('o1', { price: FieldValue.increment(5) }); // no cast ne
 ```
 
 `options.sentinelPolicy` defaults to `'strict'` (`'permissive'` is the opt-in, pre-v3 default). See
-[field-value sentinels](./field-value-sentinels/#per-field-sentinel-approval) for what strict mode
+[field-value sentinels](/firestore-orm/guides/concepts/field-value-sentinels/) for what strict mode
 enforces.
 
 > No schema passed to `subcollection()` may declare a top-level `id` — the document name is the sole
 > source of `id`. A top-level `id` in the `readSchema` (or any overlay) is **rejected at
-> construction**. See [schema validation](./schema-validation/#schema-validation) for the rules on
-> `id` handling. For an **unvalidated** subcollection, construct a repository directly against the
-> full path: `new FirestoreRepository<Order>(db, 'users/user-123/orders')`.
+> construction**. See
+> [schema validation](/firestore-orm/guides/concepts/schema-validation/#no-top-level-id) for the
+> rules on `id` handling. For an **unvalidated** subcollection, construct a repository directly
+> against the full path: `new FirestoreRepository<Order>(db, 'users/user-123/orders')`.
 
 ## Querying a subcollection
 
@@ -102,7 +104,8 @@ const recentOrders = await userOrders
 ```
 
 For cursor-based paging use `paginate(pageSize, cursor?)` (it requires a prior `orderBy()`); there
-is no `.startAfter()` chaining. See [queries](./queries/) for the full query surface.
+is no `.startAfter()` chaining. See [queries](/firestore-orm/guides/working-with-data/queries/) for
+the full query surface.
 
 ## Nested subcollections
 
@@ -155,8 +158,9 @@ const userOrders = users.subcollection('user-123', 'orders', orderSchema, {
 });
 ```
 
-See [core concepts](./core-concepts/) for the full converter contract (converters are read-only — a
-`fromFirestore` mapper that runs on reads — and why it must omit `id`).
+See [core concepts](/firestore-orm/guides/concepts/core-concepts/) for the full converter contract
+(converters are read-only — a `fromFirestore` mapper that runs on reads — and why it must omit
+`id`).
 
 ## Inspecting subcollection metadata
 
@@ -177,13 +181,18 @@ topLevel.isSubcollection(); // false
 `FirestoreRepository`'s constructor is
 `new FirestoreRepository(db, collectionPath, validator?, parentPath?, readConverter?, schemas?, allowLegacyDatastoreIds?)`
 — there is no options/config/logging bag. In practice, prefer `subcollection()` and the
-[`withSchema`](./schema-validation/#schema-validation) factory over constructing repositories by
-hand.
+[`withSchema`](/firestore-orm/guides/concepts/schema-validation/#no-top-level-id) factory over
+constructing repositories by hand.
 
 ## Related
 
-- [CRUD operations](./crud-operations/) — create, read, update, delete on the child repository
-- [Queries](./queries/) — filtering, aggregations, pagination, and streaming
-- [Schema validation](./schema-validation/) — no top-level `id`, derived schemas
-- [Field-value sentinels](./field-value-sentinels/) — `sentinelPolicy` and strict mode
-- [Core concepts](./core-concepts/) — repository pattern and converter behavior
+- [CRUD operations](/firestore-orm/guides/working-with-data/crud-operations/) — create, read,
+  update, delete on the child repository
+- [Queries](/firestore-orm/guides/working-with-data/queries/) — filtering, aggregations, pagination,
+  and streaming
+- [Schema validation](/firestore-orm/guides/concepts/schema-validation/) — no top-level `id`,
+  derived schemas
+- [Field-value sentinels](/firestore-orm/guides/concepts/field-value-sentinels/) — `sentinelPolicy`
+  and strict mode
+- [Core concepts](/firestore-orm/guides/concepts/core-concepts/) — repository pattern and converter
+  behavior

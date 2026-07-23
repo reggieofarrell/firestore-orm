@@ -72,8 +72,8 @@ const result = await userRepo.query().orderBy('createdAt', 'desc').offsetPaginat
 ```
 
 **Why:** Offset pagination requires Firestore to scan and skip every document before your offset,
-while cursor pagination jumps directly to the starting position. See [Queries](./queries/) for the
-full pagination API.
+while cursor pagination jumps directly to the starting position. See
+[Queries](/firestore-orm/guides/working-with-data/queries/) for the full pagination API.
 
 ## 4. Use query updates for bulk operations
 
@@ -101,7 +101,8 @@ await orderRepo.bulkUpdate(orders.map(o => ({ id: o.id, data: { status: 'expired
 **Note:** `query().update()` and `query().delete()` run the **bulk** lifecycle hooks
 (`beforeBulkUpdate`/`afterBulkUpdate`, `beforeBulkDelete`/`afterBulkDelete`), not the per-document
 `before/afterUpdate` hooks. If you rely on per-document `beforeUpdate`/`afterUpdate` side effects,
-use per-document `update` instead. See [Lifecycle hooks](./lifecycle-hooks/).
+use per-document `update` instead. See
+[Lifecycle hooks](/firestore-orm/guides/concepts/lifecycle-hooks/).
 
 ## 5. Add timestamps consistently
 
@@ -131,8 +132,8 @@ await userRepo.update(id, {
 ```
 
 If you prefer to store native Firestore timestamps instead of ISO strings, see
-[Timestamps](./timestamps/) for the millisecond converter and the hook-based write conversion
-pattern.
+[Timestamps](/firestore-orm/guides/concepts/timestamps/) for the millisecond converter and the
+hook-based write conversion pattern.
 
 ## 6. Handle composite index errors gracefully
 
@@ -156,8 +157,8 @@ try {
 }
 ```
 
-See [Error handling](./error-handling/) for the full error taxonomy and
-[Troubleshooting](./troubleshooting/) for index-related tips.
+See [Error handling](/firestore-orm/reference/errors/) for the full error taxonomy and
+[Troubleshooting](/firestore-orm/reference/troubleshooting/) for index-related tips.
 
 ## 7. Use transactions for critical operations
 
@@ -190,7 +191,8 @@ await accountRepo.runInTransaction(async (tx, repo) => {
 });
 ```
 
-See [Transactions](./transactions/) for the complete transaction-scoped API.
+See [Transactions](/firestore-orm/guides/working-with-data/transactions/) for the complete
+transaction-scoped API.
 
 ## 8. Use streaming for large data exports
 
@@ -241,4 +243,5 @@ userRepo.on('afterCreate', async user => {
 });
 ```
 
-See [Lifecycle hooks](./lifecycle-hooks/) for the full event list and payload shapes.
+See [Lifecycle hooks](/firestore-orm/guides/concepts/lifecycle-hooks/) for the full event list and
+payload shapes.

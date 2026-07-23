@@ -67,7 +67,7 @@ Notes:
 ## Hooks inside transactions
 
 Hooks fire inside a transaction **only** when writes go through the transaction-scoped `repo` passed
-into the callback. See [Lifecycle hooks](./lifecycle-hooks/) for the full event list.
+into the callback. See [Lifecycle hooks](/firestore-orm/2.0/guides/lifecycle-hooks/) for the full event list.
 
 ### No `after*` hooks on transaction write helpers
 

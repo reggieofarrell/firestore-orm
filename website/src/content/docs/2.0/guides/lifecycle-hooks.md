@@ -28,7 +28,7 @@ userRepo.on('afterCreate', async user => {
   guarantees.
 
 Because `before*` runs before validation, it is the correct place to fill in defaults, coerce
-values, or reject a write early. See [CRUD operations](./crud-operations/) for the write methods
+values, or reject a write early. See [CRUD operations](/firestore-orm/2.0/guides/crud-operations/) for the write methods
 these hooks wrap.
 
 ## Available hooks
@@ -100,10 +100,10 @@ standard flow:
 * **Query-level writes.** `query().update(data)` and `query().delete()` operate directly on the
   matched documents and do **not** run any hooks (including the `beforeBulk*` / `afterBulk*`
   events). If you need hook behavior, read the ids and route through `bulkUpdate` / `bulkDelete`
-  instead. See [Queries](./queries/).
+  instead. See [Queries](/firestore-orm/2.0/guides/queries/).
 * **Transactions — `before*` only.** Inside `runInTransaction((tx, repo) => { ... })`, the
   transaction-scoped `repo`'s write helpers (`createInTransaction`, `updateInTransaction`,
   `patchInTransaction`, `deleteInTransaction`) **do** run their `before*` hooks (before validation
   and the staged write). Their `after*` hooks do **not** run — the transaction has not committed
   while the callback executes, so post-commit side effects belong after `runInTransaction` resolves.
-  See [Transactions](./transactions/).
+  See [Transactions](/firestore-orm/2.0/guides/transactions/).

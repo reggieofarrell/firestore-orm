@@ -1,11 +1,11 @@
 ---
 title: 'Error Handling'
-description:
-  'Error classes, when they throw, parseFirestoreError, and the Express error middleware.'
+description: 'Error classes, when they throw, and the parseFirestoreError normalizer.'
 ---
 
-Typed error classes for validation, not-found, conflict, and missing-index failures, plus a drop-in
-Express middleware that maps them to HTTP responses.
+Typed error classes for validation, not-found, conflict, malformed-id, and missing-index failures,
+plus the `parseFirestoreError` normalizer. The drop-in Express middleware that maps these to HTTP
+responses lives in [Express integration](/firestore-orm/guides/integrations/express/).
 
 ## Overview
 
@@ -66,7 +66,8 @@ Properties:
 Thrown when a document id is malformed. Every id-taking surface validates its id before touching
 Firestore — `repo.id(raw)`, `getById`, `update`, `patch`, `upsert`, `delete`, the `bulk*` methods,
 their `*InTransaction` equivalents, and `whereId` — and rejects an id that contains `/`, is `.` or
-`..`, is wrapped in `__…__`, is empty, or exceeds 1500 bytes.
+`..`, is wrapped in `__…__`, is empty, or exceeds 1500 bytes. See
+[Document Identity](/firestore-orm/guides/concepts/document-identity/).
 
 Properties:
 
@@ -127,56 +128,9 @@ it directly — the errors you catch are already normalized. It maps:
 - any other `Error` → returned unchanged; a non-`Error` value (a string or plain object) is wrapped
   in a new `Error`
 
-## Express error handler
+## Mapping errors to HTTP responses
 
-The ORM includes a pre-built Express middleware for consistent error responses. It is published from
-the optional **`@reggieofarrell/firestore-orm/express`** subpath (not the package root), so
-`express` stays out of the core type graph — install `express` to use it:
-
-```typescript
-import { errorHandler } from '@reggieofarrell/firestore-orm/express';
-import express from 'express';
-
-const app = express();
-
-// ... your routes
-
-// Register as last middleware
-app.use(errorHandler);
-```
-
-This automatically maps errors to HTTP status codes:
-
-- `ValidationError` → 400 Bad Request
-- `InvalidDocumentIdError` → 400 Bad Request (a malformed caller-supplied id; the body carries the
-  machine-readable `reason`, never the raw id)
-- `NotFoundError` → 404 Not Found
-- `ConflictError` → 409 Conflict
-- `FirestoreIndexError` → 503 Service Unavailable (a missing index is a server/config failure; the
-  index-creation URL is deliberately **not** returned to the client — it stays server-side on the
-  caught error's `indexUrl` for logging)
-- Others → 500 Internal Server Error
-
-For a fuller Express integration walkthrough, see [Framework integration](./framework-integration/).
-
-### Middleware reference
-
-**`errorHandler(err: any, req: Request, res: Response, next: NextFunction): void`**
-
-Express middleware for handling repository errors. Register it as the **last** middleware, after all
-routes, and call `next(error)` from your route handlers (or throw and let an async wrapper forward
-it) so it can process the error.
-
-Maps errors to HTTP status codes and JSON bodies:
-
-| Error                    | Status | Response body                                                       |
-| ------------------------ | ------ | ------------------------------------------------------------------- |
-| `ValidationError`        | 400    | `{ error: 'ValidationError', details: issues }`                     |
-| `InvalidDocumentIdError` | 400    | `{ error: 'InvalidDocumentIdError', reason }`                       |
-| `NotFoundError`          | 404    | `{ error: 'NotFoundError', message }`                               |
-| `FirestoreIndexError`    | 503    | `{ error: 'Query needs an index', message }`                        |
-| `ConflictError`          | 409    | `{ error: 'ConflictError', message }`                               |
-| Anything else            | 500    | `{ error: 'InternalServerError', message: 'Something went wrong' }` |
-
-The generic 500 branch intentionally hides the underlying message so internal details are not leaked
-to clients.
+The ORM ships a pre-built Express middleware that maps these error classes to HTTP status codes and
+JSON bodies. It is published from the optional `@reggieofarrell/firestore-orm/express` subpath and
+is documented, with the full status-code and response-body tables, in
+[Express integration](/firestore-orm/guides/integrations/express/#error-handling-middleware).

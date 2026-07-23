@@ -78,11 +78,11 @@ await userOrders.update('o1', { price: FieldValue.increment(5) }); // no cast ne
 ```
 
 `opts.sentinelPolicy` defaults to `'permissive'`. See
-[field-value sentinels](./field-value-sentinels/#per-field-sentinel-approval) for what strict mode
+[field-value sentinels](/firestore-orm/2.0/guides/field-value-sentinels/) for what strict mode
 enforces.
 
 > A provided schema **must include a required top-level `id: z.string()`**. If it does not, the
-> repository throws at construction. See [schema validation](./schema-validation/#schema-validation)
+> repository throws at construction. See [schema validation](/firestore-orm/2.0/guides/schema-validation/)
 > for the rules on `id` handling.
 
 ## Querying a subcollection
@@ -99,7 +99,7 @@ const recentOrders = await userOrders
 ```
 
 For cursor-based paging use `paginate(pageSize, cursor?)` (it requires a prior `orderBy()`); there
-is no `.startAfter()` chaining. See [queries](./queries/) for the full query surface.
+is no `.startAfter()` chaining. See [queries](/firestore-orm/2.0/guides/queries/) for the full query surface.
 
 ## Nested subcollections
 
@@ -155,7 +155,7 @@ const users = FirestoreRepository.withSchema<User>(db, 'users', userSchema, user
 const userOrders = users.subcollection<Order>('user-123', 'orders', orderSchema, orderConverter);
 ```
 
-See [core concepts](./core-concepts/) for the full converter contract (when `toFirestore` and
+See [core concepts](/firestore-orm/2.0/guides/core-concepts/) for the full converter contract (when `toFirestore` and
 `fromFirestore` run, and why `fromFirestore` must omit `id`).
 
 ## Inspecting subcollection metadata
@@ -177,13 +177,13 @@ topLevel.isSubcollection(); // false
 `FirestoreRepository`'s constructor is
 `new FirestoreRepository(db, collectionPath, validator?, parentPath?, converter?, schemas?)` — there
 is no options/config/logging bag. In practice, prefer `subcollection()` and the
-[`withSchema`](./schema-validation/#schema-validation) factory over constructing repositories by
+[`withSchema`](/firestore-orm/2.0/guides/schema-validation/) factory over constructing repositories by
 hand.
 
 ## Related
 
-* [CRUD operations](./crud-operations/) — create, read, update, delete on the child repository
-* [Queries](./queries/) — filtering, aggregations, pagination, and streaming
-* [Schema validation](./schema-validation/) — required `id`, derived schemas
-* [Field-value sentinels](./field-value-sentinels/) — `sentinelPolicy` and strict mode
-* [Core concepts](./core-concepts/) — repository pattern and converter behavior
+* [CRUD operations](/firestore-orm/2.0/guides/crud-operations/) — create, read, update, delete on the child repository
+* [Queries](/firestore-orm/2.0/guides/queries/) — filtering, aggregations, pagination, and streaming
+* [Schema validation](/firestore-orm/2.0/guides/schema-validation/) — required `id`, derived schemas
+* [Field-value sentinels](/firestore-orm/2.0/guides/field-value-sentinels/) — `sentinelPolicy` and strict mode
+* [Core concepts](/firestore-orm/2.0/guides/core-concepts/) — repository pattern and converter behavior

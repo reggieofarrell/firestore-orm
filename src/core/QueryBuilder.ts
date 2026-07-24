@@ -113,6 +113,27 @@ function documentIdFilter(
 }
 
 /**
+ * True only for `FieldPath.documentId()` — the document-NAME sentinel. A string field path is never
+ * the document name (a stored field literally called `id` is ordinary data), so only the `FieldPath`
+ * form can address it.
+ */
+function isDocumentIdPath(field: unknown): field is FieldPath {
+  return field instanceof FieldPath && FieldPath.documentId().isEqual(field);
+}
+
+/**
+ * Narrows the id-shaped operands `validateDocumentId` can check. A document-name filter may also take
+ * a `DocumentReference` (the SDK's `validateReference` accepts one), which is already a resolved
+ * reference and must pass through untouched rather than be parsed as an id string.
+ */
+function isIdOperand(value: unknown): value is string | readonly string[] {
+  return (
+    typeof value === 'string' ||
+    (Array.isArray(value) && value.every(entry => typeof entry === 'string'))
+  );
+}
+
+/**
  * Rejects an empty `and()` / `or()` group. The SDK does not: `_parseCompositeFilter` drops
  * sub-filters that reduce to nothing and `Query.where()` returns the query UNCHANGED for a filter
  * with zero conditions, so `f.or()` would silently widen the query to **every document in the
@@ -136,7 +157,13 @@ function createQueryFilterFactory<S extends object>(
   allowLegacyDatastoreIds: boolean,
 ): QueryFilterFactory<S> {
   return {
-    where: (field, op, value) => Filter.where(field as string | FieldPath, op, value),
+    where: (field, op, value) =>
+      // `f.where(FieldPath.documentId(), …)` addresses the document NAME, so it must clear the same
+      // id boundary as `f.whereId(...)` rather than reaching the SDK unvalidated (the SDK blocks path
+      // traversal but accepts the reserved `__…__` namespace that validateDocumentId exists to gate).
+      isDocumentIdPath(field) && isIdOperand(value)
+        ? documentIdFilter(op, value, allowLegacyDatastoreIds)
+        : Filter.where(field as string | FieldPath, op, value),
     whereId: (op: WhereFilterOp, value: string | readonly string[]) =>
       documentIdFilter(op, value, allowLegacyDatastoreIds),
     and: (...filters) => {
@@ -319,7 +346,13 @@ export class FirestoreQueryBuilder<
    * @returns The query builder instance
    */
   where(field: FieldPaths<Omit<S, 'id'>> | FieldPath, op: WhereFilterOp, value: unknown): this {
-    this.query = this.query.where(field as string | FieldPath, op, value);
+    // A `FieldPath.documentId()` operand is a document NAME, so it clears the same validated id
+    // boundary as `whereId(...)`; every other field path is ordinary stored data and passes straight
+    // through. Keeps one id policy across `where`, `whereId`, and the whereFilter factory.
+    this.query =
+      isDocumentIdPath(field) && isIdOperand(value)
+        ? this.query.where(documentIdFilter(op, value, this.allowLegacyDatastoreIds))
+        : this.query.where(field as string | FieldPath, op, value);
     return this;
   }
 
@@ -337,10 +370,33 @@ export class FirestoreQueryBuilder<
    * `where()` clauses, and works with `orderBy`/`limit`, `select`, the aggregations, pagination,
    * `stream()`, `onSnapshot()`, the `update()`/`delete()` terminals, and vector prefilters.
    *
+   * ⚠️ **An inequality inside an `or()` branch drops documents that are MISSING that field — even
+   * documents matched by a DIFFERENT branch.** Firestore adds an implicit `orderBy` for every
+   * inequality field (`<`, `<=`, `>`, `>=`, `!=`, `not-in`) collected across the *flattened* filter
+   * tree, and a document without an ordered field cannot appear. So an OR query can return **fewer**
+   * rows than one of its own disjuncts, and `count()` agrees — it is not a read-path artifact:
+   *
+   * ```
+   * where('kind', '==', 'x')                              → 4 docs
+   * whereFilter(f => f.or(f.where('score', '>', 5),
+   *                       f.where('kind', '==', 'x')))    → 3 docs  ← a `kind: 'x'` doc has no `score`
+   * ```
+   *
+   * This also affects the destructive `update()` / `delete()` terminals, which would silently skip
+   * those documents. Safe shapes inside `or()`: equality, `in`, and `array-contains` /
+   * `array-contains-any`; and `f.whereId(...)` with a comparison operator, which is exempt because
+   * Firestore skips `documentId()` when adding implicit orders and a document name always exists.
+   * If you need an inequality branch, ensure the field is always written (e.g. a default at create
+   * time), or run the branches as separate queries and merge by `id`.
+   *
    * Firestore enforces its own limits on the **server** and the ORM does not duplicate them (a local
-   * copy would risk rejecting a query the backend accepts): at most 30 disjunctions after
-   * normalization, one `!=` per query, and `not-in` cannot be combined with `OR`. Those surface as
-   * `INVALID_ARGUMENT`. A composite query may also require a composite index.
+   * copy would risk rejecting a query the backend accepts, and the counts multiply across clauses the
+   * callback cannot see). Non-exhaustively: at most 30 disjunctions after normalization (an ANDed pair
+   * of 6-value `in` filters is already 36), `in` accepts at most 30 values, at most one
+   * `array-contains` **per disjunction**, and one `!=` / `not-in` **per query** — which also counts
+   * `!= null` / `!= NaN`. A `not-in` anywhere in the query is incompatible with any `OR`, including a
+   * `not-in` from a chained `where()` outside this callback. All surface as `INVALID_ARGUMENT`. A
+   * composite query may also require a composite index.
    *
    * @param build - Callback that composes and returns the filter
    *
@@ -387,12 +443,17 @@ export class FirestoreQueryBuilder<
       );
     }
 
-    // Defense in depth for the prebuilt-Filter escape hatch: the SDK returns the query UNCHANGED
-    // when a filter reduces to zero conditions (see assertNonEmptyFilterGroup), so reference
-    // equality is an exact, internals-free test for "this filter was silently dropped". The factory
-    // already rejects an empty group at the construction site; this catches a prebuilt filter that
-    // reduces to nothing, which would otherwise match the whole collection. Fails open if a future
-    // SDK stops returning `this`.
+    // Defense in depth for the prebuilt-Filter escape hatch: the SDK returns the query UNCHANGED when
+    // a filter reduces to zero conditions ENTIRELY (see assertNonEmptyFilterGroup), so reference
+    // equality is an exact, internals-free test for "this filter was silently dropped whole".
+    //
+    // Scope, precisely: this does NOT catch a PARTIALLY empty prebuilt filter. `_parseCompositeFilter`
+    // drops empty sub-groups at any depth, so `Filter.or(Filter.and(), x)` silently becomes `x`
+    // (narrowing what should match everything) and `Filter.and(Filter.or(), x)` also becomes `x`
+    // (widening what should match nothing) — both verified on the emulator, and both produce a NEW
+    // query object, so nothing here can see them. The factory's construction-site guard closes this
+    // for filters built through `f.and()`/`f.or()`; a caller assembling raw SDK filters owns it.
+    // Fails open if a future SDK stops returning `this`.
     const next = this.query.where(filter);
     if (next === this.query) {
       throw new Error(

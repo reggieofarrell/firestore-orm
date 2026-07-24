@@ -187,6 +187,34 @@ successive `FirestoreIndexError`s. Create the index from each error's link until
 covered.
 
 **Note:** the ORM deliberately does not pre-check these limits locally. A local copy of the server's
-normalization rules would risk rejecting a query Firestore would happily accept, and would drift as
-the backend changes. The one thing the ORM _does_ reject locally is an **empty** `f.or()` /
-`f.and()` group, because Firestore silently drops it and matches every document instead of failing.
+normalization rules would risk rejecting a query Firestore would happily accept, would drift as the
+backend changes, and could not see clauses added outside the callback anyway. The one thing the ORM
+_does_ reject locally is an **empty** `f.or()` / `f.and()` group, because Firestore silently drops
+it and matches every document instead of failing.
+
+## 8. OR Query Returns Fewer Rows Than One of Its Branches
+
+**Issue:** a `whereFilter(f => f.or(...))` query returns fewer documents than one of its own
+disjuncts returns on its own.
+
+**Cause:** an inequality (`<`, `<=`, `>`, `>=`, `!=`, `not-in`) anywhere in the filter tree makes
+Firestore add an implicit `orderBy` on that field, and a document missing an ordered field cannot
+appear in the results — even if it matched a completely different branch.
+
+```typescript
+// Three documents have kind: 'x'; two of them have no `score` field.
+await postRepo.query().where('kind', '==', 'x').get(); // → 3 documents
+await postRepo
+  .query()
+  .whereFilter(f => f.or(f.where('score', '>', 5), f.where('kind', '==', 'x')))
+  .get(); // → 1 document
+```
+
+`count()` reports the same reduced number, and the `update()` / `delete()` terminals silently skip
+the excluded documents.
+
+**Solution:** keep inequalities out of `or()` branches. Use equality, `in`, or `array-contains` /
+`array-contains-any` inside a disjunction; `f.whereId(...)` with a comparison operator is also safe
+(Firestore skips `documentId()` when adding implicit orders, and a document name always exists).
+Otherwise, guarantee the field is always written, or run the branches as separate queries and merge
+by `id`.

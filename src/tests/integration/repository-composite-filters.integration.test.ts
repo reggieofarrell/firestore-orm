@@ -18,7 +18,7 @@
  *  - Regression: `select()` carries the repository's `allowLegacyDatastoreIds` policy into the
  *    replacement builder, so a post-projection id filter still honors the opt-in.
  */
-import { Filter } from 'firebase-admin/firestore';
+import { FieldPath, Filter } from 'firebase-admin/firestore';
 import { FirestoreRepository } from '../../core/FirestoreRepository.js';
 import { InvalidDocumentIdError } from '../../core/Errors.js';
 import { resetTestFactoryCounters } from '../shared/factories/counters.js';
@@ -323,6 +323,203 @@ describe('FirestoreQueryBuilder whereFilter (composite AND/OR)', () => {
       .get();
 
     expect(names(rows)).toEqual(['draft-u2-public', 'published-u1-public']);
+  });
+
+  // ---------------------------------------------------------------------------------------------
+  // Firestore semantics that composite filters expose and the ORM deliberately does NOT guard.
+  // These pin OBSERVED backend behavior so an SDK/emulator change is detected rather than silently
+  // changing consumers' result sets.
+  // ---------------------------------------------------------------------------------------------
+
+  /**
+   * Seeds a set where two documents match `kind == 'x'` but have NO `score` field, so an inequality
+   * on `score` inside an OR branch can be shown to exclude them.
+   */
+  async function seedSparse(): Promise<void> {
+    const created = await userRepo.bulkCreate(
+      [
+        { name: 'x-with-score', kind: 'x', score: 10 },
+        { name: 'x-no-score', kind: 'x' },
+        { name: 'x-no-score-2', kind: 'x' },
+        { name: 'z-with-score', kind: 'z', score: 30 },
+      ] as any[],
+      { returnDoc: true },
+    );
+    (created as unknown as { id: string }[]).forEach(row => trackUser(row.id));
+  }
+
+  it('an inequality inside an or() branch EXCLUDES documents missing that field', async () => {
+    await seedSparse();
+
+    // Baseline: the equality branch alone matches all three `kind: 'x'` documents.
+    const equalityOnly = await userRepo.query().where('kind', '==', 'x').get();
+    expect(names(equalityOnly)).toEqual(['x-no-score', 'x-no-score-2', 'x-with-score']);
+
+    // Same equality branch OR-ed with an inequality on a field two of them do not have: Firestore
+    // adds an implicit orderBy('score') across the FLATTENED filter tree, and a document missing an
+    // ordered field cannot appear — so the OR returns FEWER rows than one of its own disjuncts.
+    const withInequality = await userRepo
+      .query()
+      .whereFilter(f => f.or(f.where('score', '>', 5), f.where('kind', '==', 'x')))
+      .get();
+    expect(names(withInequality)).toEqual(['x-with-score', 'z-with-score']);
+    expect(withInequality.length).toBeLessThan(equalityOnly.length);
+
+    // count() agrees, so this is a query-planning effect and not a read-path artifact.
+    const counted = await userRepo
+      .query()
+      .whereFilter(f => f.or(f.where('score', '>', 5), f.where('kind', '==', 'x')))
+      .count();
+    expect(counted).toBe(2);
+
+    // An equality-only disjunction is unaffected.
+    const equalityOr = await userRepo
+      .query()
+      .whereFilter(f => f.or(f.where('kind', '==', 'x'), f.where('kind', '==', 'z')))
+      .get();
+    expect(names(equalityOr)).toEqual([
+      'x-no-score',
+      'x-no-score-2',
+      'x-with-score',
+      'z-with-score',
+    ]);
+  });
+
+  it('f.whereId() with a comparison operator is exempt from the missing-field exclusion', async () => {
+    await seedSparse();
+
+    // Firestore skips documentId() when adding implicit orders, and a document name always exists,
+    // so a document-name comparison inside an OR does NOT drop field-less documents. This is the one
+    // safe inequality shape inside a disjunction.
+    const rows = await userRepo
+      .query()
+      .whereFilter(f => f.or(f.whereId('>', '\u0000'), f.where('kind', '==', 'x')))
+      .get();
+
+    expect(names(rows)).toEqual(['x-no-score', 'x-no-score-2', 'x-with-score', 'z-with-score']);
+  });
+
+  it('cursor pagination stays consistent across an OR containing an inequality', async () => {
+    await seedSparse();
+
+    const page = (dir: 'asc' | 'desc') =>
+      userRepo
+        .query()
+        .whereFilter(f => f.or(f.where('score', '>', 5), f.where('kind', '==', 'z')))
+        .orderBy('score', dir);
+
+    for (const dir of ['asc', 'desc'] as const) {
+      const all = await page(dir).get();
+      const first = await page(dir).paginate(1);
+      const second = await page(dir).paginate(1, first.nextCursor);
+      const paged = [...first.items, ...second.items].map(row => (row as { name?: string }).name);
+
+      // No duplicates and no skips versus the unpaginated result, in either direction. The cursor is
+      // a document PATH that decodeCursor re-fetches in full, which is what keeps this working: the
+      // implicit orderBy that the inequality adds would reject a projected cursor snapshot.
+      expect(paged).toEqual(all.map(row => (row as { name?: string }).name));
+      expect(new Set(paged).size).toBe(paged.length);
+    }
+  });
+
+  it('a projected OR-with-inequality query still paginates (cursor is a path, not field values)', async () => {
+    await seedSparse();
+
+    const projected = await userRepo
+      .query()
+      .whereFilter(f => f.or(f.where('score', '>', 5), f.where('kind', '==', 'z')))
+      .select('name')
+      .orderBy('score', 'asc')
+      .paginate(1);
+
+    expect(projected.items).toHaveLength(1);
+    expect(projected.hasMore).toBe(true);
+
+    const next = await userRepo
+      .query()
+      .whereFilter(f => f.or(f.where('score', '>', 5), f.where('kind', '==', 'z')))
+      .select('name')
+      .orderBy('score', 'asc')
+      .paginate(1, projected.nextCursor);
+
+    expect(next.items).toHaveLength(1);
+    expect(names(next.items)).not.toEqual(names(projected.items));
+  });
+
+  it('surfaces the server-side disjunction cap intact rather than guarding locally', async () => {
+    // 31 disjunctions after normalization exceeds the documented maximum of 30. The ORM does not
+    // pre-check this; the backend rejects it and the message must reach the caller unchanged.
+    await expect(
+      userRepo
+        .query()
+        .whereFilter(f =>
+          f.or(...Array.from({ length: 31 }, (_, i) => f.where('kind', '==', `k${i}`))),
+        )
+        .get(),
+    ).rejects.toThrow(/Too many disjunctions after normalization/);
+
+    // 30 is accepted, proving the boundary is the backend's and not something the ORM invented.
+    await expect(
+      userRepo
+        .query()
+        .whereFilter(f =>
+          f.or(...Array.from({ length: 30 }, (_, i) => f.where('kind', '==', `k${i}`))),
+        )
+        .get(),
+    ).resolves.toEqual([]);
+  });
+
+  it('rejects not-in combined with OR even when the not-in comes from a chained where()', async () => {
+    // The incompatibility is per QUERY, not per callback: a not-in outside whereFilter() still
+    // collides with a disjunction inside it. Documented rather than locally guarded.
+    await expect(
+      userRepo
+        .query()
+        .where('kind', 'not-in', ['q'])
+        .whereFilter(f => f.or(f.where('kind', '==', 'x'), f.where('kind', '==', 'z')))
+        .get(),
+    ).rejects.toThrow(
+      /'NOT_IN' cannot be used in the same query with 'IN', 'ARRAY_CONTAINS_ANY' or 'OR'/,
+    );
+  });
+
+  it('a PARTIALLY empty prebuilt filter is not caught by the dropped-filter guard', async () => {
+    await seedPosts();
+
+    // Documents the residual escape-hatch gap honestly: _parseCompositeFilter drops empty sub-groups
+    // at any depth, so these change meaning and still produce a NEW query object — reference equality
+    // cannot see them. The factory's construction-site guard is what closes this for f.and()/f.or().
+    const narrowed = await userRepo
+      .query()
+      .whereFilter(() => Filter.or(Filter.and(), Filter.where('status', '==', 'published')))
+      .get();
+    // Semantically `TRUE OR status == published` should match everything; the empty AND is dropped.
+    expect(names(narrowed)).toEqual(['published-u1-public']);
+
+    const widened = await userRepo
+      .query()
+      .whereFilter(() => Filter.and(Filter.or(), Filter.where('status', '==', 'published')))
+      .get();
+    // Semantically `FALSE AND status == published` should match nothing; the empty OR is dropped.
+    expect(names(widened)).toEqual(['published-u1-public']);
+  });
+
+  it('validates a reserved-namespace id passed through where(FieldPath.documentId())', () => {
+    // The document NAME reached via a FieldPath must clear the same id boundary as whereId(), on both
+    // the chained and the composite surface (the SDK itself accepts the reserved `__…__` namespace).
+    expect(() => userRepo.query().where(FieldPath.documentId(), '==', '__id7__')).toThrow(
+      InvalidDocumentIdError,
+    );
+    expect(() =>
+      userRepo.query().whereFilter(f => f.where(FieldPath.documentId(), '==', '__id7__')),
+    ).toThrow(InvalidDocumentIdError);
+
+    // A DocumentReference operand is already resolved, so it must NOT be routed into id parsing.
+    // (The SDK still rejects a reference outside the queried collection — a different error, which is
+    // exactly the point: it reached the SDK rather than validateDocumentId.)
+    expect(() =>
+      userRepo.query().where(FieldPath.documentId(), '==', db.doc('some_collection/ok-id')),
+    ).not.toThrow(InvalidDocumentIdError);
   });
 
   it('select() preserves allowLegacyDatastoreIds for post-projection id filters', () => {

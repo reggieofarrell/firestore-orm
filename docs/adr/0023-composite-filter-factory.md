@@ -59,9 +59,16 @@ whereFilter(build: (f: QueryFilterFactory<Omit<S, 'id'>>) => Filter): this
    legible.
 3. **Zero-argument `f.and()` / `f.or()` are rejected locally**, at the construction site, with an
    error that names the method and explains the silent-broadening it prevents. `whereFilter` also
-   rejects a filter that reduces to no conditions by testing whether `Query.where()` returned the
-   query unchanged — an exact, internals-free check that covers a prebuilt filter reaching the same
-   state. That second check fails open if a future SDK stops returning `this`.
+   rejects a filter that reduces to no conditions **entirely** by testing whether `Query.where()`
+   returned the query unchanged — an exact, internals-free check, which fails open if a future SDK
+   stops returning `this`. Its scope is deliberately narrow and stated as such: it does **not**
+   catch a _partially_ empty prebuilt filter. `_parseCompositeFilter` drops empty sub-groups at any
+   depth, so `Filter.or(Filter.and(), x)` silently becomes `x` (narrowing what should match
+   everything) and `Filter.and(Filter.or(), x)` also becomes `x` (widening what should match
+   nothing) — both verified, and both produce a new query object, so reference equality cannot see
+   them. The factory's construction-site guard closes this for anything built through `f.and()` /
+   `f.or()`; a caller assembling raw SDK filters owns the residue, which an integration test
+   documents.
 4. **The callback result is validated with `instanceof Filter`, for diagnostics.** The compiler
    cannot reject a non-filter (see Context). The SDK is not silent about it either — measured
    against a real `Query`, the field-path overload rejects every non-filter value (`'status'` →
@@ -109,7 +116,33 @@ it is imported from `firebase-admin/firestore`, consistent with `FieldPath` / `W
 - **Additive, non-breaking.** Existing `where()` chains are unchanged; a `whereFilter()` is AND-ed
   with them. Composition with `select()`, `count()`/`sum()`/`average()`, `orderBy`/`paginate`,
   `stream()`, `onSnapshot()`, `update()`/`delete()`, and vector prefilters is verified against the
-  emulator.
+  emulator — mechanically. It does **not** mean a disjunction is semantically free; see the next
+  point.
+- **An inequality inside an `or()` branch silently excludes documents missing that field, including
+  documents matched by another branch.** Firestore adds an implicit `orderBy` for every inequality
+  field collected across the _flattened_ filter tree, and a document lacking an ordered field cannot
+  appear — so an OR query can return **fewer** rows than one of its own disjuncts. Measured: an
+  equality branch alone matched 3 documents, and OR-ing it with `score > 5` (absent on two of them)
+  returned 1; `count()` agreed, so it is query planning rather than a read-path artifact. It applies
+  to the destructive `update()`/`delete()` terminals too. `f.whereId(...)` with a comparison
+  operator is exempt, because Firestore skips `documentId()` when adding implicit orders and a
+  document name always exists — verified — which makes it the one safe inequality shape inside a
+  disjunction.
+
+  We do **not** guard this locally. The same exclusion is long-standing behavior for a chained
+  `where('score', '>', 5)`, so it is not a new hazard class; what is new is that a disjunction lets
+  it affect _other_ branches, which is surprising rather than incorrect. A guard would also have to
+  fail open for prebuilt filters and would reject legitimate queries over collections where the
+  field is always present. It is documented prominently on both `whereFilter` surfaces, in the
+  queries guide, and in Troubleshooting §8, and pinned by an integration test so an SDK or backend
+  change is detected instead of silently altering consumers' result sets.
+
+- **The id boundary now covers `FieldPath.documentId()` on both surfaces.** `f.where` and the
+  chained `where` route a document-name field path through the same `validateDocumentId` gate as
+  `whereId`, so the reserved `__…__` namespace cannot be addressed unvalidated (the SDK blocks path
+  traversal but accepts that namespace). A `DocumentReference` operand passes through untouched,
+  since it is already a resolved reference. This closes a pre-existing gap in `where` rather than
+  only avoiding a new one.
 - Because Firestore normalizes a composite filter and evaluates each disjunct, a composite query can
   require index coverage for more than one branch, so one `whereFilter` may surface several
   successive `FirestoreIndexError`s. (Not verified locally — the emulator creates indexes on

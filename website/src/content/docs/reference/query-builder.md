@@ -56,11 +56,22 @@ callback that returns something which is not a `Filter` throws an ORM error; thi
 at compile time because the SDK's `Filter` type is structurally empty. `Filter` and `FieldPath` are
 imported from `firebase-admin/firestore`.
 
+**Inequality caveat.** An inequality (`<`, `<=`, `>`, `>=`, `!=`, `not-in`) inside an `or()` branch
+excludes documents that are missing that field — including documents matched by a _different_
+branch, because Firestore adds an implicit `orderBy` for every inequality field in the flattened
+filter tree. An OR query can therefore return fewer rows than one of its own disjuncts, on reads,
+aggregations, and the `update()` / `delete()` terminals alike. `f.whereId(...)` with a comparison
+operator is exempt. See
+[Queries](/firestore-orm/guides/working-with-data/queries/#composite-andor-filters).
+
 Firestore enforces its own limits on the **server** and the ORM does not duplicate them (a local
-copy would risk rejecting a query the backend accepts): at most 30 disjunctions after normalization,
-one `!=` per query, and `not-in` cannot be combined with `OR`. Those arrive as `INVALID_ARGUMENT`. A
-composite query can also require composite index coverage for more than one disjunct branch — see
-[Troubleshooting](/firestore-orm/reference/troubleshooting/).
+copy would risk rejecting a query the backend accepts, and the counts multiply across clauses the
+callback cannot see). Non-exhaustively: at most 30 disjunctions after normalization, `in` accepts at
+most 30 values, at most one `array-contains` **per disjunction**, and one `!=` / `not-in` **per
+query** — which also counts `!= null` / `!= NaN`. A `not-in` anywhere in the query is incompatible
+with any `OR`, including one from a chained `where()` outside the callback. All arrive as
+`INVALID_ARGUMENT`. A composite query can also require composite index coverage for more than one
+disjunct branch — see [Troubleshooting](/firestore-orm/reference/troubleshooting/).
 
 **`orderById(direction?: 'asc' | 'desc'): this`**
 

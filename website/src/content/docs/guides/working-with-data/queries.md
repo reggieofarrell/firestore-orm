@@ -117,6 +117,33 @@ Two things to know:
   [Troubleshooting](/firestore-orm/reference/troubleshooting/) and
   [Performance & Cost](/firestore-orm/guides/designing/performance/).
 
+:::caution[An inequality inside an OR branch excludes documents missing that field] Firestore adds
+an implicit `orderBy` for every inequality field (`<`, `<=`, `>`, `>=`, `!=`, `not-in`) found
+anywhere in the filter tree, and a document that lacks an ordered field cannot appear in the
+results. Inside a disjunction that means an inequality in **one** branch can drop documents matched
+by **another** branch — so an OR query can return _fewer_ rows than one of its own disjuncts:
+
+```typescript
+// 3 documents have kind: 'x'; two of them have no `score` field at all.
+await postRepo.query().where('kind', '==', 'x').get(); // → 3 documents
+
+await postRepo
+  .query()
+  .whereFilter(f => f.or(f.where('score', '>', 5), f.where('kind', '==', 'x')))
+  .get(); // → 1 document — the two without `score` are gone
+```
+
+`count()` returns the same reduced number, so this is query planning, not a read-path quirk. It also
+applies to the destructive `update()` / `delete()` terminals, which would silently skip those
+documents.
+
+**Safe shapes inside `or()`:** equality, `in`, `array-contains` / `array-contains-any` — and
+`f.whereId(...)` with a comparison operator, which is exempt because Firestore skips `documentId()`
+when adding implicit orders and a document name always exists.
+
+If you need an inequality branch, either guarantee the field is always written (give it a default at
+create time) or run the branches as separate queries and merge the results by `id`. :::
+
 Returning a prebuilt Admin SDK `Filter` (`f => myFilter`) is supported as an escape hatch, applied
 verbatim without the factory's typed paths or id validation.
 

@@ -78,6 +78,10 @@ export class VectorQueryBuilder<T extends object, S extends object = T, R = Fire
    * semantics and server-side limits apply as for a normal query, and the filtered fields must be
    * part of the vector index configuration.
    *
+   * ⚠️ Inherits the inequality caveat from {@link FirestoreQueryBuilder.whereFilter}: an inequality
+   * inside an `or()` branch excludes documents missing that field, including documents matched by
+   * another branch. Prefer equality / `in` / `array-contains` branches in a vector pre-filter.
+   *
    * @example
    * const nearby = await docRepo.vectorQuery()
    *   .whereFilter(f => f.or(f.where('category', '==', 'a'), f.where('category', '==', 'b')))

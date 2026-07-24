@@ -53,3 +53,6 @@ reviews/
 
 # npm pack tarballs (created by release verification scripts)
 *.tgz
+
+# Temporary backup of the GitHub README while prepack stages npm-readme.md for the tarball
+.README.github.bak

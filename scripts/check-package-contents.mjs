@@ -8,11 +8,22 @@
  *   - nothing under dist/tests/ (compiled test fixtures must never ship)
  *   - required dual-build + subpath entrypoints must be present
  *
+ * Dual README: GitHub keeps a contributor README.md; npm consumers get npm-readme.md staged into
+ * README.md for the tarball. Because this script uses --ignore-scripts (so prepare/husky does not
+ * fire), it must stage/restore explicitly around the pack call. It also asserts the staged
+ * README.md carries the npm-only marker so the gate cannot pass with the GitHub copy.
+ *
  * Exits non-zero on any violation. Run AFTER `npm run build`.
  */
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+/** Must match the marker required by scripts/stage-npm-readme.mjs / npm-readme.md. */
+const NPM_README_MARKER = '<!-- npm-readme -->';
 
 const ALLOWED_TOP_LEVEL = new Set([
   'package.json',
@@ -34,12 +45,21 @@ const REQUIRED = [
   'dist/vector/index.d.ts',
 ];
 
+function runStageReadme(mode) {
+  execFileSync(process.execPath, [join(repoRoot, 'scripts', 'stage-npm-readme.mjs'), mode], {
+    stdio: 'inherit',
+    cwd: repoRoot,
+  });
+}
+
 function packedFiles() {
   // dist is expected to be built already (run after `npm run build`). The prepare lifecycle (husky)
   // can print to stdout and prepend noise to the --json output, so slice from the first JSON bracket.
+  // --ignore-scripts skips prepack/postpack, so we stage/restore around this call ourselves.
   const out = execFileSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], {
     encoding: 'utf8',
     env: { ...process.env, HUSKY: '0' },
+    cwd: repoRoot,
   });
   const jsonStart = out.indexOf('[');
   const parsed = JSON.parse(out.slice(jsonStart));
@@ -101,11 +121,40 @@ function checkDeclarationHygiene(violations) {
   }
 }
 
+/**
+ * Assert the on-disk README.md is the staged npm consumer copy (not the GitHub contributor README).
+ * Called while staged, before/after pack — the tarball will contain whatever is on disk as README.md.
+ */
+function checkStagedNpmReadme(violations) {
+  const readme = readFileSync(join(repoRoot, 'README.md'), 'utf8');
+  if (!readme.includes(NPM_README_MARKER)) {
+    violations.push(
+      `staged README.md is missing npm marker ${NPM_README_MARKER} — GitHub README may have been packed`,
+    );
+  }
+  // Contributor-only section that must NOT ship on npmjs.org.
+  if (readme.includes('## Testing Strategy')) {
+    violations.push(
+      'staged README.md still looks like the GitHub contributor README (contains "## Testing Strategy")',
+    );
+  }
+}
+
 function main() {
-  const files = packedFiles();
   const violations = [];
   checkNoExpressInRootGraph(violations);
   checkDeclarationHygiene(violations);
+
+  // Stage the consumer README for the dry-run pack, then always restore — even if pack or
+  // validation throws — so a failed gate never leaves the working tree with the npm README.
+  runStageReadme('stage');
+  let files;
+  try {
+    checkStagedNpmReadme(violations);
+    files = packedFiles();
+  } finally {
+    runStageReadme('restore');
+  }
 
   for (const path of files) {
     if (path.startsWith('dist/tests/')) {
@@ -127,6 +176,13 @@ function main() {
     if (path.endsWith('.d.ts.map') || path.endsWith('.js.map')) {
       violations.push(`source/declaration map must not be published: ${path}`);
     }
+  }
+
+  // npm-readme.md is source-only — it must never appear as a separate tarball path.
+  if (files.includes('npm-readme.md')) {
+    violations.push(
+      'npm-readme.md must not be published as a separate file (stage into README.md)',
+    );
   }
 
   if (violations.length > 0) {

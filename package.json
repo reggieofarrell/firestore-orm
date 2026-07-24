@@ -49,6 +49,8 @@
     "prepare": "husky",
     "clean": "rimraf dist .tsbuildinfo coverage",
     "build": "rimraf dist && tsc && tsc -p tsconfig.cjs.json && node scripts/finalize-dual-build.mjs",
+    "prepack": "node scripts/stage-npm-readme.mjs stage",
+    "postpack": "node scripts/stage-npm-readme.mjs restore",
     "prepublishOnly": "npm run build",
     "release:bump": "commit-and-tag-version --skip.tag",
     "release:bump:dry": "commit-and-tag-version --dry-run --skip.tag",

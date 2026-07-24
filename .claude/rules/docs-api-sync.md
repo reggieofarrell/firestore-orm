@@ -39,8 +39,11 @@ Then update:
      the minimal create/query/update/delete walkthrough changes.
    - **Overview / home:** `overview.md` or `index.md` only when the TOC, hero CTAs, or “where to go
      next” links need to change.
-2. **Root `README.md`** — quick start + links to the live site. Touch it when the quick-start
-   example or the documentation index links need to change.
+2. **Dual READMEs** — follow the **`readme-sync` skill** (`.cursor/skills/readme-sync/SKILL.md`)
+   when install, peer deps, quick-start, package pitch, migration notes, or docs/support links
+   change. GitHub shows committed `README.md` (contributor); npm shows `npm-readme.md` staged at
+   pack time. Contributor-only edits (testing, contributing, ADRs) do **not** require touching
+   `npm-readme.md`.
 3. **Examples** — fix snippets that would no longer type-check or run.
 4. **ADR** — if it's a contract-level or architectural decision, record one in `docs/adr/` (use the
    `/adr` skill). ADRs and `docs/development/` stay in-repo Markdown; they are not published on the

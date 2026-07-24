@@ -1,8 +1,9 @@
 import { parseFirestoreError } from '../core/ErrorParser.js';
 import { FirestoreQueryBuilder, getQueryRef } from '../core/QueryBuilder.js';
+import type { QueryFilterFactory } from '../core/QueryBuilder.js';
 import { FirestoreDocument } from '../core/DocumentId.js';
 import { DeepPartial, FieldPaths } from '../utils/pathTypes.js';
-import { FieldPath, QueryDocumentSnapshot, WhereFilterOp } from 'firebase-admin/firestore';
+import { FieldPath, Filter, QueryDocumentSnapshot, WhereFilterOp } from 'firebase-admin/firestore';
 import {
   assertVectorSearchSupported,
   DistanceFieldResult,
@@ -65,6 +66,28 @@ export class VectorQueryBuilder<T extends object, S extends object = T, R = Fire
   where(field: FieldPaths<Omit<S, 'id'>> | FieldPath, op: WhereFilterOp, value: unknown): this {
     this.assertNotVectorMode('where');
     this.coreBuilder.where(field, op, value);
+    return this;
+  }
+
+  /**
+   * Add a **composite** (nested `AND` / `OR`) pre-filter before executing a vector search — the
+   * composite counterpart of {@link where}, delegating to
+   * {@link FirestoreQueryBuilder.whereFilter} on the wrapped core builder.
+   *
+   * Firestore applies the pre-filter before the nearest-neighbor scan, so the same composite filter
+   * semantics and server-side limits apply as for a normal query, and the filtered fields must be
+   * part of the vector index configuration.
+   *
+   * @example
+   * const nearby = await docRepo.vectorQuery()
+   *   .whereFilter(f => f.or(f.where('category', '==', 'a'), f.where('category', '==', 'b')))
+   *   .findNearest({ vectorField: 'embedding', queryVector: [1, 0, 0], limit: 5,
+   *     distanceMeasure: 'EUCLIDEAN' })
+   *   .get();
+   */
+  whereFilter(build: (f: QueryFilterFactory<Omit<S, 'id'>>) => Filter): this {
+    this.assertNotVectorMode('whereFilter');
+    this.coreBuilder.whereFilter(build);
     return this;
   }
 

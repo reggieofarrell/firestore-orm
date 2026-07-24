@@ -150,6 +150,64 @@ describe('Vector search extension', () => {
     expect(results[0]?.name).toBe('books-a');
   });
 
+  it('should support a composite (OR) pre-filter with whereFilter()', async () => {
+    await prefilterRepo.create({
+      name: 'books-a',
+      category: 'books',
+      embedding: FieldValue.vector([1, 0, 0]),
+    } as VectorDoc);
+    await prefilterRepo.create({
+      name: 'games-a',
+      category: 'games',
+      embedding: FieldValue.vector([0.2, 0.9, 0]),
+    } as VectorDoc);
+    await prefilterRepo.create({
+      name: 'films-a',
+      category: 'films',
+      embedding: FieldValue.vector([0, 0, 1]),
+    } as VectorDoc);
+
+    const wrapped = withVectorSearch(prefilterRepo);
+    const results = await wrapped
+      .vectorQuery()
+      .whereFilter(f =>
+        f.or(f.where('category', '==', 'books'), f.where('category', '==', 'games')),
+      )
+      .findNearest({
+        vectorField: 'embedding',
+        queryVector: [1, 0, 0],
+        limit: 5,
+        distanceMeasure: 'EUCLIDEAN',
+      })
+      .get();
+
+    // The disjunction admits books + games and excludes films, and the nearest-neighbor scan then
+    // orders the survivors by distance from [1, 0, 0].
+    expect(results.map(row => row.name)).toEqual(['books-a', 'games-a']);
+  });
+
+  it('should throw when whereFilter() is called after findNearest()', () => {
+    const wrapped = withVectorSearch(vectorRepo);
+    const builder = wrapped.vectorQuery().findNearest({
+      vectorField: 'embedding',
+      queryVector: [1, 0, 0],
+      limit: 1,
+      distanceMeasure: 'EUCLIDEAN',
+    });
+
+    expect(() => builder.whereFilter(f => f.where('category', '==', 'books'))).toThrow(
+      /whereFilter\(\) cannot be called after findNearest\(\)/,
+    );
+  });
+
+  it('rejects an empty composite pre-filter group on the vector builder', () => {
+    const wrapped = withVectorSearch(prefilterRepo);
+
+    expect(() => wrapped.vectorQuery().whereFilter(f => f.or())).toThrow(
+      /f\.or\(\) requires at least one filter/,
+    );
+  });
+
   it('should include distanceResultField values when configured', async () => {
     await seedBasicVectors();
 

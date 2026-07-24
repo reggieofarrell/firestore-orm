@@ -137,7 +137,23 @@ try {
       `const goodEmb: EmbInput = [1, 2, 3];\n` +
       `// @ts-expect-error vector embedding input is number[] | VectorValueLike, not any/string\n` +
       `const badEmb: EmbInput = 'not-a-vector';\n` +
-      `export const used = [FirestoreRepository, FirestoreQueryBuilder, NotFoundError, ValidationError, ConflictError, FirestoreIndexError, parseFirestoreError, makeValidator, zNumberWrite, zDateWrite, zArrayWrite, zSentinel, withDelete, isDotNotation, expandDotNotation, mergeDotNotationUpdate, convertTimestampsToMillis, createMillisTimestampConverter, withVectorSearch, vectorEmbeddingSchema, vvl, goodEmb, badEmb];\n`,
+      // The composite-filter factory type must be nameable through the published root specifier, and
+      // its two guarantees must survive declaration emit: schema-aware field paths, and the `in out`
+      // variance annotation that stops a predicate typed against a FOREIGN stored shape from being
+      // silently accepted. Both negatives must be errors here, or the @ts-expect-error is unused and
+      // tsc fails — catching a regression that would only show up in consumers' editors.
+      `import type { QueryFilterFactory } from '${PKG}';\n` +
+      `type StoredPost = { status: string; authorId: string };\n` +
+      `type StoredOther = { email: string };\n` +
+      `declare function acceptsPostFilter(build: (f: QueryFilterFactory<StoredPost>) => unknown): void;\n` +
+      `acceptsPostFilter(f => f.or(f.where('status', '==', 'published'), f.whereId('in', ['a'])));\n` +
+      `const reusable = (f: QueryFilterFactory<StoredPost>) => f.where('authorId', '==', 'u1');\n` +
+      `acceptsPostFilter(reusable);\n` +
+      `// @ts-expect-error typed stored field paths survive .d.ts emit — 'staus' is a typo\n` +
+      `acceptsPostFilter(f => f.where('staus', '==', 'published'));\n` +
+      `// @ts-expect-error QueryFilterFactory<S> is invariant — a foreign stored shape is rejected\n` +
+      `acceptsPostFilter((f: QueryFilterFactory<StoredOther>) => f.where('email', '==', 'x'));\n` +
+      `export const used = [FirestoreRepository, FirestoreQueryBuilder, NotFoundError, ValidationError, ConflictError, FirestoreIndexError, parseFirestoreError, makeValidator, zNumberWrite, zDateWrite, zArrayWrite, zSentinel, withDelete, isDotNotation, expandDotNotation, mergeDotNotationUpdate, convertTimestampsToMillis, createMillisTimestampConverter, withVectorSearch, vectorEmbeddingSchema, vvl, goodEmb, badEmb, reusable];\n`,
   );
   tscExpectOk(esm, 'ESM root+vector consumer (express NOT installed)');
 

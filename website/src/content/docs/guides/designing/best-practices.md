@@ -138,7 +138,10 @@ hook-based write conversion pattern.
 ## 6. Handle composite index errors gracefully
 
 Firestore requires composite indexes for certain query combinations. The ORM surfaces a
-`FirestoreIndexError` with a clear message and a link to create the missing index.
+`FirestoreIndexError` with a clear message and a link to create the missing index. Because Firestore
+normalizes a composite filter and evaluates each disjunct, a `whereFilter(f => f.or(…))` query can
+require coverage for more than one branch — so one query may surface several successive
+`FirestoreIndexError`s.
 
 ```typescript
 try {

@@ -84,7 +84,7 @@ await userRepo.delete('user-123'); // Hard delete; throws NotFoundError if the d
   no `merge` option to set.
 
 Both dot-notation and nested-object updates are supported; see
-[Dot-notation nested updates](./dot-notation/) for the merge semantics of paths like
+[Dot-notation nested updates](/firestore-orm/2.0/guides/dot-notation/) for the merge semantics of paths like
 `'profile.nickname'`.
 
 ## Bulk Operations
@@ -128,5 +128,5 @@ await orderRepo.bulkUpdate(orders.map(o => ({ id: o.id, data: { status: 'shipped
 ```
 
 Note that `query().update()` and `query().delete()` do **not** run
-[lifecycle hooks](./lifecycle-hooks/); use the per-document or bulk repository methods when you need
+[lifecycle hooks](/firestore-orm/2.0/guides/lifecycle-hooks/); use the per-document or bulk repository methods when you need
 hook side effects.

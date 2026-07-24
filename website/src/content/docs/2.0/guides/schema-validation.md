@@ -68,7 +68,7 @@ required top-level `id: z.string()`. The repository asserts this at construction
   skipped during schema validation while non-sentinel paths are still validated. To enforce which
   sentinels a field may receive, declare them with the per-field combinators and opt into
   `sentinelPolicy: 'strict'` (see
-  [Per-Field Sentinel Approval](./field-value-sentinels/#per-field-sentinel-approval)).
+  [Per-Field Sentinel Approval](/firestore-orm/2.0/guides/field-value-sentinels/)).
 
 > **Where `id` lives (and why the curried form doesn't change it).** There are three separate `id`
 > contexts, and it's easy to conflate them:

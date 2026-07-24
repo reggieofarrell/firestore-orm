@@ -135,7 +135,7 @@ This automatically maps errors to HTTP status codes:
 * `FirestoreIndexError` → 404 Not Found (with index URL)
 * Others → 500 Internal Server Error
 
-For a fuller Express integration walkthrough, see [Framework integration](./framework-integration/).
+For a fuller Express integration walkthrough, see [Framework integration](/firestore-orm/2.0/guides/framework-integration/).
 
 ### Middleware reference
 

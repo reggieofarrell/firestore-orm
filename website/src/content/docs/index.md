@@ -37,7 +37,7 @@ hero:
 1. **[Getting Started](/firestore-orm/getting-started/)** — install peers, define a schema, create
    and query documents.
 2. **[Documentation overview](/firestore-orm/overview/)** — full guide index by topic.
-3. **[Core Concepts](/firestore-orm/guides/core-concepts/)** — repository pattern, converters, and
-   delete semantics.
-4. **[API Reference](/firestore-orm/guides/api-reference/)** — every `FirestoreRepository` /
+3. **[Core Concepts](/firestore-orm/guides/concepts/core-concepts/)** — repository pattern,
+   converters, and delete semantics.
+4. **[API Reference](/firestore-orm/reference/repository/)** — every `FirestoreRepository` /
    `FirestoreQueryBuilder` signature.

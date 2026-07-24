@@ -87,8 +87,8 @@ export const userSchema = z.object({
 export type User = z.infer<typeof userSchema>;
 ```
 
-See [Schema Validation](./guides/schema-validation/) for derived create/update schemas and the
-no-top-level-`id` rule.
+See [Schema Validation](/firestore-orm/guides/concepts/schema-validation/) for derived create/update
+schemas and the no-top-level-`id` rule.
 
 ## 3. Create a repository
 
@@ -101,7 +101,8 @@ export const userRepo = FirestoreRepository.withSchema(db, 'users', userSchema);
 ```
 
 Prefer `withSchema` when you want runtime validation. For an unvalidated collection, construct
-`new FirestoreRepository<User>(db, 'users')` instead — see [Core Concepts](./guides/core-concepts/).
+`new FirestoreRepository<User>(db, 'users')` instead — see
+[Core Concepts](/firestore-orm/guides/concepts/core-concepts/).
 
 ## 4. Create, query, update, delete
 
@@ -137,11 +138,11 @@ await userRepo.delete(userId);
 
 ## Next steps
 
-| Topic                                                    | When to read it                                        |
-| -------------------------------------------------------- | ------------------------------------------------------ |
-| [Core Concepts](./guides/core-concepts/)                 | Repository pattern, converters, delete behavior        |
-| [CRUD Operations](./guides/crud-operations/)             | Bulk variants and return shapes                        |
-| [Queries](./guides/queries/)                             | Pagination, aggregations, streaming, listeners         |
-| [Field-value sentinels](./guides/field-value-sentinels/) | `serverTimestamp`, `increment`, strict sentinel policy |
-| [Framework Integration](./guides/framework-integration/) | Express / NestJS wiring                                |
-| [Documentation overview](./overview/)                    | Full guide index                                       |
+| Topic                                                                          | When to read it                                        |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------ |
+| [Core Concepts](/firestore-orm/guides/concepts/core-concepts/)                 | Repository pattern, converters, delete behavior        |
+| [CRUD Operations](/firestore-orm/guides/working-with-data/crud-operations/)    | Bulk variants and return shapes                        |
+| [Queries](/firestore-orm/guides/working-with-data/queries/)                    | Pagination, aggregations, streaming, listeners         |
+| [Field-value sentinels](/firestore-orm/guides/concepts/field-value-sentinels/) | `serverTimestamp`, `increment`, strict sentinel policy |
+| [Framework Integration](/firestore-orm/guides/integrations/express/)           | Express / NestJS wiring                                |
+| [Documentation overview](/firestore-orm/overview/)                             | Full guide index                                       |

@@ -7,10 +7,12 @@ Three end-to-end walkthroughs that combine schemas, hooks, transactions, queries
 listeners into production-shaped features.
 
 Each example below is a complete slice — schema, repository (with its
-[lifecycle hooks](./lifecycle-hooks/#lifecycle-hooks)), and a service class — so you can see how the
-pieces fit together in a real application. For focused explanations of any single mechanism, see
-[CRUD operations](./crud-operations/), the [query builder](./queries/),
-[transactions](./transactions/), and [error handling](./error-handling/).
+[lifecycle hooks](/firestore-orm/guides/concepts/lifecycle-hooks/)), and a service class — so you
+can see how the pieces fit together in a real application. For focused explanations of any single
+mechanism, see [CRUD operations](/firestore-orm/guides/working-with-data/crud-operations/), the
+[query builder](/firestore-orm/guides/working-with-data/queries/),
+[transactions](/firestore-orm/guides/working-with-data/transactions/), and
+[error handling](/firestore-orm/reference/errors/).
 
 In this guide:
 
@@ -22,9 +24,10 @@ In this guide:
 
 This example shows a full order lifecycle: validating inventory in a `beforeCreate` hook, reducing
 stock and sending confirmation email in `afterCreate`, guarding shipped orders in `beforeUpdate`,
-cancelling via a [transaction](./transactions/), and computing revenue with `sum()` / `average()`
-[aggregations](./queries/). Note that no schema declares a top-level `id` — `withSchema` rejects it
-at construction, and the document name is the sole source of `id`.
+cancelling via a [transaction](/firestore-orm/guides/working-with-data/transactions/), and computing
+revenue with `sum()` / `average()` [aggregations](/firestore-orm/guides/working-with-data/queries/).
+Note that no schema declares a top-level `id` — `withSchema` rejects it at construction, and the
+document name is the sole source of `id`.
 
 ```typescript
 // schemas/order.schema.ts
@@ -232,8 +235,9 @@ write.
 ## Example 2: Multi-tenant SaaS application
 
 A tenant record enforces a unique slug via `beforeCreate`, bootstraps a default workspace and owner
-membership in `afterCreate`, and enforces seat limits with a [transaction](./transactions/) so
-concurrent invites cannot oversell seats.
+membership in `afterCreate`, and enforces seat limits with a
+[transaction](/firestore-orm/guides/working-with-data/transactions/) so concurrent invites cannot
+oversell seats.
 
 ```typescript
 // schemas/tenant.schema.ts
@@ -381,7 +385,8 @@ is convenient for immediately echoing the new plan back to the caller.
 
 This feed reads a user's follow graph, then serves both a live view (via `onSnapshot`) and a
 paginated backfill (via `paginate`) of published posts from followed authors. See the
-[query builder guide](./queries/) for the full surface of `onSnapshot` and cursor pagination.
+[query builder guide](/firestore-orm/guides/working-with-data/queries/) for the full surface of
+`onSnapshot` and cursor pagination.
 
 ```typescript
 // schemas/post.schema.ts

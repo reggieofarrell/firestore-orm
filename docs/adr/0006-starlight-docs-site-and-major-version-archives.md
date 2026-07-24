@@ -84,6 +84,12 @@ Sub-decisions:
   absolute `/…` paths).
 - The first `starlight-versions` enablement is a deliberate cutover task on the v3 docs PR (or a
   dedicated follow-up), not something that happens automatically when the package major bumps.
+- **Pages deploy is release/manual-gated**, not merge-gated. Merging `website/**` to `main` does not
+  update GitHub Pages; deploy runs on stable GitHub Release (from the release tag, alongside npm
+  publish) or via `workflow_dispatch` with an explicit ref. See
+  [`website/VERSIONING.md`](../../website/VERSIONING.md) and
+  [`.github/workflows/deploy-docs.yml`](../../.github/workflows/deploy-docs.yml). This avoids the
+  docs site leading an unreleased package major.
 
 **Migration**
 

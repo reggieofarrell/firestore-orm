@@ -1,163 +1,23 @@
 ---
-title: 'Framework Integration'
-description: 'Wire FirestoreORM into Express.js and NestJS applications.'
+title: 'NestJS'
+description:
+  'Integrate FirestoreORM into a NestJS module/service/controller stack with a shared Zod schema,
+  DI, and an exception filter.'
 ---
 
-Wire the repository into HTTP frameworks — Express.js route handlers and a full NestJS
-module/service/controller stack — with schema-driven validation and error mapping.
-
-The ORM is framework-agnostic: a repository is just an object you construct once and share. The
-patterns below show how to expose it through Express and NestJS while letting the ORM's own Zod
-validation and typed error classes do the heavy lifting. For the error classes themselves and the
-`errorHandler` middleware, see [Error handling](./error-handling/); for the schema and DTO strategy,
-see [Schema validation](./schema-validation/).
-
-## Express.js
-
-### Basic setup
-
-Construct the repository once and export it. Your schema must **not** declare a top-level `id` — it
-is rejected at construction, and the document name is the sole source of `id` (see the
-[NestJS schema](#shared-schema-strategy) below for the full definition). The returned repository is
-fully typed and validated on every write.
-
-```typescript
-// repositories/user.repository.ts
-import { FirestoreRepository } from '@reggieofarrell/firestore-orm';
-import { db } from '../config/firebase';
-import { userSchema, User } from '../schemas/user.schema';
-
-export const userRepo = FirestoreRepository.withSchema(db, 'users', userSchema);
-```
-
-Define your routes as thin handlers that call the repository and forward any thrown error to the
-shared `errorHandler` middleware via `next(error)`:
-
-```typescript
-// routes/user.routes.ts
-import express from 'express';
-import { userRepo } from '../repositories/user.repository';
-import { ValidationError, NotFoundError } from '@reggieofarrell/firestore-orm';
-
-const router = express.Router();
-
-router.post('/users', async (req, res, next) => {
-  try {
-    const user = await userRepo.create(
-      {
-        ...req.body,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      { returnDoc: true },
-    );
-    res.status(201).json(user);
-  } catch (error) {
-    next(error); // errorHandler middleware will process this
-  }
-});
-
-router.get('/users', async (req, res, next) => {
-  try {
-    const { page = 1, limit = 20, status } = req.query;
-
-    let query = userRepo.query();
-
-    if (status) {
-      query = query.where('status', '==', status);
-    }
-
-    const result = await query
-      .orderBy('createdAt', 'desc')
-      .offsetPaginate(Number(page), Number(limit));
-
-    res.json(result);
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.get('/users/:id', async (req, res, next) => {
-  try {
-    const user = await userRepo.getById(req.params.id);
-
-    if (!user) {
-      throw new NotFoundError(`User with id ${req.params.id} not found`);
-    }
-
-    res.json(user);
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.patch('/users/:id', async (req, res, next) => {
-  try {
-    const user = await userRepo.update(
-      req.params.id,
-      {
-        ...req.body,
-        updatedAt: new Date().toISOString(),
-      },
-      { returnDoc: true },
-    );
-    res.json(user);
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.delete('/users/:id', async (req, res, next) => {
-  try {
-    await userRepo.delete(req.params.id);
-    res.status(204).send();
-  } catch (error) {
-    next(error);
-  }
-});
-
-export default router;
-```
-
-Register the routes and mount `errorHandler` **last** so it can translate ORM errors
-(`ValidationError`, `NotFoundError`, `ConflictError`, `FirestoreIndexError`) into HTTP responses:
-
-```typescript
-// app.ts
-import express from 'express';
-import { errorHandler } from '@reggieofarrell/firestore-orm/express';
-import userRoutes from './routes/user.routes';
-
-const app = express();
-
-app.use(express.json());
-app.use('/api', userRoutes);
-app.use(errorHandler); // Must be last
-
-app.listen(3000, () => {
-  console.log('Server running on port 3000');
-});
-```
-
-> Notes on the API used above:
->
-> - Reads use `getById(id)`, which returns `FirestoreDocument<User> | null` — check for `null` (or
->   use `getByIdOrThrow(id)` to get a `NotFoundError` instead).
-> - Offset pagination is `offsetPaginate(page, pageSize)`. Cursor pagination is
->   `paginate(pageSize, cursor?)` and requires a prior `orderBy()`; there is no `.startAfter()`
->   chaining method. See [Queries](./queries/).
-> - `update(id, data, { returnDoc: true })` returns the updated document. The `id` field is always
->   stripped from write payloads, so spreading `...req.body` is safe.
-
-## NestJS
+Integrate the repository into a NestJS module/service/controller stack, letting a single Zod schema
+drive both the DTOs and the repository's runtime validation. For the Express integration, see
+[Express](/firestore-orm/guides/integrations/express/); for the error classes, see
+[Error Handling](/firestore-orm/reference/errors/).
 
 NestJS users often work with DTOs for request validation. Here's how to integrate with the ORM's Zod
 schemas so a single schema drives both the DTOs and the repository's runtime validation.
 
-### Shared schema strategy
+## Shared schema strategy
 
 Define one Zod schema — which must **not** declare a top-level `id` (the document name is the sole
-source of `id`) — then derive the create/update DTOs from it with `.omit()` and `.partial()`:
+source of `id`, see [Document Identity](/firestore-orm/guides/concepts/document-identity/)) — then
+derive the create/update DTOs from it with `.omit()` and `.partial()`:
 
 ```typescript
 // schemas/user.schema.ts
@@ -182,7 +42,7 @@ export type CreateUserDto = z.infer<typeof createUserSchema>;
 export type UpdateUserDto = z.infer<typeof updateUserSchema>;
 ```
 
-### Repository module
+## Repository module
 
 Provide the `Firestore` instance through Nest's DI container as a global module:
 
@@ -276,9 +136,10 @@ export class UserRepository {
 ```
 
 The `afterCreate` hook receives the freshly created document (including its generated `id`). See
-[Lifecycle hooks](./lifecycle-hooks/) for the full event list and payload shapes.
+[Lifecycle hooks](/firestore-orm/guides/concepts/lifecycle-hooks/) for the full event list and
+payload shapes.
 
-### Service layer
+## Service layer
 
 Keep business logic in the service and map ORM errors to Nest's HTTP exceptions where you want
 framework-native behavior:
@@ -333,7 +194,7 @@ export class UserService {
 }
 ```
 
-### Controller with validation pipe
+## Controller with validation pipe
 
 The controller stays declarative — validate incoming bodies with a Zod pipe and delegate to the
 service:
@@ -379,7 +240,7 @@ export class UserController {
 }
 ```
 
-### Zod validation pipe (optional — since the ORM validates)
+## Zod validation pipe (optional — since the ORM validates)
 
 The ORM already validates on write, so this pipe is optional. It buys you an earlier `400` at the
 HTTP boundary (before touching Firestore) with a framework-native `BadRequestException`:
@@ -402,7 +263,7 @@ export class ZodValidationPipe implements PipeTransform {
 }
 ```
 
-### Exception filter for ORM errors
+## Exception filter for ORM errors
 
 Alternatively, let the ORM throw and translate its typed errors into HTTP responses with a Nest
 exception filter. `ValidationError` exposes `.issues` (the underlying Zod issues):
@@ -442,7 +303,7 @@ export class FirestoreExceptionFilter implements ExceptionFilter {
 }
 ```
 
-### Register the filter globally
+## Register the filter globally
 
 ```typescript
 // main.ts
@@ -462,8 +323,11 @@ bootstrap();
 
 ## See also
 
-- [Error handling](./error-handling/) — the error classes and the Express `errorHandler` middleware
-- [Schema validation](./schema-validation/) — deriving DTOs and the no-top-level-`id` schema rule
-- [Lifecycle hooks](./lifecycle-hooks/) — the `afterCreate` and related events
-- [Queries](./queries/) — pagination (`paginate`, `offsetPaginate`) and the query builder
-- [CRUD operations](./crud-operations/) — `create`, `update`, `delete`, and bulk methods
+- [Express](/firestore-orm/guides/integrations/express/) — thin route handlers and the
+  `errorHandler` middleware
+- [Error Handling](/firestore-orm/reference/errors/) — the error classes and `parseFirestoreError`
+- [Schema Validation](/firestore-orm/guides/concepts/schema-validation/) — deriving DTOs and the
+  no-top-level-`id` rule
+- [Lifecycle hooks](/firestore-orm/guides/concepts/lifecycle-hooks/) — the `afterCreate` and related
+  events
+- [Queries](/firestore-orm/guides/working-with-data/queries/) — pagination and the query builder

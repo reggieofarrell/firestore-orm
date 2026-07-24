@@ -20,7 +20,7 @@ Workarounds on v2:
 
 This is fixed in **v3**, where dot-notation is type-safe and each dotted value is validated and
 persisted (unknown paths throw instead of being dropped). See the
-[v3 Dot Notation guide](../../guides/dot-notation/).
+[v3 Dot Notation guide](/firestore-orm/guides/working-with-data/dot-notation/).
 :::
 
 Update individual nested fields in place — without replacing the whole parent object — using
@@ -222,7 +222,7 @@ await userRepo.runInTransaction(async (tx, repo) => {
 ## FieldValue Sentinels
 
 Dot-notation paths compose with Firestore `FieldValue` sentinels across every write surface. See
-[Field Value Sentinels](./field-value-sentinels/) for the full sentinel model and per-field
+[Field Value Sentinels](/firestore-orm/2.0/guides/field-value-sentinels/) for the full sentinel model and per-field
 validation.
 
 ```typescript
@@ -309,7 +309,7 @@ When using repositories created with `withSchema(...)`, the default `sentinelPol
 ignores fields assigned to `FieldValue` sentinels during Zod validation while still validating all
 other fields in the payload. To restrict which sentinels a field may receive, declare fields with
 the write combinators and use `sentinelPolicy: 'strict'` — see
-[Per-Field Sentinel Approval](./field-value-sentinels/#per-field-sentinel-approval).
+[Per-Field Sentinel Approval](/firestore-orm/2.0/guides/field-value-sentinels/).
 
 ## Dot-Notation Utilities
 

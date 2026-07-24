@@ -8,11 +8,13 @@ description:
 Production-tested recipes that compose firestore-orm's hooks, transactions, and repository extension
 points into larger architectural patterns.
 
-Most of these recipes lean on two building blocks: [lifecycle hooks](./lifecycle-hooks/) to react to
-writes, and [transactions](./transactions/) to keep connected writes atomic. Where a recipe uses the
-`withSchema` factory, remember that the schema **must not** declare a top-level `id` — the factory
-rejects it at construction, because the document name is the sole source of `id`. See
-[schema validation](./schema-validation/) for details.
+Most of these recipes lean on two building blocks:
+[lifecycle hooks](/firestore-orm/guides/concepts/lifecycle-hooks/) to react to writes, and
+[transactions](/firestore-orm/guides/working-with-data/transactions/) to keep connected writes
+atomic. Where a recipe uses the `withSchema` factory, remember that the schema **must not** declare
+a top-level `id` — the factory rejects it at construction, because the document name is the sole
+source of `id`. See [schema validation](/firestore-orm/guides/concepts/schema-validation/) for
+details.
 
 The recipes below are independent; jump to whichever one fits your problem:
 
@@ -83,7 +85,7 @@ Design constraints for subclasses:
 
 Wrap a `withSchema` (or plain) repository and expose only the methods your app needs. This is the
 same shape used by the [caching](#caching-layer) and [rate limiting](#rate-limiting) recipes, and by
-the NestJS provider pattern in [Framework Integration](./framework-integration/):
+the NestJS provider pattern in [Framework Integration](/firestore-orm/guides/integrations/express/):
 
 ```typescript
 import { FirestoreRepository } from '@reggieofarrell/firestore-orm';
@@ -220,7 +222,8 @@ Core operations there is no native full-text index, so mirror your documents int
 and keep the two in sync with hooks. (Firestore Enterprise's pre-GA Pipeline query model adds a
 preview full-text search stage, but it requires the Enterprise edition and is not yet GA; an
 external search service remains the recommendation for production Core-operation workloads. This ORM
-wraps Core operations — see [Scope & capabilities](./scope-and-capabilities/).)
+wraps Core operations — see
+[Scope & capabilities](/firestore-orm/reference/scope-and-capabilities/).)
 
 ```typescript
 // services/search.service.ts
@@ -385,7 +388,7 @@ await archivingService.archiveAndDelete(userRepo, 'user-123');
 
 The generic parameter is constrained with `T extends object` to match `FirestoreRepository`'s own
 constraint. For stronger guarantees you can run the read, the archive write, and the delete inside a
-single [transaction](./transactions/).
+single [transaction](/firestore-orm/guides/working-with-data/transactions/).
 
 ## Rate Limiting
 

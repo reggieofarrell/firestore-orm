@@ -11,7 +11,7 @@ transactions, and subcollections.
 
 **Error:** `Query requires a Firestore index`
 
-The library surfaces this as a `FirestoreIndexError` (see [Error handling](./error-handling/)),
+The library surfaces this as a `FirestoreIndexError` (see [Error handling](/firestore-orm/2.0/guides/error-handling/)),
 whose message includes the console URL Firestore generated for the missing index.
 
 **Solution:** Click the URL in the error message to create the index, then wait 1–2 minutes for it
@@ -54,7 +54,7 @@ await sendEmail(result.email);
 
 > Note: `query().update()` and `query().delete()` never run hooks either — hooks only run through
 > the repository's own write methods (and, for `before*`, the tx-scoped helpers above). See
-> [Lifecycle hooks](./lifecycle-hooks/) and [Transactions](./transactions/).
+> [Lifecycle hooks](/firestore-orm/2.0/guides/lifecycle-hooks/) and [Transactions](/firestore-orm/2.0/guides/transactions/).
 
 ## 3. "in" Query Limit (30 values)
 
@@ -90,7 +90,7 @@ await repo
 ```
 
 **Solution:** Create the composite index via the link in the error message, or order by the same
-field you filter on. See [Queries](./queries/) for the full query-builder surface.
+field you filter on. See [Queries](/firestore-orm/2.0/guides/queries/) for the full query-builder surface.
 
 ## 5. Subcollection Parent ID Lost
 
@@ -105,7 +105,7 @@ const parentId = ordersRepo.getParentId(); // 'user-123'
 ```
 
 `getParentId()` returns the parent ID for a subcollection repository, or `null` for a top-level
-repository. See [Subcollections](./subcollections/) for more.
+repository. See [Subcollections](/firestore-orm/2.0/guides/subcollections/) for more.
 
 ## 6. Dot Notation in Transactions
 
@@ -124,4 +124,4 @@ await repo.runInTransaction(async (tx, repo) => {
 });
 ```
 
-See [Dot-notation nested updates](./dot-notation/) and [Transactions](./transactions/) for details.
+See [Dot-notation nested updates](/firestore-orm/2.0/guides/dot-notation/) and [Transactions](/firestore-orm/2.0/guides/transactions/) for details.

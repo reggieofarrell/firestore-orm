@@ -8,11 +8,11 @@ slug: 2.0/guides/advanced-patterns
 Production-tested recipes that compose firestore-orm's hooks, transactions, and repository extension
 points into larger architectural patterns.
 
-Most of these recipes lean on two building blocks: [lifecycle hooks](./lifecycle-hooks/) to react to
-writes, and [transactions](./transactions/) to keep connected writes atomic. Where a recipe uses the
+Most of these recipes lean on two building blocks: [lifecycle hooks](/firestore-orm/2.0/guides/lifecycle-hooks/) to react to
+writes, and [transactions](/firestore-orm/2.0/guides/transactions/) to keep connected writes atomic. Where a recipe uses the
 `withSchema` factory, remember that the schema **must** include a required top-level
 `id: z.string()` or the factory throws at construction — see
-[schema validation](./schema-validation/) for details.
+[schema validation](/firestore-orm/2.0/guides/schema-validation/) for details.
 
 The recipes below are independent; jump to whichever one fits your problem:
 
@@ -83,7 +83,7 @@ Design constraints for subclasses:
 
 Wrap a `withSchema` (or plain) repository and expose only the methods your app needs. This is the
 same shape used by the [caching](#caching-layer) and [rate limiting](#rate-limiting) recipes, and by
-the NestJS provider pattern in [Framework Integration](./framework-integration/):
+the NestJS provider pattern in [Framework Integration](/firestore-orm/2.0/guides/framework-integration/):
 
 ```typescript
 import { FirestoreRepository } from '@reggieofarrell/firestore-orm';
@@ -381,7 +381,7 @@ await archivingService.archiveAndDelete(userRepo, 'user-123');
 
 The generic parameter is constrained with `T extends { id?: ID }` to match `FirestoreRepository`'s
 own constraint. For stronger guarantees you can run the read, the archive write, and the delete
-inside a single [transaction](./transactions/).
+inside a single [transaction](/firestore-orm/2.0/guides/transactions/).
 
 ## Rate Limiting
 

@@ -117,7 +117,8 @@ Everything else is enforced at runtime under `'strict'`:
 
 The `writeSchema` overlay affects **only** these write value types — `id` handling is unchanged: no
 schema declares a top-level `id`, write payloads never contain one, and the document name is the
-sole source of `id` (see [Schema Validation](./schema-validation/#schema-validation)).
+sole source of `id` (see
+[Schema Validation](/firestore-orm/guides/concepts/schema-validation/#no-top-level-id)).
 `subcollection` takes the same `writeSchema` option with identical inference. (Converters are not
 inherited from the parent repo.)
 

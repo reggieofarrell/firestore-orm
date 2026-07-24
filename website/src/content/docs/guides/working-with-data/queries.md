@@ -42,7 +42,8 @@ Terminal methods that execute the query include `get()`, `getOne()`, `exists()`,
 `paginate(pageSize, cursor)`.
 
 **Performance note:** Firestore charges per document read. Use `limit()` and pagination to control
-costs on large collections — see [Performance](./performance/) for the full cost model.
+costs on large collections — see [Performance](/firestore-orm/guides/designing/performance/) for the
+full cost model.
 
 ## Filtering
 
@@ -168,7 +169,7 @@ count**.
 > written documents); `query().delete()` runs `beforeBulkDelete` and `afterBulkDelete` (receiving
 > `{ ids, documents }`). The per-document `before/afterUpdate` and `before/afterDelete` hooks do not
 > run here — use the single-document methods if you need those. See
-> [Lifecycle hooks](./lifecycle-hooks/).
+> [Lifecycle hooks](/firestore-orm/guides/concepts/lifecycle-hooks/).
 
 ```typescript
 // Update all matching documents; returns the number of documents written

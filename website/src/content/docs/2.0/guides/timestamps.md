@@ -84,7 +84,7 @@ Notes:
   The **direct** form types write inputs by the read type (`happenedAt: number`), so `zDateWrite()`
   only widens *runtime* validation there — a `FieldValue` such as `serverTimestamp()` is still
   accepted without a cast (`WithFieldValue` widens every field to `| FieldValue`), but a `Date`
-  needs one. See [Per-Field Sentinel Approval](./field-value-sentinels/#per-field-sentinel-approval)
+  needs one. See [Per-Field Sentinel Approval](/firestore-orm/2.0/guides/field-value-sentinels/)
   for the full contract.
 
 ## Converter helpers

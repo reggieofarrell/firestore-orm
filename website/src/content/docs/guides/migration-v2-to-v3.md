@@ -17,8 +17,8 @@ upgrade.
 ## Breaking changes
 
 v3 tightens several public contracts. Review each section below; everything under
-[Migration steps](#migration-steps) and [Recommended upgrades](#recommended-upgrades) is optional
-cleanup.
+[Migration steps](#migration-steps) and [Recommended upgrades](#recommended-upgrades-non-breaking)
+is optional cleanup.
 
 ### 1. Virtual document identity — schemas no longer declare `id`
 
@@ -151,7 +151,8 @@ written, discarding every Zod coercion, default, and transform elsewhere. Under 
 sentinels a field's schema permits pass (declare them with the write combinators `zNumberWrite` /
 `zArrayWrite` / `zDateWrite` / `withDelete` / `zSentinel`), and the parsed Zod output is always
 returned. Pass `{ sentinelPolicy: 'permissive' }` to `withSchema`/`subcollection` to keep the old
-behavior as a migration shim. See [Field-value sentinels](./field-value-sentinels/).
+behavior as a migration shim. See
+[Field-value sentinels](/firestore-orm/guides/concepts/field-value-sentinels/).
 
 ### 8. `FieldValue.delete()` is rejected on create / set / upsert
 
@@ -212,7 +213,8 @@ now `require()` the package (this is additive; existing ESM `import`s are unchan
 Migrate `.query().findNearest(…)` to `.vectorQuery().findNearest(…)`. The object-form `findNearest`
 requires `@google-cloud/firestore >= 7.10` (guaranteed by `firebase-admin >= 13`), and
 `vectorEmbeddingSchema` now enforces finite / exact / maximum dimensions on native
-`FieldValue.vector()` values too. See [Vector search](./vector-search/).
+`FieldValue.vector()` values too. See
+[Vector search](/firestore-orm/guides/advanced/vector-search/).
 
 ### 14. Type-only tightening (projection, aggregation)
 
@@ -240,7 +242,8 @@ In v2, a partial `update()` on a schema-validated repository re-applied every fi
 `prefs: z.object({ … }).default({})`, calling `update(id, { name })` silently wrote `prefs: {}` and
 **overwrote the stored `prefs` map** — data loss for a field the caller never touched. (This bit any
 field with a default, and is especially easy to hit with the read-side `.default(...)` backfill
-pattern recommended in [Core Concepts](./core-concepts/#normalizing-across-schema-changes).)
+pattern recommended in
+[Core Concepts](/firestore-orm/guides/designing/schema-evolution/#normalizing-across-schema-changes).)
 
 In v3, a partial update writes only the keys you actually provide, at every nesting level;
 `update(id, { config: {} })` writes `{}` rather than re-injecting a nested `count` default. Defaults
@@ -392,7 +395,7 @@ userRepo.on('beforeUpdate', async data => {
 ```
 
 `createMillisTimestampConverter()` is still a drop-in for `readConverter` — only its return type
-narrowed. See [Timestamps ↔ Millis](./timestamps/).
+narrowed. See [Timestamps ↔ Millis](/firestore-orm/guides/concepts/timestamps/).
 
 ### Fix untyped subcollections
 
@@ -434,7 +437,8 @@ const user = repo.validate(mapped); // ValidationError on mismatch
 const results = repo.safeValidate(docs); // SafeResult<T>[] — filter failures
 ```
 
-Details: [Schema Validation](./schema-validation/) and [Firestore Triggers](./triggers/).
+Details: [Schema Validation](/firestore-orm/guides/concepts/schema-validation/) and
+[Firestore Triggers](/firestore-orm/guides/integrations/cloud-functions/).
 
 ## Checklist
 
@@ -465,10 +469,12 @@ Details: [Schema Validation](./schema-validation/) and [Firestore Triggers](./tr
 
 ## Further reading
 
-- [Core Concepts](./core-concepts/) — `readConverter`, repository construction
-- [Schema Validation](./schema-validation/) — `writeSchema`, `validate` / `safeValidate`
-- [Lifecycle Hooks](./lifecycle-hooks/) — write-time transforms
-- [Subcollections](./subcollections/)
+- [Core Concepts](/firestore-orm/guides/concepts/core-concepts/) — `readConverter`, repository
+  construction
+- [Schema Validation](/firestore-orm/guides/concepts/schema-validation/) — `writeSchema`, `validate`
+  / `safeValidate`
+- [Lifecycle Hooks](/firestore-orm/guides/concepts/lifecycle-hooks/) — write-time transforms
+- [Subcollections](/firestore-orm/guides/working-with-data/subcollections/)
 - Design records (in-repo):
   [ADR-0007](https://github.com/reggieofarrell/firestore-orm/blob/main/docs/adr/0007-retire-curried-schema-factories.md)
   (factories),

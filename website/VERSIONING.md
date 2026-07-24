@@ -18,6 +18,22 @@ consumers can switch between major documentation lines (e.g. v2 vs v3) in the UI
 ADRs (`docs/adr/`) and development guides (`docs/development/`) are **not** versioned via this
 plugin; they stay as single-tree Markdown in the repo.
 
+## Deploy (GitHub Pages)
+
+Live docs at https://reggieofarrell.github.io/firestore-orm/ are published by
+[`.github/workflows/deploy-docs.yml`](../.github/workflows/deploy-docs.yml). They update **only**
+when:
+
+1. **Stable package release** — a GitHub Release is published (same event as npm publish). The
+   workflow checks out that **release tag** and builds the site from it, so Pages matches the
+   published package tree. Prereleases are skipped (use manual dispatch for intentional previews).
+2. **Manual dispatch** — run **Deploy docs** from the Actions tab and supply a **ref** (git tag or
+   commit SHA). Use this for hotfixes, republishing an older tag, or deploying a specific commit
+   without a release.
+
+Merging changes under `website/` to `main` alone does **not** publish. Docs land on Pages at the
+next stable release, or when someone deliberately dispatches the workflow with a chosen ref.
+
 ## Archive workflow (at the next major cutover)
 
 Follow this when the **next** major (e.g. v4) is ready to become “latest”. It archives the

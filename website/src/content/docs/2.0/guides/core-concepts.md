@@ -9,9 +9,9 @@ converters for read/write serialization, and delete semantics.
 
 FirestoreORM's core is a per-collection repository. This page covers the repository pattern,
 Firestore converters, and delete behavior. The other foundational topics each have their own page:
-[schema validation](./schema-validation/), [field-value sentinels](./field-value-sentinels/),
-[timestamps](./timestamps/), [lifecycle hooks](./lifecycle-hooks/), [queries](./queries/), and
-[vector search](./vector-search/).
+[schema validation](/firestore-orm/2.0/guides/schema-validation/), [field-value sentinels](/firestore-orm/2.0/guides/field-value-sentinels/),
+[timestamps](/firestore-orm/2.0/guides/timestamps/), [lifecycle hooks](/firestore-orm/2.0/guides/lifecycle-hooks/), [queries](/firestore-orm/2.0/guides/queries/), and
+[vector search](/firestore-orm/2.0/guides/vector-search/).
 
 ## Repository Pattern
 
@@ -32,11 +32,11 @@ factory throws at construction if it is missing. `withSchema` has two forms: a d
 form, `withSchema<User>()(db, 'users', userSchema)`, which infers the write type from the schema and
 enables cast-free combinator writes. Construct a repository directly with
 `new FirestoreRepository<Product>(db, 'products')` when you don't need validation. See
-[schema validation](./schema-validation/) for the full contract.
+[schema validation](/firestore-orm/2.0/guides/schema-validation/) for the full contract.
 
 To add domain helpers (`findByEmail`, `deactivate`, and so on), subclass `FirestoreRepository` or
 wrap a `withSchema` instance — both are supported. See
-[Custom repository methods](./advanced-patterns/#custom-repository-methods) for the constraints
+[Custom repository methods](/firestore-orm/2.0/guides/advanced-patterns/#custom-repository-methods) for the constraints
 (`withSchema` returns a plain repository; subclasses use the public API only).
 
 The full constructor signature is
@@ -57,7 +57,7 @@ FirestoreORM supports Firestore `withConverter(...)` through optional repository
 > `patchInTransaction`, and `query().update()`. `fromFirestore`, by contrast, runs on **every**
 > read. So keep `toFirestore` a pass-through and put read transforms in `fromFirestore`; for
 > write-time normalization that must apply on every path, use a `before*` hook (hooks run before
-> validation on all write paths) — see [Lifecycle Hooks](./lifecycle-hooks/).
+> validation on all write paths) — see [Lifecycle Hooks](/firestore-orm/2.0/guides/lifecycle-hooks/).
 
 ```typescript
 import { Timestamp, FirestoreDataConverter } from 'firebase-admin/firestore';
@@ -81,10 +81,10 @@ Because `fromFirestore` receives only the stored document body, it must return d
 `id` field; the repository reads the snapshot's document id and overlays it onto the result after
 the converter runs. This is why reads resolve to `T & { id }` even though the converter never sets
 `id` itself. A raw snapshot from a trigger cloud function is **not** converter-applied and has no
-`id` — use [`fromSnapshot`](./triggers/) to reconstruct the read shape there.
+`id` — use [`fromSnapshot`](/firestore-orm/2.0/guides/triggers/) to reconstruct the read shape there.
 
 For the common `Timestamp -> number` case, the built-in
-[`createMillisTimestampConverter`](./timestamps/) packages exactly this shape (recursive read
+[`createMillisTimestampConverter`](/firestore-orm/2.0/guides/timestamps/) packages exactly this shape (recursive read
 conversion + pass-through write).
 
 Converter behavior is instance-local by design:

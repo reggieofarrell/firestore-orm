@@ -87,7 +87,7 @@ Notes:
   type (`happenedAt: number`), so `zDateWrite()` only widens _runtime_ validation — a `FieldValue`
   such as `serverTimestamp()` is still accepted without a cast (`WithFieldValue` widens every field
   to `| FieldValue`), but a `Date` needs one. See
-  [Per-Field Sentinel Approval](./field-value-sentinels/#per-field-sentinel-approval) for the full
+  [Per-Field Sentinel Approval](/firestore-orm/guides/concepts/field-value-sentinels/) for the full
   contract.
 
 ## Converter helpers

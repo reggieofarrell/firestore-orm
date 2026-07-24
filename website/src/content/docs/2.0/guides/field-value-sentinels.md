@@ -110,7 +110,7 @@ curried form when you want cast-free combinator writes.
 
 The curry affects **only** these write value types — `id` handling is identical in both forms: a
 required `id` in the schema, never required on write inputs, and stripped from every write payload
-(see [Schema Validation](./schema-validation/#schema-validation)).
+(see [Schema Validation](/firestore-orm/2.0/guides/schema-validation/)).
 
 `subcollection` has the same curried opt-in form —
 `repo.subcollection<Read>()(parentId, name, schema, …)` — with identical inference; its direct form

@@ -136,6 +136,39 @@ Trusted Publishing only works after the package exists on the registry. Bootstra
    - Allowed action: `npm publish`
 3. After a successful OIDC publish: **Publishing access** → require 2FA and **disallow tokens**.
 
+## Dual README (GitHub vs npm)
+
+GitHub and npmjs.org show **different** READMEs from the same repo:
+
+| Audience                       | Source file                            | Surface                |
+| ------------------------------ | -------------------------------------- | ---------------------- |
+| Contributors / GitHub visitors | [`README.md`](../../README.md)         | GitHub repo home       |
+| npm consumers                  | [`npm-readme.md`](../../npm-readme.md) | npmjs.org package page |
+
+There is no `package.json` field for an alternate readme name — the registry always displays the
+tarball’s root `README.md`. The consumer source is named `npm-readme.md` (not `README.npm.md`) so
+npm’s always-include README-variant rules do not pack the source file twice. At pack/publish time:
+
+1. **`prepack`** runs `node scripts/stage-npm-readme.mjs stage` — backs up the GitHub `README.md` to
+   `.README.github.bak`, then copies `npm-readme.md` over `README.md`.
+2. npm packs that staged `README.md` into the tarball.
+3. **`postpack`** runs `node scripts/stage-npm-readme.mjs restore` — puts the GitHub README back.
+
+Never commit the staged swap or `.README.github.bak` (gitignored). If a pack crashes mid-swap:
+
+```bash
+node scripts/stage-npm-readme.mjs restore
+```
+
+**Which file to edit**
+
+- Consumer install / quick start / peer deps / docs links → both files; follow the
+  [`readme-sync` skill](../../.cursor/skills/readme-sync/SKILL.md).
+- Testing, contributing, ADRs, roadmap → `README.md` only.
+
+`npm run check:package` stages/restores explicitly (it uses `--ignore-scripts`) and asserts the
+packed README carries the npm-only marker.
+
 ### One-time baseline tag
 
 The `2.0.0` entry in the changelog was written by hand and the repo has no `v2.0.0` tag yet. So the

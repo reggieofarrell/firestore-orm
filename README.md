@@ -13,9 +13,7 @@ Designed to make backend Firestore development actually enjoyable.
 - [About This Project](#about-this-project)
 - [Fork & Attribution](#fork--attribution)
 - [Why FirestoreORM?](#why-firestoreorm)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Documentation](#documentation)
+- [Install & docs](#install--docs)
 - [Testing Strategy](#testing-strategy)
 - [Contributing](#contributing)
 - [License](#license)
@@ -97,117 +95,22 @@ Works seamlessly with:
 - Next.js API routes
 - Any Node.js environment
 
-## Installation
+## Install & docs
 
 ```bash
 npm install @reggieofarrell/firestore-orm firebase-admin zod
 ```
 
-```bash
-yarn add @reggieofarrell/firestore-orm firebase-admin zod
-```
+**Peer dependencies:** Node.js >= 22; `firebase-admin` ^12 \|\| ^13 \|\| ^14; `zod` ^4. Optional
+`express` for the `@reggieofarrell/firestore-orm/express` middleware.
 
-```bash
-pnpm add @reggieofarrell/firestore-orm firebase-admin zod
-```
+Full install, quick start, and API walkthrough:
+**[reggieofarrell.github.io/firestore-orm](https://reggieofarrell.github.io/firestore-orm/)** —
+start with [Getting Started](https://reggieofarrell.github.io/firestore-orm/getting-started/).
 
-### Peer Dependencies
-
-- Node.js: >= 22 — the supported floor, required by `firebase-admin` 14; the library targets ES2020,
-  so `firebase-admin` 12/13 users can run on Node 18+ (outside the tested/supported window)
-- `firebase-admin`: ^12.0.0 || ^13.0.0 || ^14.0.0 (vector extension: object-form `findNearest`
-  requires `@google-cloud/firestore >= 7.10`, guaranteed by `firebase-admin >= 13`; on admin 12 only
-  when the resolved firestore is >= 7.10)
-- `zod`: ^4.0.0
-
-> **v3** is the current major line of this maintained package under `@reggieofarrell/firestore-orm`.
-> Upgrading from 2.x? See the
-> [migration guide](https://reggieofarrell.github.io/firestore-orm/guides/migration-v2-to-v3/), and
-> [CHANGELOG.md](CHANGELOG.md) for release notes from `@spacelabstech/firestoreorm` onward.
-
-## Quick Start
-
-### 1. Initialize Firebase Admin
-
-```typescript
-import { initializeApp, cert } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
-
-const app = initializeApp({
-  credential: cert('./serviceAccountKey.json'),
-});
-
-export const db = getFirestore(app);
-```
-
-### 2. Define Your Schema
-
-```typescript
-import { z } from 'zod';
-
-export const userSchema = z.object({
-  name: z.string().min(1, 'Name is required'),
-  email: z.string().email('Invalid email address'),
-  age: z.number().int().positive().optional(),
-  status: z.enum(['active', 'inactive', 'suspended']).default('active'),
-  createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
-});
-
-export type User = z.infer<typeof userSchema>;
-```
-
-### 3. Create Your Repository
-
-```typescript
-import { FirestoreRepository } from '@reggieofarrell/firestore-orm';
-import { db } from './firebase';
-import { userSchema } from './schemas';
-
-// The read type is inferred from `userSchema` (equivalent to the exported `User` type).
-export const userRepo = FirestoreRepository.withSchema(db, 'users', userSchema);
-```
-
-### 4. Start Building
-
-```typescript
-// Create a user (returns { id } by default; pass { returnDoc: true } for the full read model)
-const { id: userId } = await userRepo.create({
-  name: 'John Doe',
-  email: 'john@example.com',
-  age: 30,
-  status: 'active',
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString(),
-});
-
-// Query users
-const activeUsers = await userRepo
-  .query()
-  .where('status', '==', 'active')
-  .where('age', '>', 18)
-  .orderBy('createdAt', 'desc')
-  .limit(10)
-  .get();
-
-// Update a user (returns { id } by default)
-const { id: updatedUserId } = await userRepo.update(userId, {
-  status: 'inactive',
-  updatedAt: new Date().toISOString(),
-});
-
-// Delete user
-await userRepo.delete(userId);
-```
-
-## Documentation
-
-Full documentation lives at
-**[reggieofarrell.github.io/firestore-orm](https://reggieofarrell.github.io/firestore-orm/)**,
-organized into two pillars: **Guides** (learn) and **Reference** (look up).
-
-Start with [Getting Started](https://reggieofarrell.github.io/firestore-orm/getting-started/), then
-browse the Guides and Reference pillars in the sidebar.
+> The README published on [npmjs.org](https://www.npmjs.com/package/@reggieofarrell/firestore-orm)
+> is a consumer-focused variant sourced from [`npm-readme.md`](npm-readme.md) (staged at pack time).
+> Keep shared content in sync via the `readme-sync` skill.
 
 ## Testing Strategy
 

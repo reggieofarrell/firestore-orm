@@ -180,6 +180,43 @@ describe('FirestoreQueryBuilder whereFilter (composite AND/OR)', () => {
     expect(await builder().sum('views')).toBe(90);
   });
 
+  it('composes with average() and onSnapshot()', async () => {
+    await seedPosts();
+
+    const averaged = await userRepo
+      .query()
+      .whereFilter(f => f.or(f.where('status', '==', 'draft'), f.where('status', '==', 'archived')))
+      .average('views');
+    expect(averaged).toBe(30); // (20 + 30 + 40) / 3
+
+    const emissions: string[][] = [];
+    const unsubscribe = await userRepo
+      .query()
+      .whereFilter(f => f.or(f.where('status', '==', 'published'), f.where('authorId', '==', 'u2')))
+      .onSnapshot(rows => {
+        emissions.push(names(rows));
+      });
+
+    await new Promise(resolve => setTimeout(resolve, 500));
+    unsubscribe();
+
+    expect(emissions.length).toBeGreaterThanOrEqual(1);
+    expect(emissions[emissions.length - 1]).toEqual(['draft-u2-public', 'published-u1-public']);
+  });
+
+  it('AND-s multiple whereFilter() calls together', async () => {
+    await seedPosts();
+
+    const rows = await userRepo
+      .query()
+      .whereFilter(f => f.or(f.where('status', '==', 'draft'), f.where('status', '==', 'archived')))
+      .whereFilter(f => f.or(f.where('authorId', '==', 'u1'), f.where('authorId', '==', 'u3')))
+      .get();
+
+    // (draft OR archived) AND (u1 OR u3)
+    expect(names(rows)).toEqual(['archived-u3-private', 'draft-u1-private']);
+  });
+
   it('composes with select() in both orders', async () => {
     await seedPosts();
 
@@ -385,6 +422,58 @@ describe('FirestoreQueryBuilder whereFilter (composite AND/OR)', () => {
     ]);
   });
 
+  it('the exclusion silently narrows the DESTRUCTIVE update() / delete() terminals', async () => {
+    await seedSparse();
+
+    // update() and delete() run `this.query.get()` and write the matched set, so the planning
+    // under-match reaches writes: the two `kind: 'x'` documents without `score` are NOT touched, and
+    // the returned count reports only the documents that were. This is the sharpest consumer footgun
+    // in the feature; pin it so neither the behavior nor the warning can drift unnoticed.
+    const updated = await userRepo
+      .query()
+      .whereFilter(f => f.or(f.where('score', '>', 5), f.where('kind', '==', 'x')))
+      .update({ touched: true } as any);
+
+    expect(updated).toBe(2); // x-with-score + z-with-score, NOT the two sparse `kind: 'x'` docs
+
+    const untouched = await userRepo.query().where('kind', '==', 'x').get();
+    const sparse = untouched.filter(row => (row as Record<string, unknown>).score === undefined);
+    expect(sparse).toHaveLength(2);
+    sparse.forEach(row => expect((row as Record<string, unknown>).touched).toBeUndefined());
+
+    // delete() under-matches identically — the sparse documents survive a "successful" bulk delete.
+    const deleted = await userRepo
+      .query()
+      .whereFilter(f => f.or(f.where('score', '>', 5), f.where('kind', '==', 'x')))
+      .delete();
+
+    expect(deleted).toBe(2);
+    const survivors = await userRepo.query().where('kind', '==', 'x').get();
+    expect(names(survivors)).toEqual(['x-no-score', 'x-no-score-2']);
+  });
+
+  it('the exclusion applies to stream() and != as well as > ', async () => {
+    await seedSparse();
+
+    // stream() shares the same query, so it under-matches identically.
+    const streamed: string[] = [];
+    for await (const row of userRepo
+      .query()
+      .whereFilter(f => f.or(f.where('score', '>', 5), f.where('kind', '==', 'x')))
+      .stream()) {
+      streamed.push((row as unknown as { name: string }).name);
+    }
+    expect(streamed.sort()).toEqual(['x-with-score', 'z-with-score']);
+
+    // `!=` is an inequality too, so it triggers the same implicit ordering and the same exclusion.
+    // (`not-in` cannot be exercised here: Firestore rejects it outright in the same query as an OR.)
+    const notEqual = await userRepo
+      .query()
+      .whereFilter(f => f.or(f.where('score', '!=', 999), f.where('kind', '==', 'x')))
+      .get();
+    expect(names(notEqual)).toEqual(['x-with-score', 'z-with-score']);
+  });
+
   it('f.whereId() with a comparison operator is exempt from the missing-field exclusion', async () => {
     await seedSparse();
 
@@ -504,6 +593,27 @@ describe('FirestoreQueryBuilder whereFilter (composite AND/OR)', () => {
     expect(names(widened)).toEqual(['published-u1-public']);
   });
 
+  it('an empty SDK filter smuggled into a factory group is NOT caught (arity guard only)', async () => {
+    await seedPosts();
+
+    // The factory guard checks ARITY, so an SDK-built empty child passes it — and the SDK then drops
+    // that child, silently changing the query's meaning. Pinned so the ADR's scope statement stays
+    // honest and a future tightening is a deliberate, visible change.
+    const narrowed = await userRepo
+      .query()
+      .whereFilter(f => f.or(Filter.and(), f.where('status', '==', 'published')))
+      .get();
+    // `TRUE OR status == published` should match everything; the empty AND is dropped instead.
+    expect(names(narrowed)).toEqual(['published-u1-public']);
+
+    const widened = await userRepo
+      .query()
+      .whereFilter(f => f.and(Filter.or(), f.where('status', '==', 'published')))
+      .get();
+    // `FALSE AND status == published` should match nothing; the empty OR is dropped instead.
+    expect(names(widened)).toEqual(['published-u1-public']);
+  });
+
   it('validates a reserved-namespace id passed through where(FieldPath.documentId())', () => {
     // The document NAME reached via a FieldPath must clear the same id boundary as whereId(), on both
     // the chained and the composite surface (the SDK itself accepts the reserved `__…__` namespace).
@@ -520,6 +630,21 @@ describe('FirestoreQueryBuilder whereFilter (composite AND/OR)', () => {
     expect(() =>
       userRepo.query().where(FieldPath.documentId(), '==', db.doc('some_collection/ok-id')),
     ).not.toThrow(InvalidDocumentIdError);
+
+    // A MIXED array must still have its id strings validated. Checking "every element is a string"
+    // would let the whole array skip the gate because one element is a reference.
+    const ref = db.doc('some_collection/ok-id');
+    expect(() => userRepo.query().where(FieldPath.documentId(), 'in', ['__id7__', ref])).toThrow(
+      InvalidDocumentIdError,
+    );
+    expect(() =>
+      userRepo.query().whereFilter(f => f.where(FieldPath.documentId(), 'in', ['__id7__', ref])),
+    ).toThrow(InvalidDocumentIdError);
+
+    // whereId() promises id strings, so a non-string operand stays a contract violation there.
+    expect(() => userRepo.query().whereId('==', 42 as unknown as string)).toThrow(
+      InvalidDocumentIdError,
+    );
   });
 
   it('select() preserves allowLegacyDatastoreIds for post-projection id filters', () => {

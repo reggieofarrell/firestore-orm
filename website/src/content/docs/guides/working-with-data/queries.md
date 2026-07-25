@@ -117,11 +117,14 @@ Two things to know:
   [Troubleshooting](/firestore-orm/reference/troubleshooting/) and
   [Performance & Cost](/firestore-orm/guides/designing/performance/).
 
-:::caution[An inequality inside an OR branch excludes documents missing that field] Firestore adds
-an implicit `orderBy` for every inequality field (`<`, `<=`, `>`, `>=`, `!=`, `not-in`) found
+### ⚠️ An inequality inside an OR branch excludes documents missing that field
+
+Firestore adds an implicit `orderBy` for every inequality field (`<`, `<=`, `>`, `>=`, `!=`) found
 anywhere in the filter tree, and a document that lacks an ordered field cannot appear in the
-results. Inside a disjunction that means an inequality in **one** branch can drop documents matched
-by **another** branch — so an OR query can return _fewer_ rows than one of its own disjuncts:
+results. (`not-in` is an inequality too, but it can never appear inside an `OR` — Firestore rejects
+that combination outright.) Inside a disjunction that means an inequality in **one** branch can drop
+documents matched by **another** branch — so an OR query can return _fewer_ rows than one of its own
+disjuncts:
 
 ```typescript
 // 3 documents have kind: 'x'; two of them have no `score` field at all.
@@ -142,10 +145,30 @@ documents.
 when adding implicit orders and a document name always exists.
 
 If you need an inequality branch, either guarantee the field is always written (give it a default at
-create time) or run the branches as separate queries and merge the results by `id`. :::
+create time) or run the branches as separate queries and merge the results by `id`.
 
 Returning a prebuilt Admin SDK `Filter` (`f => myFilter`) is supported as an escape hatch, applied
 verbatim without the factory's typed paths or id validation.
+
+### ⚠️ An empty prebuilt sub-group is dropped, not rejected
+
+The zero-argument guard above is an **arity** check on `f.and()` / `f.or()`. It cannot see inside a
+`Filter` you built yourself, so an empty SDK group — whether returned whole or passed in as a child
+of a factory group — is silently discarded by Firestore and changes what the query means:
+
+```typescript
+import { Filter } from 'firebase-admin/firestore';
+
+// `TRUE OR published` should match everything; the empty AND is dropped, so this NARROWS to published
+.whereFilter(f => f.or(Filter.and(), f.where('status', '==', 'published')))
+
+// `FALSE AND published` should match nothing; the empty OR is dropped, so this WIDENS to published
+.whereFilter(f => f.and(Filter.or(), f.where('status', '==', 'published')))
+```
+
+Only a filter that reduces to **no conditions at all** is caught (the query would otherwise match
+the whole collection). Build groups with `f.and()` / `f.or()` and the arity guard covers you; if you
+assemble raw SDK filters, check for empty groups yourself before passing them in.
 
 To reuse a filter group across call sites, extract it as a predicate and annotate the factory with
 `StoredDataOf<typeof repo>` — which is already the stored shape without the synthetic `id`:

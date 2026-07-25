@@ -5,6 +5,7 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import { FirestoreRepository } from '../../core/FirestoreRepository.js';
+import { InvalidDocumentIdError } from '../../core/Errors.js';
 import {
   assertVectorSearchSupported,
   isVectorFieldValue,
@@ -184,6 +185,99 @@ describe('Vector search extension', () => {
     // The disjunction admits books + games and excludes films, and the nearest-neighbor scan then
     // orders the survivors by distance from [1, 0, 0].
     expect(results.map(row => row.name)).toEqual(['books-a', 'games-a']);
+  });
+
+  it('should support a NESTED composite pre-filter, whereId, and a chained where()', async () => {
+    const created = await Promise.all([
+      prefilterRepo.create(
+        {
+          name: 'books-live',
+          category: 'books',
+          status: 'live',
+          embedding: FieldValue.vector([1, 0, 0]),
+        } as VectorDoc,
+        { returnDoc: true },
+      ),
+      prefilterRepo.create(
+        {
+          name: 'books-draft',
+          category: 'books',
+          status: 'draft',
+          embedding: FieldValue.vector([0.9, 0.1, 0]),
+        } as VectorDoc,
+        { returnDoc: true },
+      ),
+      prefilterRepo.create(
+        {
+          name: 'games-live',
+          category: 'games',
+          status: 'live',
+          embedding: FieldValue.vector([0, 1, 0]),
+        } as VectorDoc,
+        { returnDoc: true },
+      ),
+    ]);
+
+    const wrapped = withVectorSearch(prefilterRepo);
+
+    // Nested AND inside OR — issue #30's acceptance criterion for vector prequeries, not just a flat
+    // disjunction: (category == 'games') OR (category == 'books' AND status == 'live').
+    const nested = await wrapped
+      .vectorQuery()
+      .whereFilter(f =>
+        f.or(
+          f.where('category', '==', 'games'),
+          f.and(f.where('category', '==', 'books'), f.where('status', '==', 'live')),
+        ),
+      )
+      .findNearest({
+        vectorField: 'embedding',
+        queryVector: [1, 0, 0],
+        limit: 10,
+        distanceMeasure: 'EUCLIDEAN',
+      })
+      .get();
+
+    expect(nested.map(row => row.name).sort()).toEqual(['books-live', 'games-live']);
+
+    // A document-name filter inside a vector pre-filter group keeps the validated id boundary.
+    const byId = await wrapped
+      .vectorQuery()
+      .whereFilter(f => f.or(f.whereId('==', created[2].id), f.where('category', '==', 'nothing')))
+      .findNearest({
+        vectorField: 'embedding',
+        queryVector: [1, 0, 0],
+        limit: 10,
+        distanceMeasure: 'EUCLIDEAN',
+      })
+      .get();
+
+    expect(byId.map(row => row.name)).toEqual(['games-live']);
+
+    // A chained where() is AND-ed with the composite on the vector builder too.
+    const chained = await wrapped
+      .vectorQuery()
+      .where('status', '==', 'live')
+      .whereFilter(f =>
+        f.or(f.where('category', '==', 'books'), f.where('category', '==', 'games')),
+      )
+      .findNearest({
+        vectorField: 'embedding',
+        queryVector: [1, 0, 0],
+        limit: 10,
+        distanceMeasure: 'EUCLIDEAN',
+      })
+      .get();
+
+    expect(chained.map(row => row.name).sort()).toEqual(['books-live', 'games-live']);
+  });
+
+  it('rejects a malformed id inside a vector composite pre-filter before any I/O', () => {
+    const wrapped = withVectorSearch(prefilterRepo);
+
+    expect(() => wrapped.vectorQuery().whereFilter(f => f.whereId('==', 'bad/id'))).toThrow(
+      InvalidDocumentIdError,
+    );
   });
 
   it('should throw when whereFilter() is called after findNearest()', () => {

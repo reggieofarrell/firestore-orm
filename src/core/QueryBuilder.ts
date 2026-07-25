@@ -101,14 +101,28 @@ export interface QueryFilterFactory<in out S extends object> {
  * {@link FirestoreQueryBuilder.whereId} and the {@link QueryFilterFactory} so both surfaces apply
  * one identical id boundary — `Query.where(field, op, value)` internally does exactly this
  * (`filter = Filter.where(...)`), so routing both through a `Filter` changes no SDK behavior.
+ *
+ * Validation is applied **per operand**, not to the array as a whole: a mixed
+ * `['__id7__', someDocRef]` must still have its id STRING checked rather than skipping the gate
+ * because one element is not a string.
+ *
+ * @param references - `'reject'` for `whereId(...)`, whose signature promises id strings, so a
+ *   non-string operand is a contract violation and gets the `InvalidDocumentIdError` boundary.
+ *   `'allow'` for `where(FieldPath.documentId(), …)`, whose operand type is `unknown` and where
+ *   Firestore also accepts an already-resolved `DocumentReference` — not an untrusted id string to
+ *   parse, so non-string operands pass through while string operands are still validated.
  */
 function documentIdFilter(
   op: WhereFilterOp,
-  value: string | readonly string[],
+  value: unknown,
   allowLegacyDatastoreIds: boolean,
+  references: 'allow' | 'reject',
 ): Filter {
-  const values = Array.isArray(value) ? value : [value as string];
-  values.forEach(v => validateDocumentId(v, 'whereId value', { allowLegacyDatastoreIds }));
+  const operands = Array.isArray(value) ? value : [value];
+  for (const operand of operands) {
+    if (references === 'allow' && typeof operand !== 'string') continue;
+    validateDocumentId(operand, 'whereId value', { allowLegacyDatastoreIds });
+  }
   return Filter.where(FieldPath.documentId(), op, value);
 }
 
@@ -119,18 +133,6 @@ function documentIdFilter(
  */
 function isDocumentIdPath(field: unknown): field is FieldPath {
   return field instanceof FieldPath && FieldPath.documentId().isEqual(field);
-}
-
-/**
- * Narrows the id-shaped operands `validateDocumentId` can check. A document-name filter may also take
- * a `DocumentReference` (the SDK's `validateReference` accepts one), which is already a resolved
- * reference and must pass through untouched rather than be parsed as an id string.
- */
-function isIdOperand(value: unknown): value is string | readonly string[] {
-  return (
-    typeof value === 'string' ||
-    (Array.isArray(value) && value.every(entry => typeof entry === 'string'))
-  );
 }
 
 /**
@@ -161,11 +163,11 @@ function createQueryFilterFactory<S extends object>(
       // `f.where(FieldPath.documentId(), …)` addresses the document NAME, so it must clear the same
       // id boundary as `f.whereId(...)` rather than reaching the SDK unvalidated (the SDK blocks path
       // traversal but accepts the reserved `__…__` namespace that validateDocumentId exists to gate).
-      isDocumentIdPath(field) && isIdOperand(value)
-        ? documentIdFilter(op, value, allowLegacyDatastoreIds)
+      isDocumentIdPath(field)
+        ? documentIdFilter(op, value, allowLegacyDatastoreIds, 'allow')
         : Filter.where(field as string | FieldPath, op, value),
     whereId: (op: WhereFilterOp, value: string | readonly string[]) =>
-      documentIdFilter(op, value, allowLegacyDatastoreIds),
+      documentIdFilter(op, value, allowLegacyDatastoreIds, 'reject'),
     and: (...filters) => {
       assertNonEmptyFilterGroup('and', filters);
       return Filter.and(...filters);
@@ -349,10 +351,9 @@ export class FirestoreQueryBuilder<
     // A `FieldPath.documentId()` operand is a document NAME, so it clears the same validated id
     // boundary as `whereId(...)`; every other field path is ordinary stored data and passes straight
     // through. Keeps one id policy across `where`, `whereId`, and the whereFilter factory.
-    this.query =
-      isDocumentIdPath(field) && isIdOperand(value)
-        ? this.query.where(documentIdFilter(op, value, this.allowLegacyDatastoreIds))
-        : this.query.where(field as string | FieldPath, op, value);
+    this.query = isDocumentIdPath(field)
+      ? this.query.where(documentIdFilter(op, value, this.allowLegacyDatastoreIds, 'allow'))
+      : this.query.where(field as string | FieldPath, op, value);
     return this;
   }
 
@@ -661,7 +662,9 @@ export class FirestoreQueryBuilder<
   whereId(op: '<' | '<=' | '==' | '!=' | '>=' | '>', value: string): this;
   whereId(op: 'in' | 'not-in', value: readonly string[]): this;
   whereId(op: WhereFilterOp, value: string | readonly string[]): this {
-    this.query = this.query.where(documentIdFilter(op, value, this.allowLegacyDatastoreIds));
+    this.query = this.query.where(
+      documentIdFilter(op, value, this.allowLegacyDatastoreIds, 'reject'),
+    );
     return this;
   }
 

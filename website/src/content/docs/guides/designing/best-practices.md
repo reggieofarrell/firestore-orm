@@ -98,6 +98,12 @@ const orders = await orderRepo
 await orderRepo.bulkUpdate(orders.map(o => ({ id: o.id, data: { status: 'expired' } })));
 ```
 
+**Careful with composite filters here.** `query().update()` / `query().delete()` write exactly the
+set the query matches, and an inequality inside a `whereFilter(f => f.or(...))` branch excludes
+documents missing that field — so a bulk write can silently skip documents you meant to touch while
+reporting a successful count. See
+[Composite AND/OR filters](/firestore-orm/guides/working-with-data/queries/#composite-andor-filters).
+
 **Note:** `query().update()` and `query().delete()` run the **bulk** lifecycle hooks
 (`beforeBulkUpdate`/`afterBulkUpdate`, `beforeBulkDelete`/`afterBulkDelete`), not the per-document
 `before/afterUpdate` hooks. If you rely on per-document `beforeUpdate`/`afterUpdate` side effects,

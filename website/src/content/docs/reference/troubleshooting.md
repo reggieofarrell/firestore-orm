@@ -197,9 +197,9 @@ it and matches every document instead of failing.
 **Issue:** a `whereFilter(f => f.or(...))` query returns fewer documents than one of its own
 disjuncts returns on its own.
 
-**Cause:** an inequality (`<`, `<=`, `>`, `>=`, `!=`, `not-in`) anywhere in the filter tree makes
-Firestore add an implicit `orderBy` on that field, and a document missing an ordered field cannot
-appear in the results — even if it matched a completely different branch.
+**Cause:** an inequality (`<`, `<=`, `>`, `>=`, `!=`) anywhere in the filter tree makes Firestore
+add an implicit `orderBy` on that field, and a document missing an ordered field cannot appear in
+the results — even if it matched a completely different branch.
 
 ```typescript
 // Three documents have kind: 'x'; two of them have no `score` field.

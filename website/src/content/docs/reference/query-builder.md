@@ -51,17 +51,19 @@ implicit top-level AND) cannot express. The callback receives a schema-aware
 A `whereFilter(...)` is AND-ed with any chained `where(...)` clauses, and composes with `orderBy` /
 `limit`, `select`, the aggregations, pagination, `stream()`, `onSnapshot()`, and the `update()` /
 `delete()` terminals. Returning a prebuilt Admin SDK `Filter` (`f => myFilter`) is a supported
-escape hatch — it is applied verbatim, without the factory's typed paths or id validation. A
-callback that returns something which is not a `Filter` throws an ORM error; this cannot be caught
-at compile time because the SDK's `Filter` type is structurally empty. `Filter` and `FieldPath` are
-imported from `firebase-admin/firestore`.
+escape hatch — it is applied verbatim, without the factory's typed paths or id validation. Note the
+zero-argument guard is an **arity** check on `f.and()` / `f.or()` and cannot see inside a prebuilt
+`Filter`: an empty SDK group, returned whole or passed as a child of a factory group, is silently
+dropped by Firestore and changes the query's meaning. Only a filter reducing to _no_ conditions at
+all is rejected. A callback that returns something which is not a `Filter` throws an ORM error; this
+cannot be caught at compile time because the SDK's `Filter` type is structurally empty. `Filter` and
+`FieldPath` are imported from `firebase-admin/firestore`.
 
-**Inequality caveat.** An inequality (`<`, `<=`, `>`, `>=`, `!=`, `not-in`) inside an `or()` branch
-excludes documents that are missing that field — including documents matched by a _different_
-branch, because Firestore adds an implicit `orderBy` for every inequality field in the flattened
-filter tree. An OR query can therefore return fewer rows than one of its own disjuncts, on reads,
-aggregations, and the `update()` / `delete()` terminals alike. `f.whereId(...)` with a comparison
-operator is exempt. See
+**Inequality caveat.** An inequality (`<`, `<=`, `>`, `>=`, `!=`) inside an `or()` branch excludes
+documents that are missing that field — including documents matched by a _different_ branch, because
+Firestore adds an implicit `orderBy` for every inequality field in the flattened filter tree. An OR
+query can therefore return fewer rows than one of its own disjuncts, on reads, aggregations, and the
+`update()` / `delete()` terminals alike. `f.whereId(...)` with a comparison operator is exempt. See
 [Queries](/firestore-orm/guides/working-with-data/queries/#composite-andor-filters).
 
 Firestore enforces its own limits on the **server** and the ORM does not duplicate them (a local

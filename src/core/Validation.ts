@@ -7,6 +7,17 @@ export type RepositorySchemaSet = Readonly<{
   read: z.ZodObject<any>;
   create: z.ZodObject<any>;
   update: z.ZodObject<any>;
+  /**
+   * The **stored** (at-rest) shape that query field paths derive from — the fourth model of
+   * ADR-0018. Set by `withSchema` / `subcollection` to the supplied `storedSchema`, or to the read
+   * schema when none was given (the stored model defaults to the read model).
+   *
+   * Optional because the low-level constructor accepts a hand-rolled bundle, and because a
+   * `Validator`'s own schema set describes only the write side. Consumers that need the stored shape
+   * as a TYPE should use `StoredDataOf<typeof repo>` — this is the runtime counterpart, used by
+   * `collectionGroup()` to reject a stored shape that collides with collection-group identity.
+   */
+  stored?: z.ZodObject<any>;
 }>;
 
 /**

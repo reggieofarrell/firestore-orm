@@ -40,13 +40,13 @@ The docs split into two pillars:
 
 ### Working with data
 
-| Page                                                                        | What it covers                                              |
-| --------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| [CRUD Operations](/firestore-orm/guides/working-with-data/crud-operations/) | Create, read, update, delete, and bulk variants             |
-| [Queries](/firestore-orm/guides/working-with-data/queries/)                 | Query builder, aggregations, streaming, real-time           |
-| [Transactions](/firestore-orm/guides/working-with-data/transactions/)       | `runInTransaction` and the transaction-scoped methods       |
-| [Subcollections](/firestore-orm/guides/working-with-data/subcollections/)   | Nested collections and per-instance converter behavior      |
-| [Dot Notation](/firestore-orm/guides/working-with-data/dot-notation/)       | Field-path updates, merge/patch, and `FieldValue` sentinels |
+| Page                                                                        | What it covers                                                                          |
+| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| [CRUD Operations](/firestore-orm/guides/working-with-data/crud-operations/) | Create, read, update, delete, and bulk variants                                         |
+| [Queries](/firestore-orm/guides/working-with-data/queries/)                 | Query builder, composite filters, collection groups, aggregations, streaming, real-time |
+| [Transactions](/firestore-orm/guides/working-with-data/transactions/)       | `runInTransaction` and the transaction-scoped methods                                   |
+| [Subcollections](/firestore-orm/guides/working-with-data/subcollections/)   | Nested collections, collection-group reads, per-instance converters                     |
+| [Dot Notation](/firestore-orm/guides/working-with-data/dot-notation/)       | Field-path updates, merge/patch, and `FieldValue` sentinels                             |
 
 ### Designing your data
 
@@ -80,12 +80,12 @@ The docs split into two pillars:
 
 ## Reference
 
-| Page                                                                     | What it covers                                     |
-| ------------------------------------------------------------------------ | -------------------------------------------------- |
-| [FirestoreRepository](/firestore-orm/reference/repository/)              | Construction, reads, writes, identity, hooks, txns |
-| [FirestoreQueryBuilder](/firestore-orm/reference/query-builder/)         | Filtering, projection, aggregation, pagination     |
-| [Exported Types](/firestore-orm/reference/types/)                        | `FirestoreDocument`, `DataOf`, `FieldPaths`, …     |
-| [Helpers & Utilities](/firestore-orm/reference/helpers/)                 | Validation combinators, timestamp & dot-notation   |
-| [Error Handling](/firestore-orm/reference/errors/)                       | Error classes and `parseFirestoreError`            |
-| [Scope & Capabilities](/firestore-orm/reference/scope-and-capabilities/) | Supported surface and deferred capabilities        |
-| [Troubleshooting](/firestore-orm/reference/troubleshooting/)             | Common errors and their fixes                      |
+| Page                                                                     | What it covers                                                           |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
+| [FirestoreRepository](/firestore-orm/reference/repository/)              | Construction, reads, writes, identity, hooks, txns                       |
+| [FirestoreQueryBuilder](/firestore-orm/reference/query-builder/)         | Filtering, projection, aggregation, pagination, collection-group builder |
+| [Exported Types](/firestore-orm/reference/types/)                        | `FirestoreDocument`, `DataOf`, `FieldPaths`, …                           |
+| [Helpers & Utilities](/firestore-orm/reference/helpers/)                 | Validation combinators, timestamp & dot-notation                         |
+| [Error Handling](/firestore-orm/reference/errors/)                       | Error classes and `parseFirestoreError`                                  |
+| [Scope & Capabilities](/firestore-orm/reference/scope-and-capabilities/) | Supported surface and deferred capabilities                              |
+| [Troubleshooting](/firestore-orm/reference/troubleshooting/)             | Common errors and their fixes                                            |

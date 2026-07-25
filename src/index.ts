@@ -9,9 +9,14 @@ export type {
   StoredDataOf,
   DocumentOf,
 } from './core/FirestoreRepository.js';
-export type { FirestoreDocument } from './core/DocumentId.js';
+export type { FirestoreDocument, CollectionGroupDocument } from './core/DocumentId.js';
 export { FirestoreQueryBuilder } from './core/QueryBuilder.js';
 export type { PaginatedResult, QueryFilterFactory } from './core/QueryBuilder.js';
+export {
+  FirestoreCollectionGroup,
+  FirestoreCollectionGroupQueryBuilder,
+} from './core/CollectionGroup.js';
+export type { CollectionGroupFilterFactory } from './core/CollectionGroup.js';
 
 export {
   NotFoundError,

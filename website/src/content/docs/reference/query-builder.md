@@ -78,7 +78,10 @@ disjunct branch — see [Troubleshooting](/firestore-orm/reference/troubleshooti
 **`orderById(direction?: 'asc' | 'desc'): this`**
 
 Order by the document id — the id-aware `orderBy`, useful as a stable pagination tiebreaker.
-`direction` defaults to `'asc'`.
+`direction` defaults to `'asc'`. **`'desc'` cannot be a query's only ordering:** Firestore rejects a
+bare descending document-name scan with
+`FAILED_PRECONDITION: Firestore does not support descending key scans`. Add any equality
+`where(...)` clause or a preceding `orderBy(...)` and it works; ascending is unrestricted.
 
 **`select(...fields: (FieldPaths<Omit<S, 'id'>> | FieldPath)[]): FirestoreQueryBuilder<T, W, S, FirestoreDocument<DeepPartial<T>>>`**
 
@@ -140,7 +143,10 @@ average — distinct from an average that genuinely computes to `0`.
 **`distinctValues<K extends keyof Omit<T, 'id'>>(field: K): Promise<T[K][]>`**
 
 Return the distinct values observed for a field. Drops `undefined`, but preserves a stored `null` as
-a distinct value.
+a distinct value. Reads the document's own field directly rather than a materialized row, so on a
+collection group `distinctValues('path')` returns the values of a _stored_ field named `path`, not
+the document paths `get()` reports as `row.path`. That is intentional — it is the only surface that
+can read a field the identity overlay shadows.
 
 **`paginate(pageSize: number, cursor?: string | null): Promise<{ items: R[]; nextCursor: string | null; hasMore: boolean }>`**
 
@@ -177,3 +183,57 @@ empty patch is rejected with a `ValidationError`.
 
 Delete all matching documents; returns the matched (deleted) count. Runs the bulk hooks
 `beforeBulkDelete` and `afterBulkDelete` (`{ ids, documents }`).
+
+## Collection-group query builder
+
+`class FirestoreCollectionGroupQueryBuilder<T, S = T, R = CollectionGroupDocument<T>>` — obtained
+from `repo.collectionGroup().query()`. It queries every collection sharing the repository's
+collection id, at any depth. Both builders extend the same internal read base, so **everything in
+[Clauses](#clauses) and [Terminal reads](#terminal-reads) above behaves identically** except for the
+differences below. For the narrative walkthrough see
+[collection-group queries](/firestore-orm/guides/working-with-data/queries/#collection-group-queries).
+
+| Single collection                 | Collection group             | Why                                                 |
+| --------------------------------- | ---------------------------- | --------------------------------------------------- |
+| result `FirestoreDocument<T>`     | `CollectionGroupDocument<T>` | ids are not unique across a group                   |
+| `whereId(op, id)`                 | `wherePath(op, path)`        | `documentId()` matches the **full path** in a group |
+| `orderById(direction?)`           | `orderByPath(direction?)`    | ordering is lexicographic over the full path        |
+| `collectionCount()`               | `groupCount()`               | the unfiltered count spans the whole group          |
+| `update(data)` / `delete()`       | _(absent)_                   | bulk hooks are `id`-keyed; ids are ambiguous here   |
+| `f.whereId(...)` in `whereFilter` | `f.wherePath(...)`           | same reason as `wherePath`                          |
+
+**`wherePath(op: '<' | '<=' | '==' | '!=' | '>=' | '>', value: string | DocumentReference): this`**
+**`wherePath(op: 'in' | 'not-in', value: readonly (string | DocumentReference)[]): this`**
+
+Filter by the document name, which in a collection-group query is the document's **full path**.
+Accepts a path string (`'users/u1/posts/p1'`) or a `DocumentReference`. String operands are
+validated per segment — a bare id, an odd segment count, a leading/trailing `/`, a `..` segment, or
+a reserved `__…__` segment throws `InvalidDocumentIdError` before any I/O, honoring the repository's
+`allowLegacyDatastoreIds` setting on the document segments. Validation is applied **per operand**,
+so one valid element in an `in` array does not waive the rest. A well-formed path outside the group
+matches nothing rather than erroring.
+
+**`orderByPath(direction?: 'asc' | 'desc'): this`**
+
+Order by the full document path. `direction` defaults to `'asc'`, and the same descending-key-scan
+restriction as `orderById` applies.
+
+**`groupCount(): Promise<number>`**
+
+Count every document in the group, ignoring the builder's `where` clauses. Use `count()` for the
+query-aware count.
+
+**`whereFilter(build: (f: CollectionGroupFilterFactory<Omit<S, 'id'>>) => Filter): this`**
+
+Identical to the collection form, except the factory exposes `f.wherePath(...)` instead of
+`f.whereId(...)`. All the composite-filter caveats above — the inequality-in-`or()` exclusion, the
+empty-group rejection, and the server-side limits — apply unchanged.
+
+**`select(...)`** returns a **new** collection-group builder typed
+`CollectionGroupDocument<DeepPartial<T>>`. Path identity survives a projection: it comes from the
+snapshot reference, not from the field mask.
+
+**Indexes.** Firestore's automatic single-field indexes are _collection_-scoped, so a
+collection-group query that filters or orders on a field needs an explicitly created
+**collection-group-scoped** index in production — even for a single `where(...)`. The emulator does
+not enforce this. See [Troubleshooting](/firestore-orm/reference/troubleshooting/).

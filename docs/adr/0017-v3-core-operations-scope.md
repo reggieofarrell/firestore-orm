@@ -4,7 +4,8 @@
 - **Date:** 2026-07-19
 - **Deciders:** maintainer
 - **Related:** ADR-0001 (fork and 2.0 re-architecture), ADR-0015 (express adapter subpath), ADR-0016
-  (dual build & support floor); amended by ADR-0023 (composite filters land in 3.0.0)
+  (dual build & support floor); amended by ADR-0023 (composite filters land in 3.0.0) and ADR-0024
+  (collection-group queries land in 3.0.0)
 
 ## Context
 
@@ -53,6 +54,14 @@ server-side Firestore parity. Concretely:
    > decision not to pursue full server-side or Enterprise Pipeline parity. Rationale and contract:
    > ADR-0023.
 
+   > Amendment (3.0.0, issue #31): collection-group queries are **no longer deferred** — they ship
+   > in 3.0.0 as `FirestoreRepository.collectionGroup()`, a read-only query surface whose results
+   > carry full-path identity (`path` / `parentPath`), so #31 leaves this list. The surface is
+   > deliberately narrower than the collection builder: no `update()` / `delete()`, because the bulk
+   > hooks they run are `id`-keyed and ids are not unique across a group. The remaining deferrals
+   > (#32–#41) are unchanged, as is the decision not to pursue full server-side or Enterprise
+   > Pipeline parity. Rationale and contract: ADR-0024.
+
 We explicitly do **not** block v3 on any of the deferred items.
 
 ## Consequences
@@ -80,5 +89,5 @@ capability matrix is the honest middle ground.
 
 - The v3 release review and its round-2 response — "Server-side Firestore feature parity follow-up"
   (maintainer-local review records under `reviews/`, not committed to the repo).
-- GitHub issues #31–#41 (labels `parity`, `v3.x`); #30 is closed by the 3.0.0 `whereFilter` API
-  (ADR-0023).
+- GitHub issues #32–#41 (labels `parity`, `v3.x`); #30 is closed by the 3.0.0 `whereFilter` API
+  (ADR-0023) and #31 by the 3.0.0 `collectionGroup()` API (ADR-0024).

@@ -153,3 +153,51 @@ export function validateCollectionPath(path: string, opts: ValidateSegmentOption
   });
   return path;
 }
+
+/**
+ * Validates a full **document** path (`col/doc`, `col/doc/col/doc`, …): an EVEN number of non-empty
+ * segments, each a legal path segment. The mirror of {@link validateCollectionPath}.
+ *
+ * Used by collection-group document-name filters: in a collection-group query,
+ * `FieldPath.documentId()` compares against a document's FULL resource path, not its leaf id, so the
+ * operand is a path rather than a single segment (verified — the Admin SDK rejects a bare id there
+ * with "must result in a valid document path … odd number of segments"). The per-segment checks are
+ * the same server-side boundary {@link validateDocumentId} provides for leaf ids: a `..` or reserved
+ * `__…__` segment inside the path otherwise reaches Firestore and fails there as `INVALID_ARGUMENT`.
+ *
+ * Stricter than the SDK on purpose: the SDK silently tolerates a leading/trailing `/` (`"/a/b/"`
+ * normalizes to `a/b`), which this rejects as an empty segment so an ambiguous operand never
+ * reaches the wire. The `allowLegacyDatastoreIds` exception applies only to the document segments
+ * (odd indices).
+ */
+export function validateDocumentPath(
+  path: unknown,
+  label = 'document path',
+  opts: ValidateSegmentOptions = {},
+): string {
+  if (typeof path !== 'string') {
+    throw new InvalidDocumentIdError(`${label} must be a string.`, 'not_string');
+  }
+  if (path === '') {
+    throw new InvalidDocumentIdError(`${label} must not be empty.`, 'empty');
+  }
+  const segments = path.split('/');
+  if (segments.length % 2 !== 0) {
+    throw new InvalidDocumentIdError(
+      `${label} must have an even number of segments — a full document path such as ` +
+        `"users/u1/posts/p1", not a bare document id (received ${JSON.stringify(path)}). A ` +
+        'collection-group query matches on the full document path because ids are not unique ' +
+        'across the group.',
+      'contains_slash',
+    );
+  }
+  segments.forEach((segment, index) => {
+    const isCollectionSegment = index % 2 === 0;
+    validatePathSegment(
+      segment,
+      isCollectionSegment ? 'collection segment' : 'document segment',
+      isCollectionSegment ? {} : opts,
+    );
+  });
+  return path;
+}

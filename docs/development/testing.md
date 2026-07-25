@@ -127,6 +127,7 @@ thresholds via `scripts/check-coverage-gates.mjs`.
 | --------------------------- | ------------------------ | ----- | -------- | --------- |
 | ORM core                    | `FirestoreRepository.ts` | 90%   | 75%      | 85%       |
 | Query layer                 | `QueryBuilder.ts`        | 90%   | 75%      | 95%       |
+| Collection groups           | `CollectionGroup.ts`     | 90%   | 75%      | 95%       |
 | Validation (emulator paths) | `Validation.ts`          | 90%   | 80%      | 95%       |
 | Vector extension (emulator) | `src/vector/**`          | 90%   | 75%      | 90%       |
 
@@ -142,7 +143,8 @@ job (`test:types`).
 
 - **Merged LCOV** — report-only if you merge manually; never used as a CI/pre-push gate
 - **Global suite percentages** — a 60% unit run is expected; only path-specific gates matter
-- **FirestoreRepository / QueryBuilder on unit reports** — owned by integration gate
+- **FirestoreRepository / QueryBuilder / CollectionGroup on unit reports** — owned by integration
+  gate
 - **Utils / error layer on integration reports** — owned by unit gate
 
 Thresholds live in `scripts/check-coverage-gates.mjs`. Update that file and this doc together when

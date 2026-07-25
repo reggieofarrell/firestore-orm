@@ -158,6 +158,14 @@ it is imported from `firebase-admin/firestore`, consistent with `FieldPath` / `W
   `where(FieldPath.documentId(), …)` through the gate will therefore reject that form when #31
   lands. No impact today (collection groups are not wrapped); #31 must either exempt the
   collection-group case or accept `DocumentReference` operands only.
+
+  > Resolved (3.0.0, issue #31 / ADR-0024): neither option was taken. The document-name filter
+  > became a per-source hook on the shared query-builder base, so a collection keeps the leaf-id
+  > gate (`validateDocumentId`) while a collection group gets a new even-segment
+  > `validateDocumentPath` that applies the same per-segment rules to a full path — and accepts a
+  > `DocumentReference` in addition to, not instead of, a validated string. `whereId` /
+  > `f.whereId(...)` are absent from the group surface entirely.
+
 - Because Firestore normalizes a composite filter and evaluates each disjunct, a composite query can
   require index coverage for more than one branch, so one `whereFilter` may surface several
   successive `FirestoreIndexError`s. (Not verified locally — the emulator creates indexes on

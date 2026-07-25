@@ -191,6 +191,32 @@ describe('repository schema contracts', () => {
       ).toThrow(/update schema.*top-level "id"/i);
     });
 
+    // `stored` joined the bundle so `collectionGroup()` can inspect the at-rest shape (review H1);
+    // the backstop must cover it like every other effective member.
+    it('rejects a custom schema set with a top-level id in the STORED schema', () => {
+      expect(
+        () =>
+          new FirestoreRepository(db, 'users', undefined, undefined, undefined, {
+            ...schemaSet(idFree, idFree),
+            stored: idBearing,
+          }),
+      ).toThrow(/stored schema.*top-level "id"/i);
+    });
+
+    it('accepts a bundle with no stored schema at all (it is optional)', () => {
+      expect(
+        () =>
+          new FirestoreRepository(
+            db,
+            'users',
+            undefined,
+            undefined,
+            undefined,
+            schemaSet(idFree, idFree),
+          ),
+      ).not.toThrow();
+    });
+
     it('rejects a hand-rolled Validator whose create schema carries a top-level id', () => {
       const validator = {
         schemas: schemaSet(idBearing, idFree),

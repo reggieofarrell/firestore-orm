@@ -8,6 +8,7 @@ import {
   ConflictError,
   FirestoreIndexError,
   NotFoundError,
+  PreconditionFailedError,
   ValidationError,
 } from '../../core/Errors.js';
 import { errorHandler } from '../../express/index.js';
@@ -87,6 +88,19 @@ describe('errorHandler', () => {
     expect(res.json).toHaveBeenCalledWith({
       error: 'ConflictError',
       message: 'Email already exists',
+    });
+  });
+
+  it('should return 412 for PreconditionFailedError', () => {
+    // A failed `lastUpdateTime` precondition is HTTP 412, distinct from the 409 a create-only
+    // collision produces — the two conflict shapes must not collapse into one status.
+    const res = createMockResponse();
+    errorHandler(new PreconditionFailedError('Document changed since it was read'), req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(412);
+    expect(res.json).toHaveBeenCalledWith({
+      error: 'PreconditionFailedError',
+      message: 'Document changed since it was read',
     });
   });
 

@@ -4,7 +4,8 @@ description: 'Create, read, update, delete, and bulk variants on FirestoreReposi
 ---
 
 Create, read, update, upsert, and delete documents — and run batched bulk writes — through the
-repository API.
+repository API. For create-only claims and optimistic-concurrency updates, see
+[Conditional writes](#conditional-writes).
 
 ## Single-document operations
 
@@ -75,16 +76,81 @@ await userRepo.delete('user-123'); // Hard delete; throws NotFoundError if the d
 
 ### Update vs. patch
 
-- `update(id, data, options?)` accepts `{ merge?, returnDoc? }`. It is always a **partial** update —
-  unspecified top-level fields are left unchanged. By default a nested object in the payload
-  replaces that field's stored value wholesale; pass `{ merge: true }` to deep-merge nested objects
-  instead (they are flattened to dot-paths, so sibling nested fields are preserved).
-- `patch(id, data, options?)` accepts `{ returnDoc? }` **only** — `patch` always merges, so there is
-  no `merge` option to set.
+- `update(id, data, options?)` accepts `{ merge?, returnDoc?, lastUpdateTime? }`. It is always a
+  **partial** update — unspecified top-level fields are left unchanged. By default a nested object
+  in the payload replaces that field's stored value wholesale; pass `{ merge: true }` to deep-merge
+  nested objects instead (they are flattened to dot-paths, so sibling nested fields are preserved).
+- `patch(id, data, options?)` accepts `{ returnDoc?, lastUpdateTime? }` — `patch` always merges, so
+  there is no `merge` option to set. `lastUpdateTime` guards the write the same way as on `update`.
 
 Both dot-notation and nested-object updates are supported; see
 [Dot-notation nested updates](/firestore-orm/guides/working-with-data/dot-notation/) for the merge
 semantics of paths like `'profile.nickname'`.
+
+## Conditional writes
+
+Two related capabilities for race-safe writes: **create-only by explicit id**, and an optional
+**`lastUpdateTime` precondition** on update/delete. Neither redefines `upsert()` — that method is
+still create-or-overwrite.
+
+### Create-only (`createWithId`)
+
+`createWithId(id, data)` claims a caller-supplied id with Firestore `DocumentReference.create()`
+semantics: the write succeeds only if the document does **not** already exist. A collision raises
+`ConflictError` (HTTP 409). The check is part of the write, so two concurrent claims cannot both
+succeed — exactly one wins.
+
+```typescript
+import { ConflictError } from '@reggieofarrell/firestore-orm';
+
+try {
+  await userRepo.createWithId('external-id-123', {
+    name: 'Ada',
+    email: 'ada@example.com',
+  });
+} catch (error) {
+  if (error instanceof ConflictError) {
+    // That id is already taken — the stored document is untouched.
+  }
+}
+```
+
+`bulkCreateWithIds([{ id, data }, …])` is the batched form (atomic at ≤ 500 ops). Prefer this over
+`upsert` when you need to **claim** an externally-derived id once; use `upsert` when re-running the
+write should overwrite. See [ID strategies](/firestore-orm/guides/designing/id-strategies/).
+
+### Optimistic concurrency (`lastUpdateTime`)
+
+Read a version token with `getByIdWithUpdateTime`, then pass it back as `lastUpdateTime` on `update`
+/ `patch` / `delete` (or their bulk and transaction variants). The write commits only if nobody else
+changed the document in between; otherwise the repository raises `PreconditionFailedError`
+(HTTP 412) and leaves the stored document untouched.
+
+```typescript
+import { PreconditionFailedError } from '@reggieofarrell/firestore-orm';
+
+for (let attempt = 0; attempt < 3; attempt++) {
+  const current = await userRepo.getByIdWithUpdateTime('user-123');
+  if (!current) break;
+
+  try {
+    await userRepo.update(
+      current.doc.id,
+      { balance: current.doc.balance + 100 },
+      { lastUpdateTime: current.updateTime },
+    );
+    break;
+  } catch (error) {
+    // Someone else wrote first — re-read and retry against the newer version.
+    if (!(error instanceof PreconditionFailedError)) throw error;
+  }
+}
+```
+
+The result of `getByIdWithUpdateTime` is a **pair** `{ doc, updateTime }` (not an overlay on the
+document), so a stored field named `updateTime` is never shadowed. A plain `update` on a missing
+document still raises `NotFoundError`; a precondition-guarded one raises `PreconditionFailedError`
+instead (Firestore reports the absent document as stored version 0).
 
 ## Bulk Operations
 
@@ -99,10 +165,16 @@ const created = await userRepo.bulkCreate([
   { name: 'Charlie', email: 'charlie@example.com' },
 ]);
 
-// Bulk update (returns [{ id: 'user-1' }, { id: 'user-2' }])
+// Bulk create under caller-supplied ids (create-only; a collision rejects the whole batch)
+await userRepo.bulkCreateWithIds([
+  { id: 'user-1', data: { name: 'Alice', email: 'alice@example.com' } },
+  { id: 'user-2', data: { name: 'Bob', email: 'bob@example.com' } },
+]);
+
+// Bulk update (returns [{ id: 'user-1' }, { id: 'user-2' }]); each entry may carry lastUpdateTime
 await userRepo.bulkUpdate([
   { id: 'user-1', data: { status: 'active' } },
-  { id: 'user-2', data: { status: 'inactive' } },
+  { id: 'user-2', data: { status: 'inactive' }, lastUpdateTime: token },
 ]);
 
 // Bulk patch (always merges each document)
@@ -111,7 +183,8 @@ await userRepo.bulkPatch([
   { id: 'user-2', data: { lastSeenAt: Date.now() } },
 ]);
 
-// Bulk delete — returns the count of documents that actually existed (not the input length)
+// Bulk delete — returns the count of documents that actually existed (not the input length).
+// Also accepts `{ id, lastUpdateTime? }[]` for per-entry preconditions (do not mix forms).
 const deletedCount = await userRepo.bulkDelete(['user-1', 'user-2', 'user-3']);
 ```
 

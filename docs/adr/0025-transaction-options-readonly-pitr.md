@@ -90,9 +90,9 @@ query-shaped PITR mapping), so it fronts every PITR example.
    already-breaking major as `feat(repository)!:`.
 
 This record **amends ADR-0017**: transaction options / PITR are no longer deferred. The remaining
-deferrals (#33–#41) and the decision not to pursue full server-side or Enterprise Pipeline parity
-are unchanged. (This footer is a living index of remaining ADR-0017 deferrals — see
-[`docs/adr/README.md`](README.md) Conventions.)
+deferrals (#34–#41) and the decision not to pursue full server-side or Enterprise Pipeline parity
+are unchanged. (#33 conditional writes have since shipped — see ADR-0026; this footer is a living
+index of remaining ADR-0017 deferrals — see [`docs/adr/README.md`](README.md) Conventions.)
 
 ## Consequences
 

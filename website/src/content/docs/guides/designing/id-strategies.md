@@ -31,20 +31,37 @@ await orderRepo.upsert(orderId, { total: 42, status: 'pending' });
 ## Deterministic / static ids
 
 When a document has a natural key — a slug, an external system's id, a singleton config document —
-use that value as the id and write with **`upsert(id, data)`** (create-or-overwrite). This makes the
-write idempotent (re-running it doesn't create duplicates) and lets you fetch the document without a
-query:
+use that value as the id. Choose the write method by what a re-run should do:
+
+- **`createWithId(id, data)`** — create-only. Claims the id exactly once; a second write (or a
+  concurrent claim) raises `ConflictError` and leaves the stored document untouched. Use this when
+  the id must be **claimed** (an idempotency key, an upstream record id, an email hash).
+- **`upsert(id, data)`** — create-or-overwrite. Re-running is idempotent and overwrites. Use this
+  when the latest write should win (a singleton config, a mirrored external record).
 
 ```typescript
-// A singleton config document at a fixed id
+import { ConflictError } from '@reggieofarrell/firestore-orm';
+
+// Claim an externally-derived id exactly once
+try {
+  await productRepo.createWithId(`sku-${sku}`, { name, price });
+} catch (error) {
+  if (error instanceof ConflictError) {
+    // Already claimed — do not overwrite.
+  }
+}
+
+// A singleton config document at a fixed id (re-runs overwrite)
 await configRepo.upsert('app-config', { featureFlags: { darkMode: true } });
 
-// A record keyed by an external id
+// A record keyed by an external id where the latest snapshot should win
 await productRepo.upsert(`sku-${sku}`, { name, price });
 ```
 
 Validate any externally-sourced id at the boundary with `repo.id(rawKey)` before using it as a
-document name — see [Document Identity](/firestore-orm/guides/concepts/document-identity/).
+document name — see [Document Identity](/firestore-orm/guides/concepts/document-identity/). For the
+full create-only / precondition surface, see
+[Conditional writes](/firestore-orm/guides/working-with-data/crud-operations/#conditional-writes).
 
 ## Shared ids across collections
 
@@ -55,12 +72,13 @@ so it lands at the shared id.
 
 ## Choosing
 
-| Strategy       | Write method       | Use when                                              |
-| -------------- | ------------------ | ----------------------------------------------------- |
-| Auto-generated | `create(data)`     | No natural key; the common case                       |
-| Deterministic  | `upsert(id, data)` | A natural key / slug / external id; idempotent writes |
-| Singleton      | `upsert(id, data)` | Exactly one document (config, counters)               |
-| Shared (1:1)   | `upsert(id, data)` | A parallel document keyed by another collection's id  |
+| Strategy       | Write method          | Use when                                                |
+| -------------- | --------------------- | ------------------------------------------------------- |
+| Auto-generated | `create(data)`        | No natural key; the common case                         |
+| Claim once     | `createWithId(id, …)` | A natural key that must not be overwritten on collision |
+| Deterministic  | `upsert(id, data)`    | A natural key / slug / external id; re-runs overwrite   |
+| Singleton      | `upsert(id, data)`    | Exactly one document (config, counters)                 |
+| Shared (1:1)   | `upsert(id, data)`    | A parallel document keyed by another collection's id    |
 
 See [CRUD Operations](/firestore-orm/guides/working-with-data/crud-operations/) for the full write
 surface and [FirestoreRepository](/firestore-orm/reference/repository/) for signatures.

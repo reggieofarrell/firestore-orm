@@ -87,6 +87,16 @@ Get document by ID. Resolves to `null` when the document does not exist.
 
 Get document by ID; throws `NotFoundError` when missing.
 
+**`getByIdWithUpdateTime(id: ID): Promise<{ doc: FirestoreDocument<T>; updateTime: Timestamp } | null>`**
+
+Get a document together with its Firestore `updateTime` — the token for optimistic-concurrency
+writes. Resolves to `null` when the document does not exist. The result is a **pair**, not an
+overlay, so a stored field named `updateTime` is never shadowed. Pass `updateTime` back as
+`lastUpdateTime` on `update` / `patch` / `delete` (or their bulk and transaction variants). A
+configured `readConverter` applies to `doc`. **Not** on `ReadOnlyTransactionalRepository` — it
+performs non-transactional I/O. See
+[Conditional writes](/firestore-orm/guides/working-with-data/crud-operations/#conditional-writes).
+
 **`fromSnapshot(snapshot: DocumentSnapshot): FirestoreDocument<T> | null`**
 
 Map a raw Firestore snapshot — e.g. the one delivered to a trigger cloud function — to
@@ -146,24 +156,44 @@ Create a new document with an auto-generated Firestore ID. Returns `{ id }` by d
 Create multiple documents, committed in batches of 500. Returns `{ id }[]` by default; pass
 `{ returnDoc: true }` for the created documents.
 
+**`createWithId(id: ID, data: CreateInput<W>, options: { returnDoc: true }): Promise<FirestoreDocument<T>>`**
+**`createWithId(id: ID, data: CreateInput<W>, options?: { returnDoc?: false }): Promise<{ id: ID }>`**
+
+**Create-only** write under a caller-supplied ID — the counterpart to `upsert`, which overwrites.
+Throws `ConflictError` when a document already exists at that ID. The existence check happens on the
+backend as part of the write, so two concurrent calls cannot both succeed. Fires `beforeCreate` /
+`afterCreate` with the caller's id.
+
+**`bulkCreateWithIds(entries: { id: ID; data: CreateInput<W> }[], options: { returnDoc: true }): Promise<FirestoreDocument<T>[]>`**
+**`bulkCreateWithIds(entries: { id: ID; data: CreateInput<W> }[], options?: { returnDoc?: false }): Promise<{ id: ID }[]>`**
+
+Batched create-only writes under caller-supplied IDs. Throws `ConflictError` if any ID exists — at
+or below 500 operations the batch is atomic, so **no sibling lands**. Duplicate IDs in the input are
+rejected before any I/O.
+
 **`update(id: ID, data: UpdateInput<W>, options: UpdateOptions & { returnDoc: true }): Promise<FirestoreDocument<T>>`**
 **`update(id: ID, data: UpdateInput<W>, options?: UpdateOptions & { returnDoc?: false }): Promise<{ id: ID }>`**
 
 Update a document with partial data. Supports dot notation for nested updates. Pass
-`{ merge: true }` to normalize nested objects to dot paths before writing. Returns `{ id }` by
-default; pass `{ returnDoc: true }` to resolve to the updated `FirestoreDocument<T>`.
+`{ merge: true }` to normalize nested objects to dot paths before writing. Pass `{ lastUpdateTime }`
+(from `getByIdWithUpdateTime`) to make the write conditional — it commits only if the document is
+still at that version, and otherwise throws `PreconditionFailedError`. Returns `{ id }` by default;
+pass `{ returnDoc: true }` to resolve to the updated `FirestoreDocument<T>`.
 
-**`patch(id: ID, data: UpdateInput<W>, options: { returnDoc: true }): Promise<FirestoreDocument<T>>`**
-**`patch(id: ID, data: UpdateInput<W>, options?: { returnDoc?: false }): Promise<{ id: ID }>`**
+**`patch(id: ID, data: UpdateInput<W>, options: { returnDoc: true; lastUpdateTime?: Timestamp }): Promise<FirestoreDocument<T>>`**
+**`patch(id: ID, data: UpdateInput<W>, options?: { returnDoc?: false; lastUpdateTime?: Timestamp }): Promise<{ id: ID }>`**
 
 Merge-style update — equivalent to `update(id, data, { merge: true })`. `patch` **always** merges,
-so there is no `merge` option; `{ returnDoc: true }` resolves to the updated `FirestoreDocument<T>`.
+so there is no `merge` option; `{ returnDoc: true }` resolves to the updated `FirestoreDocument<T>`,
+and `{ lastUpdateTime }` guards the write exactly as on `update`.
 
-**`bulkUpdate(updates: { id: ID; data: UpdateInput<W> }[]): Promise<{ id: ID }[]>`**
+**`bulkUpdate(updates: { id: ID; data: UpdateInput<W>; lastUpdateTime?: Timestamp }[]): Promise<{ id: ID }[]>`**
 
-Update multiple documents in a batch. Supports dot notation.
+Update multiple documents in a batch. Supports dot notation. Each entry may carry its own
+`lastUpdateTime`; at or below 500 operations one failed precondition rejects the whole batch and
+changes nothing.
 
-**`bulkPatch(updates: { id: ID; data: UpdateInput<W> }[]): Promise<{ id: ID }[]>`**
+**`bulkPatch(updates: { id: ID; data: UpdateInput<W>; lastUpdateTime?: Timestamp }[]): Promise<{ id: ID }[]>`**
 
 Merge-style batch update. Each payload is normalized like `patch(...)` before the batched writes.
 
@@ -171,16 +201,22 @@ Merge-style batch update. Each payload is normalized like `patch(...)` before th
 **`upsert(id: ID, data: CreateInput<W>, options?: { returnDoc?: false }): Promise<{ id: ID }>`**
 
 Create or overwrite the document with the given ID. Returns `{ id }` by default; pass
-`{ returnDoc: true }` to resolve to the final persisted `FirestoreDocument<T>`.
+`{ returnDoc: true }` to resolve to the final persisted `FirestoreDocument<T>`. Use `createWithId`
+instead when the document must **not** already exist.
 
-**`delete(id: ID): Promise<void>`**
+**`delete(id: ID, options?: { lastUpdateTime?: Timestamp }): Promise<void>`**
 
-Permanently delete a document. Throws `NotFoundError` when the document does not exist.
+Permanently delete a document. Throws `NotFoundError` when the document does not exist — including
+when a `lastUpdateTime` was supplied, because `delete`'s own existence pre-read runs first. A
+supplied `lastUpdateTime` that no longer matches throws `PreconditionFailedError`.
 
 **`bulkDelete(ids: ID[]): Promise<number>`**
+**`bulkDelete(entries: { id: ID; lastUpdateTime?: Timestamp }[]): Promise<number>`**
 
 Permanently delete multiple documents. Resolves to the count of documents that **actually existed**
-(not the length of the input array).
+(not the length of the input array). The two overloads cannot be mixed in one array. Documents that
+are already gone are filtered out by the existence pre-read, so an entry with a `lastUpdateTime`
+whose document no longer exists is skipped rather than raising.
 
 ## Identity
 
@@ -293,16 +329,19 @@ Read a document inside a transaction. Takes a pessimistic lock in a read-write t
 lock-free when `readOnly: true`. Available on both the full repo and
 `ReadOnlyTransactionalRepository`.
 
-**`updateInTransaction(tx: Transaction, id: ID, data: UpdateInput<W>, options?: { merge?: boolean }): Promise<void>`**
+**`updateInTransaction(tx: Transaction, id: ID, data: UpdateInput<W>, options?: { merge?: boolean; lastUpdateTime?: Timestamp }): Promise<void>`**
 
 Update a document within a transaction. Pass `{ merge: true }` to normalize nested objects to dot
-paths before writing. **Not** on `ReadOnlyTransactionalRepository`.
+paths before writing, and `{ lastUpdateTime }` to guard the write. A failed precondition does
+**not** retry the transaction — Firestore retries on contention, not on a rejected precondition — so
+the callback runs once and the transaction fails with `PreconditionFailedError`. **Not** on
+`ReadOnlyTransactionalRepository`.
 
-**`patchInTransaction(tx: Transaction, id: ID, data: UpdateInput<W>): Promise<void>`**
+**`patchInTransaction(tx: Transaction, id: ID, data: UpdateInput<W>, options?: { lastUpdateTime?: Timestamp }): Promise<void>`**
 
 Merge-style update within a transaction — equivalent to
-`updateInTransaction(tx, id, data, { merge: true })`. Takes no options. **Not** on
-`ReadOnlyTransactionalRepository`.
+`updateInTransaction(tx, id, data, { merge: true })`. Accepts only `lastUpdateTime` (merge is
+implied). **Not** on `ReadOnlyTransactionalRepository`.
 
 **`createInTransaction(tx: Transaction, data: CreateInput<W>): Promise<{ id: ID }>`**
 
@@ -310,6 +349,14 @@ Create a document within a transaction (auto-generated ID). Returns `{ id }` —
 read a document back after writing it, so there is no `returnDoc` option. **Not** on
 `ReadOnlyTransactionalRepository`.
 
-**`deleteInTransaction(tx: Transaction, id: ID): Promise<void>`**
+**`createWithIdInTransaction(tx: Transaction, id: ID, data: CreateInput<W>): Promise<{ id: ID }>`**
 
-Delete a document within a transaction. **Not** on `ReadOnlyTransactionalRepository`.
+**Create-only** write under a caller-supplied ID within a transaction. Throws `ConflictError` if the
+ID is taken, without retrying the callback. Only `beforeCreate` fires (after-hooks never run inside
+a transaction). **Not** on `ReadOnlyTransactionalRepository`.
+
+**`deleteInTransaction(tx: Transaction, id: ID, options?: { lastUpdateTime?: Timestamp }): Promise<void>`**
+
+Delete a document within a transaction, optionally guarded by `lastUpdateTime`. The transactional
+existence read runs first, so a missing document still throws `NotFoundError`. **Not** on
+`ReadOnlyTransactionalRepository`.

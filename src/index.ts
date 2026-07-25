@@ -25,6 +25,7 @@ export {
   ConflictError,
   FirestoreIndexError,
   InvalidDocumentIdError,
+  PreconditionFailedError,
 } from './core/Errors.js';
 export type { InvalidDocumentIdReason } from './core/Errors.js';
 

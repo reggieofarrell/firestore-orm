@@ -6,6 +6,7 @@ import {
   ConflictError,
   FirestoreIndexError,
   NotFoundError,
+  PreconditionFailedError,
   ValidationError,
 } from '../../core/Errors.js';
 
@@ -31,6 +32,15 @@ describe('ORM error classes', () => {
     const error = new ConflictError('duplicate');
     expect(error.name).toBe('ConflictError');
     expect(error.message).toBe('duplicate');
+  });
+
+  it('should set PreconditionFailedError name and message', () => {
+    // Message-only, matching NotFoundError/ConflictError — no structured version fields, because the
+    // server's version numbers are emulator-specific and must never become part of the contract.
+    const error = new PreconditionFailedError('stale write');
+    expect(error.name).toBe('PreconditionFailedError');
+    expect(error.message).toBe('stale write');
+    expect(error).toBeInstanceOf(Error);
   });
 
   it('should expose FirestoreIndexError metadata and formatted guidance', () => {

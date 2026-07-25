@@ -114,6 +114,50 @@ Note: This is a one-time setup per query pattern.
 }
 
 /**
+ * Error thrown when a write's `lastUpdateTime` precondition did not hold — the document was modified
+ * (or removed) by someone else since the version the caller read. This is the lost-update signal for
+ * optimistic-concurrency (compare-and-set) writes.
+ *
+ * Normalized from Firestore's `FAILED_PRECONDITION` status (gRPC code 9) by
+ * {@link parseFirestoreError}, and mapped to HTTP **412 Precondition Failed** by the Express adapter.
+ * The failing write is never applied — the stored document is left exactly as the other writer left
+ * it, so a retry is always safe.
+ *
+ * Note the two neighboring cases this is deliberately NOT used for:
+ * - a create-only collision (`createWithId` on an id that already exists) is `ALREADY_EXISTS`
+ *   (gRPC 6) and surfaces as {@link ConflictError} → HTTP 409;
+ * - a *missing* document is only a {@link NotFoundError} when no precondition was supplied. With a
+ *   `lastUpdateTime`, Firestore reports the missing document as a failed precondition (stored
+ *   version 0), so `update(id, data, { lastUpdateTime })` on a deleted document raises this error
+ *   rather than `NotFoundError`.
+ *
+ * @example
+ * // Retry-on-conflict read-modify-write loop
+ * for (let attempt = 0; attempt < 3; attempt++) {
+ *   const current = await userRepo.getByIdWithUpdateTime('user-123');
+ *   if (!current) throw new NotFoundError('User is gone');
+ *
+ *   try {
+ *     await userRepo.update(
+ *       current.doc.id,
+ *       { loginCount: (current.doc.loginCount ?? 0) + 1 },
+ *       { lastUpdateTime: current.updateTime },
+ *     );
+ *     break;
+ *   } catch (error) {
+ *     // Someone else wrote first — re-read and try again against the newer version.
+ *     if (!(error instanceof PreconditionFailedError)) throw error;
+ *   }
+ * }
+ */
+export class PreconditionFailedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PreconditionFailedError';
+  }
+}
+
+/**
  * A stable, machine-readable reason for an invalid Firestore document id or path segment.
  */
 export type InvalidDocumentIdReason =

@@ -149,19 +149,31 @@ handle as their first argument:
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `getInTransaction(tx, id)`                    | Reads a document inside the transaction; returns the document (with `id`) or `null` if it is absent. Takes a lock in a read-write transaction; lock-free when `readOnly: true`. |
 | `createInTransaction(tx, data)`               | Creates a document with an auto-generated Firestore id                                                                                                                          |
-| `updateInTransaction(tx, id, data, options?)` | Updates the document identified by `id`                                                                                                                                         |
-| `patchInTransaction(tx, id, data)`            | Merge-patches the document identified by `id` (always merges; takes **no** options)                                                                                             |
-| `deleteInTransaction(tx, id)`                 | Deletes the document identified by `id`                                                                                                                                         |
+| `createWithIdInTransaction(tx, id, data)`     | Create-only under a caller-supplied id; a collision raises `ConflictError`                                                                                                      |
+| `updateInTransaction(tx, id, data, options?)` | Updates the document identified by `id`; options are `{ merge?, lastUpdateTime? }`                                                                                              |
+| `patchInTransaction(tx, id, data, options?)`  | Merge-patches the document identified by `id` (always merges); options are `{ lastUpdateTime? }`                                                                                |
+| `deleteInTransaction(tx, id, options?)`       | Deletes the document identified by `id`; options are `{ lastUpdateTime? }`                                                                                                      |
 
 Notes:
 
 - Firestore requires that **all reads happen before any writes** within a transaction. Do your
   `getInTransaction` reads first, then perform writes.
 - `id` is always stripped from write payloads. The document id comes from the auto-generated
-  Firestore id for `createInTransaction`, and from the `id` argument for `updateInTransaction`,
-  `patchInTransaction`, and `deleteInTransaction`.
-- `patchInTransaction` always merges and, unlike the non-transaction `patch`, takes no options
-  argument.
+  Firestore id for `createInTransaction`, and from the `id` argument for
+  `createWithIdInTransaction`, `updateInTransaction`, `patchInTransaction`, and
+  `deleteInTransaction`.
+- `patchInTransaction` always merges. Unlike the non-transaction `patch`, it has no `returnDoc`
+  option (a transaction cannot read a document back after writing it); it does accept
+  `{ lastUpdateTime? }` for optimistic concurrency.
+- A failed `lastUpdateTime` precondition (or a create-only collision) does **not** trigger a
+  transaction retry — Firestore retries on contention, not on a rejected precondition. The callback
+  runs once and the whole transaction fails with `PreconditionFailedError` / `ConflictError`. Inside
+  a read-write transaction the transaction's own lock is usually the better tool; a precondition is
+  for a token read _outside_ the transaction. See
+  [Conditional writes](/firestore-orm/guides/working-with-data/crud-operations/#conditional-writes).
+- `getByIdWithUpdateTime` is deliberately **absent** from the transaction helpers (and from
+  `ReadOnlyTransactionalRepository`): it performs non-transactional I/O and would bypass both the
+  transaction and any `readTime`.
 - Write helpers are unavailable on the typed surface of a read-only / `runReadOnlyAt` callback.
 
 ## Hooks inside transactions

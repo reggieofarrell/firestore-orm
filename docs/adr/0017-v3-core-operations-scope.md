@@ -71,6 +71,16 @@ server-side Firestore parity. Concretely:
    > are unchanged, as is the decision not to pursue full server-side or Enterprise Pipeline parity.
    > Rationale and contract: ADR-0025.
 
+   > Amendment (3.0.0, issue #33): conditional writes / preconditions are **no longer deferred** —
+   > they ship in 3.0.0 as explicit-id create-only writes (`createWithId`, `bulkCreateWithIds`,
+   > `createWithIdInTransaction`, all backed by the SDK's `create()`), an optional `lastUpdateTime`
+   > precondition on every update/delete surface (single, bulk, and transaction), and
+   > `getByIdWithUpdateTime` to read the token. A failed precondition normalizes to a new
+   > `PreconditionFailedError` (HTTP 412) and a create-only collision to the existing
+   > `ConflictError` (HTTP 409). `upsert()` is deliberately unchanged. So #33 leaves this list. The
+   > remaining deferrals (#34–#41) are unchanged, as is the decision not to pursue full server-side
+   > or Enterprise Pipeline parity. Rationale and contract: ADR-0026.
+
 We explicitly do **not** block v3 on any of the deferred items.
 
 ## Consequences

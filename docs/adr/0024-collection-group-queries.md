@@ -135,9 +135,10 @@ from an existing repository.
    parallel-scan tooling rather than the read surface.
 
 This record **amends ADR-0017**: collection-group queries are no longer deferred. The remaining
-deferrals (#33–#41) and the decision not to pursue full server-side or Enterprise Pipeline parity
-are unchanged. (#32 transaction options have since shipped — see ADR-0025; this footer is kept as a
-living index — see [`docs/adr/README.md`](README.md) Conventions.)
+deferrals (#34–#41) and the decision not to pursue full server-side or Enterprise Pipeline parity
+are unchanged. (#32 transaction options and #33 conditional writes have since shipped — see ADR-0025
+/ ADR-0026; this footer is kept as a living index — see [`docs/adr/README.md`](README.md)
+Conventions.)
 
 ## Consequences
 

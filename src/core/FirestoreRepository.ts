@@ -235,6 +235,12 @@ export class FirestoreRepository<
         this.schemasInternal.update,
         'FirestoreRepository (update schema)',
       );
+      if (this.schemasInternal.stored) {
+        FirestoreRepository.assertSchemaHasNoTopLevelId(
+          this.schemasInternal.stored,
+          'FirestoreRepository (stored schema)',
+        );
+      }
     }
   }
 
@@ -272,29 +278,48 @@ export class FirestoreRepository<
   }
 
   /**
-   * Rejects a read schema that declares a top-level `path` or `parentPath` when a **collection
-   * group** query is requested (ADR-0024). A group result overlays full-path identity on top of the
-   * document data, exactly as `id` is overlaid on every read, so a same-named stored field would be
-   * silently replaced — and `CollectionGroupDocument<T>` `Omit`s it from the type, making the
-   * caller's own field unreachable.
+   * Rejects a schema that declares a top-level `path` or `parentPath` when a **collection group**
+   * query is requested (ADR-0024). A group result overlays full-path identity on top of the document
+   * data, exactly as `id` is overlaid on every read, so a same-named field would be silently
+   * replaced — and `CollectionGroupDocument<T>` `Omit`s it from the type, making the caller's own
+   * field unreachable.
    *
-   * Checked at `collectionGroup()` rather than at construction: the shadowing only happens on the
-   * group surface, so an ordinary repository with a stored `path` field stays perfectly usable.
-   * Unvalidated (raw) repositories have no schema to inspect — same limitation as the top-level
-   * `id` check, and the `Omit` in the result type is what surfaces it there.
+   * Both the **read** and the **stored** models are checked, because they fail differently and both
+   * fail silently (review H1):
+   * - a read-model `path` is replaced at materialization — the caller's value never survives;
+   * - a stored-model `path` is what `where('path', …)` targets (query field paths derive from `S`),
+   *   so a filter can match on a value the result can never expose. With a `readConverter` there is
+   *   no replacement — the converter drops the stored field — but the filter/result mismatch
+   *   remains, so this rejects unconditionally.
+   *
+   * This mirrors the top-level-`id` invariant, which `withSchema` already enforces on the
+   * `storedSchema` as well. Checked at `collectionGroup()` rather than at construction: the collision
+   * only exists on the group surface, so an ordinary repository with a stored `path` field stays
+   * perfectly usable. Unvalidated (raw) repositories have no schema to inspect — same limitation as
+   * the `id` check, and the `Omit` in the result type is what surfaces it there.
    */
-  private static assertSchemaHasNoGroupIdentityFields(schema: z.ZodObject<any> | undefined): void {
-    if (!schema) return;
-    for (const field of ['path', 'parentPath'] as const) {
-      if (Object.prototype.hasOwnProperty.call(schema.shape, field)) {
-        throw new Error(
-          `FirestoreRepository.collectionGroup(): the read schema declares a top-level "${field}" ` +
-            'field, which collides with collection-group identity. A collection-group result ' +
-            'carries the full document "path" and its "parentPath" because document ids are not ' +
-            'unique across a group, and that identity is overlaid on top of the document data — ' +
-            `your "${field}" value would be replaced. Rename the field, or query the collection ` +
-            'directly with query() instead of collectionGroup().',
-        );
+  private static assertSchemaHasNoGroupIdentityFields(
+    schemas: RepositorySchemaSet | undefined,
+  ): void {
+    if (!schemas) return;
+    const models: [label: string, schema: z.ZodObject<any> | undefined][] = [
+      ['read schema', schemas.read],
+      ['stored schema', schemas.stored],
+    ];
+    for (const [label, schema] of models) {
+      if (!schema) continue;
+      for (const field of ['path', 'parentPath'] as const) {
+        if (Object.prototype.hasOwnProperty.call(schema.shape, field)) {
+          throw new Error(
+            `FirestoreRepository.collectionGroup(): the ${label} declares a top-level "${field}" ` +
+              'field, which collides with collection-group identity. A collection-group result ' +
+              'carries the full document "path" and its "parentPath" because document ids are not ' +
+              'unique across a group, and that identity is overlaid on top of the document data — ' +
+              `your "${field}" would be unreachable on the result (and, on the read model, ` +
+              'silently replaced). Rename the field, or query the collection directly with query() ' +
+              'instead of collectionGroup().',
+          );
+        }
       }
     }
   }
@@ -500,10 +525,13 @@ export class FirestoreRepository<
       sentinelPolicy: options?.sentinelPolicy,
     });
     // Validate writes against `writeBase`, but expose the plain `readSchema` as `schemas.read`.
+    // `stored` retains the EFFECTIVE at-rest shape (the read schema when none was supplied, per
+    // ADR-0018) so `collectionGroup()` can reject a stored shape that collides with group identity.
     const schemas = Object.freeze({
       read: readSchema,
       create: validator.schemas.create,
       update: validator.schemas.update,
+      stored: options?.storedSchema ?? readSchema,
     });
     return new FirestoreRepository<any, any, any, any>(
       db,
@@ -680,10 +708,12 @@ export class FirestoreRepository<
       sentinelPolicy: options?.sentinelPolicy,
     });
     // Validate writes against `writeBase`, but expose the plain `readSchema` as `schemas.read`.
+    // `stored` retains the EFFECTIVE at-rest shape — see withSchema.
     const schemas = Object.freeze({
       read: readSchema,
       create: validator.schemas.create,
       update: validator.schemas.update,
+      stored: options?.storedSchema ?? readSchema,
     });
     return new FirestoreRepository<any, any, any, any>(
       this.db,
@@ -2137,7 +2167,7 @@ export class FirestoreRepository<
     // re-validation is needed here. The `!` is for the compiler only: split() on a non-empty string
     // always yields at least one element.
     const collectionId = this.collectionPath.split('/').pop()!;
-    FirestoreRepository.assertSchemaHasNoGroupIdentityFields(this.schemasInternal?.read);
+    FirestoreRepository.assertSchemaHasNoGroupIdentityFields(this.schemasInternal);
 
     const group = this.db.collectionGroup(collectionId);
     // Mirrors readCol(): attach the read converter so `fromFirestore` runs on group reads too. The

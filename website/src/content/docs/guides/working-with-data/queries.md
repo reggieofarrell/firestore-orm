@@ -233,9 +233,11 @@ rows[0].parentPath; // 'users/u2/posts'
 To act on a document, rebuild a reference from the path with the `Firestore` instance you already
 own: `db.doc(row.path)`.
 
-Identity is overlaid on top of the document data, exactly as `id` is on a normal read, so a stored
-field named `path` or `parentPath` would be shadowed. `collectionGroup()` **throws** if a
-schema-validated repository's read schema declares either at the top level.
+Identity is overlaid on top of the document data, exactly as `id` is on a normal read, so a field
+named `path` or `parentPath` would be shadowed. `collectionGroup()` **throws** if a schema-validated
+repository declares either at the top level of its **read or stored** schema — the stored model
+counts because query field paths derive from it, so `where('path', …)` would target a field the
+result can never expose.
 
 ### What the group id actually matches
 

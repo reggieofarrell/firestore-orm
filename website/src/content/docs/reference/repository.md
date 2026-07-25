@@ -218,9 +218,12 @@ each call), and `fromSnapshot(snapshot)` — the group counterpart of the reposi
 
 A collection group is a `Query`, not a `CollectionReference`, so the surface is **read-only** and
 results carry `path` / `parentPath` alongside `id` (ids are not unique across a group). **Throws**
-if this repository's read schema declares a top-level `path` or `parentPath`, which the identity
-overlay would shadow. Collection-group queries also need explicitly created collection-group-scoped
-indexes in production. See
+if this repository's **read or stored** schema declares a top-level `path` or `parentPath`, which
+the identity overlay would shadow — the stored model counts because query field paths derive from
+it. `fromSnapshot(snapshot)` **throws** for a snapshot outside the group (its collection id must
+match), so an out-of-group trigger cannot produce a well-typed document carrying the wrong identity.
+Collection-group queries also need explicitly created collection-group-scoped indexes in production.
+See
 [collection-group queries](/firestore-orm/guides/working-with-data/queries/#collection-group-queries).
 
 **`on(event: HookEvent, fn: HookFn): void`**

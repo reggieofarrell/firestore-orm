@@ -399,6 +399,16 @@ export class FirestoreCollectionGroup<T extends object, S extends object = T> {
    * is configured, then overlays full-path identity from `snapshot.ref`. Does no Firestore I/O and
    * returns `null` when the snapshot does not exist.
    *
+   * **The snapshot must belong to this group** — its containing collection id must match. A snapshot
+   * from anywhere else would otherwise be reshaped into a perfectly well-typed
+   * `CollectionGroupDocument` carrying that outsider's `path`, which is precisely the
+   * membership/identity mistake this API exists to prevent (a trigger wired to the wrong path would
+   * look correct and silently lie). This is the same boundary
+   * {@link FirestoreCollectionGroupQueryBuilder.assertCursorBelongsToSource} applies to pagination
+   * cursors, and it costs one comparison — no I/O.
+   *
+   * @throws {Error} If the snapshot's collection id is not this group's.
+   *
    * @example
    * export const onPostWritten = onDocumentCreated('users/{uid}/posts/{postId}', event => {
    *   const post = event.data && postGroup.fromSnapshot(event.data);
@@ -408,6 +418,15 @@ export class FirestoreCollectionGroup<T extends object, S extends object = T> {
    */
   fromSnapshot(snapshot: FirebaseFirestore.DocumentSnapshot): CollectionGroupDocument<T> | null {
     if (!snapshot.exists) return null;
+    if (snapshot.ref.parent.id !== this.collectionIdValue) {
+      throw new Error(
+        `fromSnapshot() received a snapshot from "${snapshot.ref.parent.id}", which is not part of ` +
+          `the "${this.collectionIdValue}" collection group. A collection-group document is ` +
+          'identified by its full path, so reshaping an out-of-group snapshot would produce a ' +
+          'well-typed result carrying the wrong identity. Check the trigger/query path, or use the ' +
+          "owning repository's fromSnapshot().",
+      );
+    }
     const data = this.readConverter
       ? this.readConverter(snapshot as FirebaseFirestore.QueryDocumentSnapshot)
       : (snapshot.data() as T);

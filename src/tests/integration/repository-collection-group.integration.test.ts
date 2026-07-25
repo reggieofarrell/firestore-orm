@@ -519,6 +519,46 @@ describe('FirestoreRepository collectionGroup()', () => {
     expect(postGroup.fromSnapshot(absent)).toBeNull();
   });
 
+  it('rejects a fromSnapshot() snapshot from outside the group', async () => {
+    // Without this, an outsider snapshot is reshaped into a perfectly well-typed
+    // CollectionGroupDocument carrying the outsider's path — a trigger wired to the wrong path would
+    // look correct and silently lie. Same membership boundary the cursor guard applies.
+    const outsider = await db.doc(seeded.outsider).get();
+    expect(() => postGroup.fromSnapshot(outsider)).toThrow(/is not part of the/);
+    expect(() => postGroup.fromSnapshot(outsider)).toThrow(new RegExp(OTHER_ID));
+
+    // A non-existent snapshot short-circuits to null before the membership check, so a delete
+    // trigger on an unrelated path does not throw where it previously returned null.
+    const absentOutsider = await db.doc(`${USERS}/u1/${OTHER_ID}/never-written`).get();
+    expect(postGroup.fromSnapshot(absentOutsider)).toBeNull();
+  });
+
+  it('distinctValues() reads the stored field, never the identity overlay', async () => {
+    // Deliberate divergence from the row-materializing terminals, pinned here: this is the only
+    // surface that can still read a field the identity overlay shadows.
+    const raw = FirestoreRepository.raw<{ title: string; path: string }>(db, GROUP_ID);
+    const paths = [`${GROUP_ID}/dv1`, `${USERS}/u4/${GROUP_ID}/dv2`, `${GROUP_ID}/dv3`];
+    await Promise.all([
+      db.doc(paths[0]).set({ title: 'X', path: '/var/a.txt' }),
+      db.doc(paths[1]).set({ title: 'X', path: '/var/b.txt' }),
+      db.doc(paths[2]).set({ title: 'X', path: '/var/a.txt' }), // duplicate stored value
+    ]);
+
+    try {
+      const group = raw.collectionGroup();
+      const distinct = await group.query().where('title', '==', 'X').distinctValues('path');
+      expect(distinct.sort()).toEqual(['/var/a.txt', '/var/b.txt']);
+
+      // …while the materializing terminals report document paths for the same field name.
+      const rows = await group.query().where('title', '==', 'X').get();
+      expect(rows.map(row => row.path).sort()).toEqual([...paths].sort());
+    } finally {
+      const batch = db.batch();
+      paths.forEach(path => batch.delete(db.doc(path)));
+      await batch.commit();
+    }
+  });
+
   it('applies the read converter in fromSnapshot() before overlaying identity', async () => {
     const converted = FirestoreRepository.withSchema(
       db,
@@ -596,6 +636,54 @@ describe('FirestoreRepository collectionGroup()', () => {
       z.object({ file: z.object({ path: z.string() }) }),
     );
     expect(() => nestedPath.collectionGroup()).not.toThrow();
+  });
+
+  it('rejects a STORED schema whose top-level fields collide with group identity', () => {
+    // The read model is clean but the at-rest model — the shape query field paths derive from —
+    // declares `path`. `where('path', …)` would then filter the stored field while `row.path` came
+    // back as the document path, with the caller's own value unreachable. The library already
+    // rejects a top-level `id` in a storedSchema; identity fields must be treated the same way.
+    const storedPath = FirestoreRepository.withSchema(
+      db,
+      `${GROUP_ID}_files`,
+      z.object({ title: z.string() }),
+      { storedSchema: z.object({ title: z.string(), path: z.string() }) },
+    );
+    expect(() => storedPath.collectionGroup()).toThrow(/declares a top-level "path" field/);
+    expect(() => storedPath.collectionGroup()).toThrow(/stored schema/);
+
+    // Also when a converter is configured — the converter strips the stored field so there is no
+    // silent replacement, but `where('path', …)` still targets a field the result cannot expose.
+    const storedPathConverted = FirestoreRepository.withSchema(
+      db,
+      `${GROUP_ID}_files`,
+      z.object({ title: z.string() }),
+      {
+        storedSchema: z.object({ title: z.string(), parentPath: z.string() }),
+        readConverter: snapshot => ({ title: (snapshot.data() as Post).title }),
+      },
+    );
+    expect(() => storedPathConverted.collectionGroup()).toThrow(
+      /declares a top-level "parentPath"/,
+    );
+
+    // The ordinary (non-group) surface of such a repository is untouched.
+    expect(() => storedPath.query().where('path', '==', 'x')).not.toThrow();
+  });
+
+  it('exposes the effective stored schema on `schemas`, defaulting to the read schema', () => {
+    const explicit = FirestoreRepository.withSchema(db, GROUP_ID, postSchema, {
+      storedSchema: z.object({ title: z.string() }),
+    });
+    expect(Object.keys(explicit.schemas!.stored!.shape).sort()).toEqual(['title']);
+
+    // Omitted: the stored model IS the read model (ADR-0018), so that is what it reports.
+    const implied = FirestoreRepository.withSchema(db, GROUP_ID, postSchema);
+    expect(Object.keys(implied.schemas!.stored!.shape).sort()).toEqual([
+      'status',
+      'title',
+      'views',
+    ]);
   });
 
   it('leaves the single-collection surface untouched', async () => {

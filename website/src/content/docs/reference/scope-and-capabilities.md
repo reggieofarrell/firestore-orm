@@ -75,6 +75,25 @@ spam.forEach(row => batch.delete(db.doc(row.path)));
 await batch.commit();
 ```
 
+⚠️ **A raw batch runs no lifecycle hooks.** That is the whole reason there is no first-class group
+write: `beforeBulkDelete` / `afterBulkDelete` (and the update pair) would receive `{ ids }` they
+cannot resolve. Writing through the SDK does not make the hooks fire with better data — it makes
+them not fire at all, silently. If your hooks are load-bearing (audit trails, cache invalidation,
+downstream fan-out), group the results by `parentPath`, build a concrete repository per parent, and
+write through that instead:
+
+```typescript
+const byParent = new Map<string, typeof spam>();
+for (const row of spam)
+  byParent.set(row.parentPath, [...(byParent.get(row.parentPath) ?? []), row]);
+
+for (const [parentPath, rows] of byParent) {
+  const [, parentId] = parentPath.split('/'); // 'users/u1/posts' → 'u1'
+  const repo = userRepo.subcollection(parentId, 'posts', postSchema);
+  await repo.bulkDelete(rows.map(row => row.id)); // hooks run, ids are unambiguous here
+}
+```
+
 ## Raw-SDK escape hatch
 
 You always own the `Firestore` instance you pass into a repository, so you can drop down to the
@@ -92,7 +111,8 @@ await writer.close();
 
 To re-enter the read model from a raw snapshot, use `repo.fromSnapshot(doc)` — or, for a snapshot
 that could come from any depth of a collection group, `repo.collectionGroup().fromSnapshot(doc)`,
-which overlays full-path identity instead of just the leaf `id`.
+which overlays full-path identity instead of just the leaf `id` and **throws** if the snapshot is
+not in that group.
 
 `fromSnapshot()` maps a raw snapshot back into the repository's read model + `id`. (There is no
 supported getter for a repository's internal `Firestore` instance — keep your own reference to the

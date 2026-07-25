@@ -802,6 +802,15 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
    * semantic equality, so two equal-but-distinct-object values are reported as separate. Use this
    * only for scalar fields (string/number/boolean), or dedupe structured values yourself.
    *
+   * **Reads the document's own field, never a repository identity overlay** (review M1). Unlike the
+   * terminals that materialize whole rows, this reads `doc.data()[field]` directly, so on a
+   * collection-group query `distinctValues('path')` returns the distinct values of a *stored* field
+   * literally named `path` — not the document paths that `get()` reports as `row.path`. That is
+   * deliberate: it is the only surface that can still read a field the identity overlay shadows, so
+   * restricting the key space would close the sole escape hatch for exactly the data users would be
+   * trying to recover. Identity-named keys are only reachable here when the model declares them,
+   * which `collectionGroup()` rejects for schema-validated repositories.
+   *
    * @param field - The (top-level) field to get distinct values from
    * @returns Array of unique values
    *

@@ -143,7 +143,10 @@ average — distinct from an average that genuinely computes to `0`.
 **`distinctValues<K extends keyof Omit<T, 'id'>>(field: K): Promise<T[K][]>`**
 
 Return the distinct values observed for a field. Drops `undefined`, but preserves a stored `null` as
-a distinct value.
+a distinct value. Reads the document's own field directly rather than a materialized row, so on a
+collection group `distinctValues('path')` returns the values of a _stored_ field named `path`, not
+the document paths `get()` reports as `row.path`. That is intentional — it is the only surface that
+can read a field the identity overlay shadows.
 
 **`paginate(pageSize: number, cursor?: string | null): Promise<{ items: R[]; nextCursor: string | null; hasMore: boolean }>`**
 

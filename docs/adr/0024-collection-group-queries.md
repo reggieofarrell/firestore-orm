@@ -77,6 +77,22 @@ from an existing repository.
    an ordinary repository with a stored `path` field stays fully usable. Unvalidated repositories
    have no schema to inspect; the `Omit` in the result type is what surfaces it there.
 
+   > Amendment (review H1, same release): as first written this checked the **read** schema only,
+   > which left the dual-schema axis the library otherwise first-classes wide open. `withSchema`
+   > already rejects a top-level `id` in a `storedSchema`, so identity fields were inconsistent with
+   > the very precedent this decision cites. A repository with a clean read model and a divergent
+   > `storedSchema` declaring `path` was accepted, and `where('path', …)` — typed against `S` —
+   > filtered the stored field while `row.path` came back as the document path, leaving the caller's
+   > own value unreachable (verified on the emulator; with a `readConverter` there is no silent
+   > replacement, because the converter drops the stored field, but the filter/result mismatch
+   > remains, so the check is unconditional). The stored schema was not retained at runtime at all —
+   > `RepositorySchemaSet` carried only `read` / `create` / `update` — so it now also carries the
+   > **effective** `stored` shape (the supplied `storedSchema`, or the read schema when none was
+   > given), an optional and therefore non-breaking addition. The guard checks both models. Checking
+   > stays at `collectionGroup()` rather than construction for the reason above: a `files`
+   > collection with a stored `path` field is an ordinary model and must keep working for non-group
+   > users.
+
 4. **`CollectionGroupDocument`'s `Omit` distributes over unions** (`ReadData extends unknown ? …`),
    unlike `FirestoreDocument`. That non-distributive defect is tracked as #54 across every existing
    site; the new type is written correctly rather than adding to the debt.
@@ -142,6 +158,17 @@ are unchanged.
   `FAILED_PRECONDITION: Firestore does not support descending key scans` — undocumented until now.
   Found because `orderByPath('desc')` inherits it. Both methods now document the workaround (add an
   equality `where` or a preceding `orderBy`), and both are pinned by a regression test.
+- `FirestoreCollectionGroup.fromSnapshot()` rejects a snapshot from outside the group (review M2).
+  Its collection id must match — otherwise an outsider snapshot is reshaped into a perfectly
+  well-typed `CollectionGroupDocument` carrying the outsider's `path`, so a trigger wired to the
+  wrong path would look correct and silently lie. `FirestoreRepository.fromSnapshot()` is unbound by
+  comparison, but the decisive argument is _in-module_ consistency: `assertCursorBelongsToSource`
+  already applies exactly this test to pagination cursors, at one comparison and no I/O.
+- `distinctValues()` deliberately does **not** go through `toResult`, and so reports a stored field
+  named `path` rather than the document path the row terminals overlay (review M1). Restricting its
+  key space was rejected: reading `doc.data()` directly makes it the only surface that can still see
+  a field the identity overlay shadows, so removing identity-named keys would close the sole escape
+  hatch for exactly the data a caller would be trying to recover. Documented and pinned instead.
 - Result materialization moved into `toResult`, so `get` / `getOne` / `paginate` / `offsetPaginate`
   / `stream` / `onSnapshot` can no longer drift apart in how they overlay identity — previously six
   independent copies of `{ ...doc.data(), id: doc.id }`.

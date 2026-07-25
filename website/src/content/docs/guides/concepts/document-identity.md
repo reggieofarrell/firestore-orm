@@ -129,9 +129,11 @@ rows[0].parentPath; // 'users/u2/posts'
 ```
 
 Key group results by `path`, never by `id`. The same overlay rule as `id` applies: identity is
-written on top of the document data, so a stored field named `path` or `parentPath` would be
-shadowed — `collectionGroup()` throws if a schema-validated repository's read schema declares either
-at the top level.
+written on top of the document data, so a field named `path` or `parentPath` would be shadowed.
+`collectionGroup()` throws if a schema-validated repository declares either at the top level of its
+**read or stored** schema — the stored model matters too, because query field paths derive from it,
+so `where('path', …)` would filter a field the result can never expose. An unvalidated (`raw`)
+repository has no schema to inspect; there the `Omit` in the result type is the only signal.
 
 Document-name queries on a group take the full path too — `wherePath(...)` / `orderByPath(...)`
 replace `whereId(...)` / `orderById(...)`, and their operands clear the same validation boundary,

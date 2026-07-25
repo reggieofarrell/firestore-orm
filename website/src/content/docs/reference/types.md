@@ -68,7 +68,11 @@ these types describe, see [FirestoreRepository](/firestore-orm/reference/reposit
 - **`CreateInput<T>`** — create payload type, `WithFieldValue<Omit<T, 'id'>>`; `id` is not a member.
 - **`CreateOutput<T>`** — parsed create output (`Omit<T, 'id'>`) that after-create hooks observe.
 - **`Validator<Input, Output = Input>`** — validation contract produced by `makeValidator(...)`.
-- **`RepositorySchemaSet`** — bundle of read / create / update schemas attached to a repository.
+- **`RepositorySchemaSet`** — bundle of schemas attached to a repository: `read` / `create` /
+  `update`, plus an optional `stored` carrying the effective at-rest shape (the supplied
+  `storedSchema`, or the read schema when none was given). `stored` is what `collectionGroup()`
+  inspects to reject a stored shape colliding with group identity; for the stored shape as a _type_,
+  use `StoredDataOf<typeof repo>`.
 - **`SentinelPolicy`** — `'permissive' | 'strict'` (the v3 default is `'strict'`).
 - **`FieldValueKind`** — union of recognized Firestore sentinel kinds.
 

@@ -80,7 +80,8 @@ Thank you to Happy and the original contributors for the foundation this fork bu
   `@reggieofarrell/firestore-orm/vector`
   ([guide](https://reggieofarrell.github.io/firestore-orm/guides/advanced/vector-search/))
 - **Transaction Support** - ACID guarantees for critical operations
-- **Subcollection Support** - Navigate document hierarchies naturally
+- **Subcollection Support** - Navigate document hierarchies naturally, and query every parent's
+  subcollection at once with collection groups
 - **Dot Notation Updates** - Update nested fields without replacing entire objects
 - **Zero Vendor Lock-In** - Built on Firebase Admin SDK; works with any Node.js framework
 

@@ -218,3 +218,66 @@ the excluded documents.
 (Firestore skips `documentId()` when adding implicit orders, and a document name always exists).
 Otherwise, guarantee the field is always written, or run the branches as separate queries and merge
 by `id`.
+
+## 9. Collection-Group Query Needs Its Own Index (works locally, fails deployed)
+
+**Issue:** a `collectionGroup().query().where('status', '==', 'published')` passes against the
+emulator, then fails in production with `FirestoreIndexError` — even though the same `where(...)` on
+the collection itself needs no index at all.
+
+**Cause:** Firestore's automatic single-field indexes are created with **collection** scope. A
+collection-group query reads a _collection-group_-scoped index, which is never created
+automatically. So a group query needs an explicitly created index even for one field, and the
+emulator does not enforce index requirements at all.
+
+**Solution:** create a collection-group-scoped index for each field you filter or order on. The
+error's console URL pre-fills it; in `firestore.indexes.json` the scope is the `queryScope` field:
+
+```json
+{
+  "indexes": [
+    {
+      "collectionGroup": "posts",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [{ "fieldPath": "status", "order": "ASCENDING" }]
+    }
+  ]
+}
+```
+
+Single-field group indexes are configured under `fieldOverrides` rather than `indexes`; the console
+link in the error picks the right form. Because the emulator never raises this, treat a green local
+run as no evidence that a deployed group query is indexed.
+
+## 10. `Firestore does not support descending key scans`
+
+**Issue:** `orderById('desc')` (or `orderByPath('desc')` on a collection group) fails with
+`FAILED_PRECONDITION: Firestore does not support descending key scans`.
+
+**Cause:** Firestore will not run a query whose **only** ordering is a descending document-name
+scan. It is not specific to collection groups — a plain collection behaves identically.
+
+**Solution:** add any equality `where(...)` clause, or a preceding `orderBy(...)` on a real field.
+Ascending document-name ordering is unrestricted.
+
+```typescript
+await userRepo.query().orderById('desc').get(); // ✗ FAILED_PRECONDITION
+await userRepo.query().where('status', '==', 'active').orderById('desc').get(); // ✓
+await userRepo.query().orderBy('createdAt', 'desc').orderById('desc').get(); // ✓
+```
+
+## 11. Two Collection-Group Rows Have the Same `id`
+
+**Issue:** de-duplicating or keying collection-group results by `id` collapses distinct documents.
+
+**Cause:** document ids are unique only **within one collection**. `users/u1/posts/p1` and
+`users/u2/posts/p1` are two different documents that both report `id: 'p1'`.
+
+**Solution:** key on `path`, which every collection-group result carries. `parentPath` tells you
+which collection (and therefore which parent) a row came from.
+
+```typescript
+const rows = await postGroup.query().where('status', '==', 'draft').get();
+const byPath = new Map(rows.map(row => [row.path, row])); // ✓ unique
+const byId = new Map(rows.map(row => [row.id, row])); // ✗ silently collapses
+```

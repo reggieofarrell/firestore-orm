@@ -110,6 +110,33 @@ await repo.query().orderBy('createdAt', 'desc').orderById().paginate(20);
 [Queries](/firestore-orm/guides/working-with-data/queries/) and
 [FirestoreQueryBuilder](/firestore-orm/reference/query-builder/).
 
+## Identity across a collection group
+
+An `id` is unique only **within one collection**. A
+[collection-group query](/firestore-orm/guides/working-with-data/queries/#collection-group-queries)
+spans every collection with the same id at any depth, so `users/u1/posts/p1` and `users/u2/posts/p1`
+are two different documents that both report `id: 'p1'`.
+
+Group reads therefore return a `CollectionGroupDocument<T>` — the same flat shape, but with the full
+document `path` and the containing `parentPath` overlaid alongside `id`:
+
+```typescript
+const rows = await postRepo.collectionGroup().query().where('status', '==', 'draft').get();
+
+rows[0].id; // 'p1'                  ← ambiguous across the group
+rows[0].path; // 'users/u2/posts/p1' ← the identity that is unique
+rows[0].parentPath; // 'users/u2/posts'
+```
+
+Key group results by `path`, never by `id`. The same overlay rule as `id` applies: identity is
+written on top of the document data, so a stored field named `path` or `parentPath` would be
+shadowed — `collectionGroup()` throws if a schema-validated repository's read schema declares either
+at the top level.
+
+Document-name queries on a group take the full path too — `wherePath(...)` / `orderByPath(...)`
+replace `whereId(...)` / `orderById(...)`, and their operands clear the same validation boundary,
+segment by segment.
+
 ## Legacy Datastore ids
 
 Datastore-mode databases can have integer document ids, which do not satisfy the string-id rules

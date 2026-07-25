@@ -107,6 +107,27 @@ For cursor-based paging use `paginate(pageSize, cursor?)` (it requires a prior `
 is no `.startAfter()` chaining. See [queries](/firestore-orm/guides/working-with-data/queries/) for
 the full query surface.
 
+## Querying every parent's subcollection at once
+
+A subcollection repository is scoped to **one** parent. To read the same subcollection across every
+parent — "all orders, for all users" — use `collectionGroup()`:
+
+```typescript
+const allOrders = await userOrders
+  .collectionGroup()
+  .query()
+  .where('status', '==', 'completed')
+  .get();
+
+allOrders[0].path; // 'users/user-987/orders/o-42'
+allOrders[0].parentPath; // 'users/user-987/orders'
+```
+
+Group results carry the full `path` because document ids are **not** unique across a collection
+group, and the surface is read-only. See
+[collection-group queries](/firestore-orm/guides/working-with-data/queries/#collection-group-queries)
+for the full contract, including the index requirement.
+
 ## Nested subcollections
 
 Because `subcollection()` returns a full repository, you can chain calls to descend multiple levels:

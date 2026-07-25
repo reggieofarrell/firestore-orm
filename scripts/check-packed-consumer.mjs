@@ -66,7 +66,8 @@ function tscExpectOk(dir, label) {
 }
 
 const ROOT_IMPORTS = `
-  FirestoreRepository, FirestoreQueryBuilder, NotFoundError, ValidationError, ConflictError,
+  FirestoreRepository, FirestoreQueryBuilder, FirestoreCollectionGroup,
+  FirestoreCollectionGroupQueryBuilder, NotFoundError, ValidationError, ConflictError,
   FirestoreIndexError, parseFirestoreError, makeValidator, zNumberWrite, zDateWrite, zArrayWrite,
   zSentinel, withDelete, isDotNotation, expandDotNotation, mergeDotNotationUpdate,
   convertTimestampsToMillis, createMillisTimestampConverter
@@ -153,7 +154,33 @@ try {
       `acceptsPostFilter(f => f.where('staus', '==', 'published'));\n` +
       `// @ts-expect-error QueryFilterFactory<S> is invariant — a foreign stored shape is rejected\n` +
       `acceptsPostFilter((f: QueryFilterFactory<StoredOther>) => f.where('email', '==', 'x'));\n` +
-      `export const used = [FirestoreRepository, FirestoreQueryBuilder, NotFoundError, ValidationError, ConflictError, FirestoreIndexError, parseFirestoreError, makeValidator, zNumberWrite, zDateWrite, zArrayWrite, zSentinel, withDelete, isDotNotation, expandDotNotation, mergeDotNotationUpdate, convertTimestampsToMillis, createMillisTimestampConverter, withVectorSearch, vectorEmbeddingSchema, vvl, goodEmb, badEmb, reusable];\n`,
+      // Collection-group surface (issue #31). Three things must survive declaration emit: the
+      // full-path identity on results, the ABSENCE of the destructive/leaf-id members from the group
+      // builder's published type (the whole point of the class split — a runtime-only guard would
+      // not show up here), and the group filter factory's own document-name helper. Every negative
+      // must be an error, or the @ts-expect-error is unused and tsc fails.
+      `import type { CollectionGroupDocument, CollectionGroupFilterFactory } from '${PKG}';\n` +
+      `const groupSchema = z.object({ status: z.string() });\n` +
+      `declare const dbForGroup: FirebaseFirestore.Firestore;\n` +
+      `const groupRepo = FirestoreRepository.withSchema(dbForGroup, 'gposts', groupSchema);\n` +
+      `const group = groupRepo.collectionGroup();\n` +
+      `const groupIsHandle: FirestoreCollectionGroup<{ status: string }> = group;\n` +
+      `const groupBuilder: FirestoreCollectionGroupQueryBuilder<{ status: string }> = group.query();\n` +
+      `declare const groupRow: CollectionGroupDocument<{ status: string }>;\n` +
+      `const groupPath: string = groupRow.path;\n` +
+      `const groupParentPath: string = groupRow.parentPath;\n` +
+      `// @ts-expect-error a collection-group builder has no update() — bulk hooks are id-keyed\n` +
+      `group.query().update({ status: 'x' });\n` +
+      `// @ts-expect-error a collection-group builder has no delete() — bulk hooks are id-keyed\n` +
+      `group.query().delete();\n` +
+      `// @ts-expect-error a bare leaf id is meaningless across a group — wherePath() replaces whereId()\n` +
+      `group.query().whereId('==', 'p1');\n` +
+      `group.query().wherePath('==', 'users/u1/gposts/p1').orderByPath();\n` +
+      `declare function acceptsGroupFilter(build: (f: CollectionGroupFilterFactory<{ status: string }>) => unknown): void;\n` +
+      `acceptsGroupFilter(f => f.or(f.where('status', '==', 'x'), f.wherePath('==', 'a/b')));\n` +
+      `// @ts-expect-error the group factory has no whereId\n` +
+      `acceptsGroupFilter(f => f.whereId('==', 'p1'));\n` +
+      `export const used = [FirestoreRepository, FirestoreQueryBuilder, groupIsHandle, groupBuilder, groupPath, groupParentPath, NotFoundError, ValidationError, ConflictError, FirestoreIndexError, parseFirestoreError, makeValidator, zNumberWrite, zDateWrite, zArrayWrite, zSentinel, withDelete, isDotNotation, expandDotNotation, mergeDotNotationUpdate, convertTimestampsToMillis, createMillisTimestampConverter, withVectorSearch, vectorEmbeddingSchema, vvl, goodEmb, badEmb, reusable];\n`,
   );
   tscExpectOk(esm, 'ESM root+vector consumer (express NOT installed)');
 

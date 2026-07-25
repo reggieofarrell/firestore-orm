@@ -24,6 +24,7 @@ reach the raw Admin SDK for anything not yet wrapped.
 | Subcollections                                  | Concrete parent path                                                    |
 | Field filters + chained AND (`where`)           | Values typed `unknown` (read-converter divergence)                      |
 | Composite AND/OR filters (`whereFilter`)        | Schema-aware filter factory; also a vector prefilter                    |
+| Collection-group queries (`collectionGroup`)    | Read-only; results carry full-path identity; needs group-scoped indexes |
 | Document-name queries (`whereId` / `orderById`) | Native doc-name filter/order; `where('id', …)` is a compile error       |
 | Ordering, forward `limit`                       |                                                                         |
 | Cursor + offset pagination                      | Opaque, forward-only cursor bound to the collection                     |
@@ -43,7 +44,6 @@ issue labeled `parity` / `v3.x`. Until then, use the [raw-SDK escape hatch](#raw
 
 | Capability                                             | Issue                                                            |
 | ------------------------------------------------------ | ---------------------------------------------------------------- |
-| Collection-group queries (full-path identity)          | [#31](https://github.com/reggieofarrell/firestore-orm/issues/31) |
 | Transaction options (read-only / PITR / `maxAttempts`) | [#32](https://github.com/reggieofarrell/firestore-orm/issues/32) |
 | Conditional writes (create-only + preconditions)       | [#33](https://github.com/reggieofarrell/firestore-orm/issues/33) |
 | Generic multi-aggregation `aggregate(spec)`            | [#34](https://github.com/reggieofarrell/firestore-orm/issues/34) |
@@ -55,25 +55,44 @@ issue labeled `parity` / `v3.x`. Until then, use the [raw-SDK escape hatch](#raw
 | Server-side / structured-equality `distinctValues`     | [#40](https://github.com/reggieofarrell/firestore-orm/issues/40) |
 | Experimental Enterprise Pipeline subpath               | [#41](https://github.com/reggieofarrell/firestore-orm/issues/41) |
 
+## Collection groups are read-only
+
+`repo.collectionGroup()` wraps the read surface of a Firestore collection group — every collection
+with the same id, at any depth. Results carry the full `path` and `parentPath` because document IDs
+are **not** unique across a group. See
+[collection-group queries](/firestore-orm/guides/working-with-data/queries/#collection-group-queries).
+
+There is deliberately no group-wide `update()` / `delete()`: the ORM's bulk hooks carry `{ ids }`
+payloads, and an `id` is ambiguous across a group, so a hook could not tell which document it was
+observing. For a group-wide write, use the escape hatch below — the group query gives you each
+document's `path`, so you can batch against `db.doc(row.path)`.
+
+```typescript
+const spam = await postGroup.query().where('status', '==', 'spam').get();
+
+const batch = db.batch();
+spam.forEach(row => batch.delete(db.doc(row.path)));
+await batch.commit();
+```
+
 ## Raw-SDK escape hatch
 
 You always own the `Firestore` instance you pass into a repository, so you can drop down to the
 Admin SDK for anything the ORM does not wrap — you lose the ORM's
-validation/conversion/result-shaping for that operation, but nothing is blocked. For example, a
-collection-group query (until [#31](https://github.com/reggieofarrell/firestore-orm/issues/31)
-lands):
+validation/conversion/result-shaping for that operation, but nothing is blocked. For example,
+`BulkWriter` (until [#38](https://github.com/reggieofarrell/firestore-orm/issues/38) lands):
 
 ```typescript
 // `db` is the same Firestore instance you passed to your repositories.
-const snap = await db.collectionGroup('posts').where('status', '==', 'published').get();
-
-const posts = snap.docs.map(doc => postRepo.fromSnapshot(doc)); // re-enter the read model
+const writer = db.bulkWriter();
+const snap = await db.collection('posts').where('status', '==', 'stale').get();
+snap.docs.forEach(doc => writer.delete(doc.ref));
+await writer.close();
 ```
 
-Note the identity caveat that makes #31 more than a convenience wrapper: `fromSnapshot()` overlays
-only the leaf document name as `id`, and a collection-group result's full path is not recoverable
-from the read model — document IDs are not unique across a collection group. Read `doc.ref.path`
-from the raw snapshot if you need to tell two same-named documents apart.
+To re-enter the read model from a raw snapshot, use `repo.fromSnapshot(doc)` — or, for a snapshot
+that could come from any depth of a collection group, `repo.collectionGroup().fromSnapshot(doc)`,
+which overlays full-path identity instead of just the leaf `id`.
 
 `fromSnapshot()` maps a raw snapshot back into the repository's read model + `id`. (There is no
 supported getter for a repository's internal `Firestore` instance — keep your own reference to the

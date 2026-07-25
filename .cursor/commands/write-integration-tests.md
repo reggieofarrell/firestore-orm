@@ -5,21 +5,22 @@ Firestore emulator. Proceed directly unless business behavior is ambiguous.
 
 ## When to use this command
 
-Use for **`FirestoreRepository`**, **`QueryBuilder`**, hooks, transactions, sentinels, pagination,
-subcollections, and any behavior that must be verified with **real Firestore semantics**.
+Use for **`FirestoreRepository`**, **`QueryBuilder`**, **`CollectionGroup`**, hooks, transactions,
+sentinels, pagination, subcollections, and any behavior that must be verified with **real Firestore
+semantics**.
 
 Integration tests are the **primary safety net** for this database library. Do not substitute unit
 mocks for emulator-backed repository or query behavior.
 
 ## Classify changes
 
-| Path                                                                     | Action                                 |
-| ------------------------------------------------------------------------ | -------------------------------------- |
-| `src/core/FirestoreRepository.ts`, `QueryBuilder.ts`                     | Integration tests required             |
-| Hook / transaction / batch / query behavior                              | Integration tests                      |
-| `src/utils/**`, `ErrorParser`, `ErrorHandler`, `Validation` (pure paths) | Use write-unit-tests instead           |
-| `src/tests/**`                                                           | Update existing tests only when needed |
-| `docs/**`, config-only                                                   | Skip                                   |
+| Path                                                                       | Action                                 |
+| -------------------------------------------------------------------------- | -------------------------------------- |
+| `src/core/FirestoreRepository.ts`, `QueryBuilder.ts`, `CollectionGroup.ts` | Integration tests required             |
+| Hook / transaction / batch / query behavior                                | Integration tests                      |
+| `src/utils/**`, `ErrorParser`, `ErrorHandler`, `Validation` (pure paths)   | Use write-unit-tests instead           |
+| `src/tests/**`                                                             | Update existing tests only when needed |
+| `docs/**`, config-only                                                     | Skip                                   |
 
 ## Skill
 
@@ -42,6 +43,7 @@ mocks for emulator-backed repository or query behavior.
 | --------------------- | ------------------------ |
 | ORM core              | `FirestoreRepository.ts` |
 | Query layer           | `QueryBuilder.ts`        |
+| Collection groups     | `CollectionGroup.ts`     |
 | Validation (emulator) | `Validation.ts`          |
 
 Merged LCOV is not gated. See `docs/development/testing.md`.

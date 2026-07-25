@@ -9,6 +9,14 @@ Tracked gaps beyond the current test suite. Remove items when covered.
 - [x] Pagination edge cases (missing orderBy, invalid page size, stale cursor)
 - [x] `select()`, `in`, `array-contains`, `count()`
 
+## CollectionGroup
+
+- [x] Group membership (multi-parent, root-level, recursively nested), full-path identity
+- [x] `wherePath` / `orderByPath` operand validation and the cursor-binding boundary
+- [ ] Behavior against a **real** (non-emulator) backend where collection-group-scoped indexes are
+      enforced — the emulator never raises `FirestoreIndexError`, so the documented index
+      requirement is untested by CI
+
 ## FirestoreRepository
 
 - [x] `bulkUpdate` / `bulkPatch` return shape assertions

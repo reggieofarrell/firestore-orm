@@ -35,7 +35,8 @@ Designed to make backend Firestore development actually enjoyable.
   `@reggieofarrell/firestore-orm/vector`
   ([guide](https://reggieofarrell.github.io/firestore-orm/guides/advanced/vector-search/))
 - **Transaction Support** - ACID guarantees for critical operations
-- **Subcollection Support** - Navigate document hierarchies naturally
+- **Subcollection Support** - Navigate document hierarchies naturally, and query every parent's
+  subcollection at once with collection groups
 - **Dot Notation Updates** - Update nested fields without replacing entire objects
 
 ### Framework Agnostic

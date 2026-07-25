@@ -204,6 +204,25 @@ own fresh id.
 Create a query builder for complex queries, aggregations, streaming, and real-time listeners. See
 [FirestoreQueryBuilder](/firestore-orm/reference/query-builder/).
 
+**`collectionGroup(): FirestoreCollectionGroup<T, S>`**
+
+Get a handle on the **collection group** this repository's collection belongs to — every collection
+with the same id, at any depth, including a same-named root collection. The group id is the last
+segment of this repository's collection path, and the handle inherits this repository's read model,
+stored (query-path) model, `readConverter`, and `allowLegacyDatastoreIds` policy.
+
+The handle is stateless and reusable. It exposes `collectionId`, `query()` (a fresh
+[collection-group query builder](/firestore-orm/reference/query-builder/#collection-group-query-builder)
+each call), and `fromSnapshot(snapshot)` — the group counterpart of the repository's own
+`fromSnapshot`, returning a `CollectionGroupDocument<T> | null` with full-path identity.
+
+A collection group is a `Query`, not a `CollectionReference`, so the surface is **read-only** and
+results carry `path` / `parentPath` alongside `id` (ids are not unique across a group). **Throws**
+if this repository's read schema declares a top-level `path` or `parentPath`, which the identity
+overlay would shadow. Collection-group queries also need explicitly created collection-group-scoped
+indexes in production. See
+[collection-group queries](/firestore-orm/guides/working-with-data/queries/#collection-group-queries).
+
 **`on(event: HookEvent, fn: HookFn): void`**
 
 Register a lifecycle hook. Supported events:

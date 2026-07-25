@@ -12,7 +12,8 @@ After completing implementation changes in Agent mode, remind the user that test
 or updated for the changed files. Suggest the appropriate skill:
 
 - **`src/utils/**`, `ErrorParser`, `ErrorHandler`, `Validation`** → unit-testing skill
-- **`FirestoreRepository`, `QueryBuilder`, hooks, transactions** → integration-testing skill
+- **`FirestoreRepository`, `QueryBuilder`, `CollectionGroup`, hooks, transactions** →
+  integration-testing skill
 
 **Integration tests are the primary confidence layer** for this database library — emulator-backed
 reads/writes, batching, and hooks. Unit tests cover pure logic fast; they do not replace integration
@@ -30,9 +31,9 @@ When suggesting tests:
 
 ## Coverage gate ownership
 
-| Changed paths                                                           | Suite       | Gate command                     |
-| ----------------------------------------------------------------------- | ----------- | -------------------------------- |
-| `src/utils/**`, `ErrorParser`, `ErrorHandler`, `Validation`, `index.ts` | Unit        | `test:coverage:gate:unit`        |
-| `FirestoreRepository`, `QueryBuilder`, emulator validation paths        | Integration | `test:coverage:gate:integration` |
+| Changed paths                                                                       | Suite       | Gate command                     |
+| ----------------------------------------------------------------------------------- | ----------- | -------------------------------- |
+| `src/utils/**`, `ErrorParser`, `ErrorHandler`, `Validation`, `index.ts`             | Unit        | `test:coverage:gate:unit`        |
+| `FirestoreRepository`, `QueryBuilder`, `CollectionGroup`, emulator validation paths | Integration | `test:coverage:gate:integration` |
 
 Merged LCOV is not used as a gate — each suite enforces its own path-specific thresholds.

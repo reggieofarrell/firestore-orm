@@ -148,6 +148,11 @@ const INTEGRATION_GATES = [
     thresholds: { lines: 90, branches: 75, functions: 95 },
   },
   {
+    name: 'CollectionGroup (emulator)',
+    match: file => file === 'src/core/CollectionGroup.ts',
+    thresholds: { lines: 90, branches: 75, functions: 95 },
+  },
+  {
     name: 'Validation via emulator paths',
     match: file => file === 'src/core/Validation.ts',
     thresholds: { lines: 90, branches: 80, functions: 95 },

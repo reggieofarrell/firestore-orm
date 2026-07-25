@@ -45,3 +45,4 @@ consequences. They explain _why_ the codebase looks the way it does, which commi
 | [0021](0021-v3-query-builder-api-cleanups.md)                  | v3 query-builder and packaging API cleanups                                  | Accepted (v3)                                                 | 2026-07-21 |
 | [0022](0022-vector-value-hardening.md)                         | v3 vector-value hardening (genuine VectorValue, object-form compat)          | Accepted (v3)                                                 | 2026-07-22 |
 | [0023](0023-composite-filter-factory.md)                       | Composite AND/OR filters via a schema-aware filter factory (`whereFilter`)   | Accepted (v3)                                                 | 2026-07-24 |
+| [0024](0024-collection-group-queries.md)                       | Collection-group queries: read-only surface with full-path result identity   | Accepted (v3)                                                 | 2026-07-25 |

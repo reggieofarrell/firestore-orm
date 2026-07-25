@@ -185,6 +185,120 @@ const posts = await postRepo.query().whereFilter(publishedOrMine(currentUserId))
 The shape must match that repository exactly — annotating a predicate with a _different_
 repository's shape is a compile error, not a silent mismatch.
 
+## Collection-group queries
+
+`repo.collectionGroup()` queries **every collection that shares this repository's collection id**,
+at any depth in the database — the classic "all `posts`, across all users" query. The group id is
+the last segment of the repository's path, and the returned handle inherits that repository's read
+model, stored (query-path) model, read converter, and `allowLegacyDatastoreIds` policy.
+
+```typescript
+// A repository for one user's posts: 'users/u1/posts'
+const userPosts = userRepo.subcollection('u1', 'posts', postSchema);
+
+// …and the same shape, across every user.
+const postGroup = userPosts.collectionGroup();
+
+const published = await postGroup
+  .query()
+  .where('status', '==', 'published')
+  .orderBy('createdAt', 'desc')
+  .limit(20)
+  .get();
+```
+
+If you have no concrete parent id handy, make a top-level handle — constructing a repository does no
+I/O, so the collection it names does not have to exist:
+
+```typescript
+const postGroup = FirestoreRepository.withSchema(db, 'posts', postSchema).collectionGroup();
+```
+
+### Results carry full-path identity
+
+Document ids are only unique **within one collection**, so `users/u1/posts/p1` and
+`users/u2/posts/p1` are different documents that both report `id: 'p1'`. Group results are therefore
+[`CollectionGroupDocument`](/firestore-orm/reference/types/)s: the read data plus `id`, the full
+`path`, and the containing collection's `parentPath` — all plain strings, so a result stays
+JSON-serializable.
+
+```typescript
+const rows = await postGroup.query().where('status', '==', 'draft').get();
+
+rows[0].id; // 'p1'          ← ambiguous across the group
+rows[0].path; // 'users/u2/posts/p1'  ← the identity that is actually unique
+rows[0].parentPath; // 'users/u2/posts'
+```
+
+To act on a document, rebuild a reference from the path with the `Firestore` instance you already
+own: `db.doc(row.path)`.
+
+Identity is overlaid on top of the document data, exactly as `id` is on a normal read, so a stored
+field named `path` or `parentPath` would be shadowed. `collectionGroup()` **throws** if a
+schema-validated repository's read schema declares either at the top level.
+
+### What the group id actually matches
+
+A collection group is matched purely by collection id, which catches more than people expect:
+
+- a same-named **root** collection (`posts/abc`) is a member;
+- a same-named collection nested **under a group member** (`users/u1/posts/p1/posts/deep`) is a
+  member;
+- a collection with a _different_ id under the same parent is never a member.
+
+### Document-name queries use the full path
+
+Because ids are ambiguous, a group's document-name operations work on the full path.
+`wherePath(...)` / `orderByPath(...)` replace `whereId(...)` / `orderById(...)`, which are not
+available on a group builder:
+
+```typescript
+await postGroup.query().wherePath('==', 'users/u1/posts/p1').getOne();
+await postGroup
+  .query()
+  .wherePath('in', [db.doc('users/u1/posts/p1')])
+  .get();
+
+// Stable pagination tiebreaker — ordering is lexicographic over the full path.
+await postGroup.query().orderByPath().paginate(20);
+```
+
+Path operands are validated segment by segment against the same rules as any other id the ORM
+accepts, so a bare id, a `..` segment, or a reserved `__…__` segment throws
+[`InvalidDocumentIdError`](/firestore-orm/reference/errors/) before any I/O. A well-formed path that
+simply isn't in the group matches nothing (Firestore reports no error for it).
+
+Inside `whereFilter(...)`, the group factory exposes `f.wherePath(...)` for the same reason:
+
+```typescript
+await postGroup
+  .query()
+  .whereFilter(f => f.or(f.where('status', '==', 'published'), f.wherePath('==', pinnedPath)))
+  .get();
+```
+
+### Read-only, and the rest of the surface
+
+Everything else behaves exactly as it does on a single-collection query — `where`, `whereFilter`,
+`orderBy`, `limit`, `select`, `get` / `getOne` / `exists`, `count`, `sum` / `average`,
+`distinctValues`, `paginate` / `offsetPaginate` / `paginateWithCount`, `stream`, and `onSnapshot`.
+`groupCount()` replaces `collectionCount()` as the unfiltered count.
+
+A collection group has no `CollectionReference`, so there is **no write surface**: `update()` and
+`delete()` do not exist on a group builder (a compile error, not a runtime throw). Their bulk hooks
+carry `{ ids }` payloads, and ids are not unique across a group, so every registered hook would see
+ambiguous identity. For a group-wide write, drop to the Admin SDK — see
+[Scope & Capabilities](/firestore-orm/reference/scope-and-capabilities/#raw-sdk-escape-hatch).
+
+### ⚠️ Collection-group queries need their own indexes
+
+Firestore's automatic single-field indexes are **collection**-scoped. A collection-group query that
+filters or orders on a field needs an explicitly created **collection-group-scoped** index in
+production — even for a single `where(...)`. The emulator does not enforce this, so a group query
+that passes locally can fail deployed with
+[`FirestoreIndexError`](/firestore-orm/reference/errors/). See
+[Troubleshooting](/firestore-orm/reference/troubleshooting/).
+
 ## Sorting
 
 Chain `orderBy()` calls to sort by one or more fields. The direction defaults to `'asc'`.

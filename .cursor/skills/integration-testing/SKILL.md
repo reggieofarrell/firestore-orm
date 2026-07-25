@@ -31,6 +31,7 @@ emulator-backed ORM surface — the primary safety net for database behavior.
 | --------------------- | ------------------------ | ----------------------------------------- |
 | ORM core              | `FirestoreRepository.ts` | 90% / 75% / 85%                           |
 | Query layer           | `QueryBuilder.ts`        | 90% / 75% / 95%                           |
+| Collection groups     | `CollectionGroup.ts`     | 90% / 75% / 95%                           |
 | Validation (emulator) | `Validation.ts`          | 90% / 80% / 95%                           |
 
 Merged LCOV is **not** gated — it inflates confidence. See `scripts/check-coverage-gates.mjs`.

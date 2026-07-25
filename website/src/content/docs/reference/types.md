@@ -7,7 +7,8 @@ description:
 
 Types re-exported from the package entry point (`@reggieofarrell/firestore-orm`). For the classes
 these types describe, see [FirestoreRepository](/firestore-orm/reference/repository/) and
-[FirestoreQueryBuilder](/firestore-orm/reference/query-builder/); for the runtime helpers, see
+[FirestoreQueryBuilder](/firestore-orm/reference/query-builder/) (which also documents
+`FirestoreCollectionGroup` and `FirestoreCollectionGroupQueryBuilder`); for the runtime helpers, see
 [Helpers & Utilities](/firestore-orm/reference/helpers/).
 
 - **`ID`** — `string` document-identifier alias.
@@ -18,6 +19,15 @@ these types describe, see [FirestoreRepository](/firestore-orm/reference/reposit
 - **`StoredDataOf<R>`** — extracts a repository's stored-data type (`Omit<S, 'id'>`).
 - **`DocumentOf<R>`** — extracts a repository's document result type
   (`FirestoreDocument<DataOf<R>>`); name a returned document type without spelling the generics.
+- **`CollectionGroupDocument<T>`** — the read-result shape of a
+  [collection-group query](/firestore-orm/guides/working-with-data/queries/#collection-group-queries):
+  `Omit<T, 'id' | 'path' | 'parentPath'>` plus a readonly `id`, the full document `path`
+  (`'users/u1/posts/p1'`), and the containing collection's `parentPath` (`'users/u1/posts'`). All
+  plain strings, so a result stays JSON-serializable — rebuild a reference with `db.doc(row.path)`.
+  Ids are not unique across a group, so `path` is the identity that distinguishes two rows. Compose
+  it with the extractors to name a row: `CollectionGroupDocument<DataOf<typeof postRepo>>`. Unlike
+  `FirestoreDocument`, its `Omit` distributes over a union read model
+  ([#54](https://github.com/reggieofarrell/firestore-orm/issues/54) fixes the same defect there).
 - **`InvalidDocumentIdReason`** — machine-readable cause carried by `InvalidDocumentIdError` (the
   error class is documented in [Error Handling](/firestore-orm/reference/errors/)).
 - **`HookEvent`** — union of supported lifecycle hook names.
@@ -48,6 +58,11 @@ these types describe, see [FirestoreRepository](/firestore-orm/reference/reposit
   `const mine = (f: QueryFilterFactory<StoredDataOf<typeof postRepo>>) => f.or(…)`. `S` is
   **invariant**: a predicate annotated with a different repository's shape (or one that still
   includes `id`) is a compile error rather than silently accepted.
+- **`CollectionGroupFilterFactory<S>`** — the collection-group counterpart, handed to
+  `collectionGroup().query().whereFilter(...)`. Identical to `QueryFilterFactory<S>` except that the
+  document-name helper is `wherePath(op, fullPathOrRef)` rather than `whereId(op, id)`, because a
+  collection-group query matches `documentId()` against the **full document path**. Same invariance
+  rules.
 - **`UpdateInput<T>`** — update payload type, `UpdateData<Omit<T, 'id'>>` (typed dot-notation
   paths).
 - **`CreateInput<T>`** — create payload type, `WithFieldValue<Omit<T, 'id'>>`; `id` is not a member.

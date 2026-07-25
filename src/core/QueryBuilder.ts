@@ -373,9 +373,10 @@ export class FirestoreQueryBuilder<
    *
    * ⚠️ **An inequality inside an `or()` branch drops documents that are MISSING that field — even
    * documents matched by a DIFFERENT branch.** Firestore adds an implicit `orderBy` for every
-   * inequality field (`<`, `<=`, `>`, `>=`, `!=`, `not-in`) collected across the *flattened* filter
-   * tree, and a document without an ordered field cannot appear. So an OR query can return **fewer**
-   * rows than one of its own disjuncts, and `count()` agrees — it is not a read-path artifact:
+   * inequality field (`<`, `<=`, `>`, `>=`, `!=`) collected across the *flattened* filter tree, and a
+   * document without an ordered field cannot appear. (`not-in` is an inequality too, but it can never
+   * appear inside an `OR` — Firestore rejects that combination outright.) So an OR query can return
+   * **fewer** rows than one of its own disjuncts, and `count()` agrees — it is not a read-path artifact:
    *
    * ```
    * where('kind', '==', 'x')                              → 4 docs

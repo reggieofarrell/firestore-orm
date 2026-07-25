@@ -231,7 +231,25 @@ automatically. So a group query needs an explicitly created index even for one f
 emulator does not enforce index requirements at all.
 
 **Solution:** create a collection-group-scoped index for each field you filter or order on. The
-error's console URL pre-fills it; in `firestore.indexes.json` the scope is the `queryScope` field:
+error's console URL pre-fills the right one; in `firestore.indexes.json` the scope is the
+`queryScope` field, and **which section it goes in depends on how many fields it covers**.
+
+A **single**-field group index is a `fieldOverrides` entry — `indexes` entries are composite and
+require two or more fields:
+
+```json
+{
+  "fieldOverrides": [
+    {
+      "collectionGroup": "posts",
+      "fieldPath": "status",
+      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }]
+    }
+  ]
+}
+```
+
+A **multi**-field group index is an `indexes` entry with `queryScope` set:
 
 ```json
 {
@@ -239,15 +257,21 @@ error's console URL pre-fills it; in `firestore.indexes.json` the scope is the `
     {
       "collectionGroup": "posts",
       "queryScope": "COLLECTION_GROUP",
-      "fields": [{ "fieldPath": "status", "order": "ASCENDING" }]
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
     }
   ]
 }
 ```
 
-Single-field group indexes are configured under `fieldOverrides` rather than `indexes`; the console
-link in the error picks the right form. Because the emulator never raises this, treat a green local
-run as no evidence that a deployed group query is indexed.
+Note that a `fieldOverrides` entry **replaces** automatic indexing for that field, so list every
+index you still want — adding only the `COLLECTION_GROUP` entry drops the automatic
+collection-scoped ones and can break existing single-collection queries on the same field.
+
+Because the emulator never raises this, treat a green local run as no evidence that a deployed group
+query is indexed.
 
 ## 10. `Firestore does not support descending key scans`
 

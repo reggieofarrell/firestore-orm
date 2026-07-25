@@ -44,3 +44,4 @@ consequences. They explain _why_ the codebase looks the way it does, which commi
 | [0020](0020-aggregate-null-fidelity.md)                        | Aggregate null fidelity — `average` returns `number \| null`                 | Accepted (v3)                                                 | 2026-07-21 |
 | [0021](0021-v3-query-builder-api-cleanups.md)                  | v3 query-builder and packaging API cleanups                                  | Accepted (v3)                                                 | 2026-07-21 |
 | [0022](0022-vector-value-hardening.md)                         | v3 vector-value hardening (genuine VectorValue, object-form compat)          | Accepted (v3)                                                 | 2026-07-22 |
+| [0023](0023-composite-filter-factory.md)                       | Composite AND/OR filters via a schema-aware filter factory (`whereFilter`)   | Accepted (v3)                                                 | 2026-07-24 |

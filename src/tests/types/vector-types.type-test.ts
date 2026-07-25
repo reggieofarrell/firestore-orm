@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { FirestoreRepository } from '../../index.js';
 import { withVectorSearch } from '../../vector/index.js';
 import type { VectorSearchResult } from '../../vector/index.js';
+import type { QueryFilterFactory, StoredDataOf } from '../../index.js';
 
 declare const db: FirebaseFirestore.Firestore;
 
@@ -295,4 +296,28 @@ export async function d4QueryIsNormalVectorQueryIsVector() {
   // query() still exposes the normal terminals, e.g. a query-aware count.
   const n: number = await vectorRepo.query().count();
   return n;
+}
+
+// The composite pre-filter carries the same schema-aware typing as the core builder (issue #30's
+// "typed field paths preserved where possible", on the vector prequery too), and is only reachable
+// BEFORE findNearest() transitions the builder into vector mode.
+export function vectorCompositePreFilterTyping() {
+  vectorRepo.vectorQuery().whereFilter(f => f.where('name', '==', 'a'));
+  vectorRepo
+    .vectorQuery()
+    .whereFilter(f => f.or(f.where('name', '==', 'a'), f.and(f.whereId('in', ['x', 'y']))));
+
+  // A reusable predicate names the shape with StoredDataOf, exactly as on the core builder.
+  const mine = (f: QueryFilterFactory<StoredDataOf<typeof repo>>) => f.where('name', '==', 'a');
+  vectorRepo.vectorQuery().whereFilter(mine);
+
+  // @ts-expect-error typo in a stored field path inside a vector pre-filter
+  vectorRepo.vectorQuery().whereFilter(f => f.where('nmae', '==', 'a'));
+  // @ts-expect-error the synthetic `id` is not a stored field path — use f.whereId(...)
+  vectorRepo.vectorQuery().whereFilter(f => f.where('id', '==', 'a'));
+  // @ts-expect-error 'in' requires an array of ids
+  vectorRepo.vectorQuery().whereFilter(f => f.whereId('in', 'abc'));
+  const foreign = (f: QueryFilterFactory<{ other: boolean }>) => f.where('other', '==', true);
+  // @ts-expect-error a predicate typed against a foreign stored shape is rejected (invariance)
+  vectorRepo.vectorQuery().whereFilter(foreign);
 }

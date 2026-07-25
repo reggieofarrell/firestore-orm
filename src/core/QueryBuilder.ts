@@ -10,6 +10,7 @@ import {
   AggregateField,
   CollectionReference,
   FieldPath,
+  Filter,
   Firestore,
   Query,
   QueryDocumentSnapshot,
@@ -44,6 +45,139 @@ export type PaginatedResult<T extends object> = {
   nextCursor: string | null;
   hasMore: boolean;
 };
+
+/**
+ * Schema-aware factory for composite query filters, handed to the callback of
+ * {@link FirestoreQueryBuilder.whereFilter}. Mirrors the Admin SDK's `Filter` statics, but the field
+ * paths are typed against the repository's **stored** shape (so a typo is a compile error) and
+ * `whereId` runs the same validated document-id boundary as {@link FirestoreQueryBuilder.whereId}.
+ *
+ * The factory is stateless and its methods return plain SDK `Filter` values, so a group can be
+ * extracted into a reusable predicate. Name the shape with `StoredDataOf<typeof repo>` — it already
+ * resolves to the repository's stored data without the synthetic `id`:
+ *
+ * @example
+ * const publishedOrMine =
+ *   (uid: string) => (f: QueryFilterFactory<StoredDataOf<typeof postRepo>>) =>
+ *     f.or(f.where('status', '==', 'published'), f.where('authorId', '==', uid));
+ *
+ * await postRepo.query().whereFilter(publishedOrMine(uid)).get();
+ *
+ * @template S - the repository's **stored** data shape (without the synthetic `id`). Declared
+ *   **invariant** (`in out`) deliberately. `S` appears only inside the deferred conditional type
+ *   `FieldPaths<S>`, and TypeScript cannot measure variance through that, so with no annotation it
+ *   falls back to accepting BOTH directions: a predicate annotated with an unrelated repository's
+ *   shape — or one that kept `id` in the shape and could then query the synthetic `id` as a stored
+ *   field path — was silently accepted, defeating the typo protection this type exists to provide.
+ *   (Verified: property syntax is bivariant here too, so this is not the usual method-parameter
+ *   bivariance; a control factory parameterized by a plain string union IS measured contravariantly.)
+ *   Invariance requires the annotated shape to match the repository's stored shape exactly, so use
+ *   `StoredDataOf<typeof repo>` (or `Omit<Stored, 'id'>`) rather than the raw model. Variance
+ *   annotations require TypeScript 4.7+; the documented floor is 5.5+ (ADR-0016).
+ */
+export interface QueryFilterFactory<in out S extends object> {
+  /**
+   * A single field condition — the composite-filter counterpart of
+   * {@link FirestoreQueryBuilder.where}. `field` is a typed stored field path (or a `FieldPath`);
+   * `value` stays `unknown` because a `readConverter` can make the stored representation differ from
+   * the read model.
+   */
+  where(field: FieldPaths<S> | FieldPath, op: WhereFilterOp, value: unknown): Filter;
+  /**
+   * A document-name condition via `FieldPath.documentId()` — the composite-filter counterpart of
+   * {@link FirestoreQueryBuilder.whereId}, with the same `InvalidDocumentIdError` boundary and the
+   * same operator restrictions (array-contains operators are intentionally excluded).
+   */
+  whereId(op: '<' | '<=' | '==' | '!=' | '>=' | '>', value: string): Filter;
+  whereId(op: 'in' | 'not-in', value: readonly string[]): Filter;
+  /** Conjunction — every given filter must match. Requires at least one filter. */
+  and(...filters: Filter[]): Filter;
+  /** Disjunction — at least one given filter must match. Requires at least one filter. */
+  or(...filters: Filter[]): Filter;
+}
+
+/**
+ * Builds a validated document-name (`FieldPath.documentId()`) filter. Shared by
+ * {@link FirestoreQueryBuilder.whereId} and the {@link QueryFilterFactory} so both surfaces apply
+ * one identical id boundary — `Query.where(field, op, value)` internally does exactly this
+ * (`filter = Filter.where(...)`), so routing both through a `Filter` changes no SDK behavior.
+ *
+ * Validation is applied **per operand**, not to the array as a whole: a mixed
+ * `['__id7__', someDocRef]` must still have its id STRING checked rather than skipping the gate
+ * because one element is not a string.
+ *
+ * @param references - `'reject'` for `whereId(...)`, whose signature promises id strings, so a
+ *   non-string operand is a contract violation and gets the `InvalidDocumentIdError` boundary.
+ *   `'allow'` for `where(FieldPath.documentId(), …)`, whose operand type is `unknown` and where
+ *   Firestore also accepts an already-resolved `DocumentReference` — not an untrusted id string to
+ *   parse, so non-string operands pass through while string operands are still validated.
+ */
+function documentIdFilter(
+  op: WhereFilterOp,
+  value: unknown,
+  allowLegacyDatastoreIds: boolean,
+  references: 'allow' | 'reject',
+): Filter {
+  const operands = Array.isArray(value) ? value : [value];
+  for (const operand of operands) {
+    if (references === 'allow' && typeof operand !== 'string') continue;
+    validateDocumentId(operand, 'whereId value', { allowLegacyDatastoreIds });
+  }
+  return Filter.where(FieldPath.documentId(), op, value);
+}
+
+/**
+ * True only for `FieldPath.documentId()` — the document-NAME sentinel. A string field path is never
+ * the document name (a stored field literally called `id` is ordinary data), so only the `FieldPath`
+ * form can address it.
+ */
+function isDocumentIdPath(field: unknown): field is FieldPath {
+  return field instanceof FieldPath && FieldPath.documentId().isEqual(field);
+}
+
+/**
+ * Rejects an empty `and()` / `or()` group. The SDK does not: `_parseCompositeFilter` drops
+ * sub-filters that reduce to nothing and `Query.where()` returns the query UNCHANGED for a filter
+ * with zero conditions, so `f.or()` would silently widen the query to **every document in the
+ * collection** rather than failing. That silent broadening is rejected here instead.
+ */
+function assertNonEmptyFilterGroup(name: 'and' | 'or', filters: readonly Filter[]): void {
+  if (filters.length === 0) {
+    throw new Error(
+      `f.${name}() requires at least one filter. Firestore silently DROPS an empty composite ` +
+        `filter — the query would match every document in the collection instead of narrowing it. ` +
+        `If the group is built dynamically, check for an empty list before calling f.${name}().`,
+    );
+  }
+}
+
+/**
+ * Creates the {@link QueryFilterFactory} for one `whereFilter()` call, bound to the builder's
+ * `allowLegacyDatastoreIds` setting so `f.whereId(...)` honors the repository's id policy.
+ */
+function createQueryFilterFactory<S extends object>(
+  allowLegacyDatastoreIds: boolean,
+): QueryFilterFactory<S> {
+  return {
+    where: (field, op, value) =>
+      // `f.where(FieldPath.documentId(), …)` addresses the document NAME, so it must clear the same
+      // id boundary as `f.whereId(...)` rather than reaching the SDK unvalidated (the SDK blocks path
+      // traversal but accepts the reserved `__…__` namespace that validateDocumentId exists to gate).
+      isDocumentIdPath(field)
+        ? documentIdFilter(op, value, allowLegacyDatastoreIds, 'allow')
+        : Filter.where(field as string | FieldPath, op, value),
+    whereId: (op: WhereFilterOp, value: string | readonly string[]) =>
+      documentIdFilter(op, value, allowLegacyDatastoreIds, 'reject'),
+    and: (...filters) => {
+      assertNonEmptyFilterGroup('and', filters);
+      return Filter.and(...filters);
+    },
+    or: (...filters) => {
+      assertNonEmptyFilterGroup('or', filters);
+      return Filter.or(...filters);
+    },
+  };
+}
 
 /**
  * @template T - **read data** (no `id`); terminal reads return {@link FirestoreDocument}`<T>`.
@@ -214,7 +348,122 @@ export class FirestoreQueryBuilder<
    * @returns The query builder instance
    */
   where(field: FieldPaths<Omit<S, 'id'>> | FieldPath, op: WhereFilterOp, value: unknown): this {
-    this.query = this.query.where(field as string | FieldPath, op, value);
+    // A `FieldPath.documentId()` operand is a document NAME, so it clears the same validated id
+    // boundary as `whereId(...)`; every other field path is ordinary stored data and passes straight
+    // through. Keeps one id policy across `where`, `whereId`, and the whereFilter factory.
+    this.query = isDocumentIdPath(field)
+      ? this.query.where(documentIdFilter(op, value, this.allowLegacyDatastoreIds, 'allow'))
+      : this.query.where(field as string | FieldPath, op, value);
+    return this;
+  }
+
+  /**
+   * Add a **composite** filter — nested `AND` / `OR` boolean expressions, which chained `where()`
+   * calls (an implicit top-level AND) cannot express.
+   *
+   * The callback receives a schema-aware {@link QueryFilterFactory}: `f.where(...)` takes the same
+   * typed stored field paths as {@link where} at every nesting depth, and `f.whereId(...)` applies
+   * the same validated document-id boundary as {@link whereId}. A prebuilt Admin SDK `Filter` may be
+   * returned directly (`f => myFilter`) as an escape hatch — it is applied verbatim, without the
+   * typed-path or id validation the factory provides.
+   *
+   * Composes with everything else on the builder: a `whereFilter()` is AND-ed with any chained
+   * `where()` clauses, and works with `orderBy`/`limit`, `select`, the aggregations, pagination,
+   * `stream()`, `onSnapshot()`, the `update()`/`delete()` terminals, and vector prefilters.
+   *
+   * ⚠️ **An inequality inside an `or()` branch drops documents that are MISSING that field — even
+   * documents matched by a DIFFERENT branch.** Firestore adds an implicit `orderBy` for every
+   * inequality field (`<`, `<=`, `>`, `>=`, `!=`) collected across the *flattened* filter tree, and a
+   * document without an ordered field cannot appear. (`not-in` is an inequality too, but it can never
+   * appear inside an `OR` — Firestore rejects that combination outright.) So an OR query can return
+   * **fewer** rows than one of its own disjuncts, and `count()` agrees — it is not a read-path artifact:
+   *
+   * ```
+   * where('kind', '==', 'x')                              → 4 docs
+   * whereFilter(f => f.or(f.where('score', '>', 5),
+   *                       f.where('kind', '==', 'x')))    → 3 docs  ← a `kind: 'x'` doc has no `score`
+   * ```
+   *
+   * This also affects the destructive `update()` / `delete()` terminals, which would silently skip
+   * those documents. Safe shapes inside `or()`: equality, `in`, and `array-contains` /
+   * `array-contains-any`; and `f.whereId(...)` with a comparison operator, which is exempt because
+   * Firestore skips `documentId()` when adding implicit orders and a document name always exists.
+   * If you need an inequality branch, ensure the field is always written (e.g. a default at create
+   * time), or run the branches as separate queries and merge by `id`.
+   *
+   * Firestore enforces its own limits on the **server** and the ORM does not duplicate them (a local
+   * copy would risk rejecting a query the backend accepts, and the counts multiply across clauses the
+   * callback cannot see). Non-exhaustively: at most 30 disjunctions after normalization (an ANDed pair
+   * of 6-value `in` filters is already 36), `in` accepts at most 30 values, at most one
+   * `array-contains` **per disjunction**, and one `!=` / `not-in` **per query** — which also counts
+   * `!= null` / `!= NaN`. A `not-in` anywhere in the query is incompatible with any `OR`, including a
+   * `not-in` from a chained `where()` outside this callback. All surface as `INVALID_ARGUMENT`. A
+   * composite query may also require a composite index.
+   *
+   * @param build - Callback that composes and returns the filter
+   *
+   * @example
+   * // status == 'published' OR (authorId == me AND visibility == 'private')
+   * const posts = await postRepo.query()
+   *   .whereFilter(f =>
+   *     f.or(
+   *       f.where('status', '==', 'published'),
+   *       f.and(f.where('authorId', '==', uid), f.where('visibility', '==', 'private')),
+   *     ),
+   *   )
+   *   .orderBy('createdAt', 'desc')
+   *   .get();
+   *
+   * @example
+   * // Combined with a chained where(): deleted == false AND (a OR b)
+   * await postRepo.query()
+   *   .where('deleted', '==', false)
+   *   .whereFilter(f => f.or(f.where('pinned', '==', true), f.whereId('in', featuredIds)))
+   *   .get();
+   *
+   * @returns The query builder instance
+   */
+  whereFilter(build: (f: QueryFilterFactory<Omit<S, 'id'>>) => Filter): this {
+    const filter = build(createQueryFilterFactory<Omit<S, 'id'>>(this.allowLegacyDatastoreIds));
+
+    // The compiler cannot catch this: the SDK's `Filter` is an abstract class whose only members are
+    // STATIC, so its instance type is structurally empty (`{}`) and ANY non-nullish return value is
+    // assignable (asserted in query-paths.type-test.ts). This guard is about DIAGNOSTICS, not
+    // correctness — `Query.where()` discriminates its overloads with `instanceof Filter`, and the
+    // field-path overload it falls through to rejects every non-filter value we probed (`'status'` →
+    // `Value for argument "opStr" is invalid`, `{}`/`42`/`null` → `not a valid field path`). So the
+    // SDK never builds a silently-wrong query; it just reports an opaque argument error that names
+    // neither whereFilter nor the factory. Only the value's TYPE is echoed — a filter carries caller
+    // values that may be sensitive.
+    if (!(filter instanceof Filter)) {
+      throw new Error(
+        'whereFilter() callback must return a filter built with the provided factory ' +
+          '(f.where / f.whereId / f.and / f.or), or a firebase-admin `Filter`; received ' +
+          `${filter === null ? 'null' : typeof filter}. If you built the filter from a direct ` +
+          '`@google-cloud/firestore` install, import `Filter` from `firebase-admin/firestore` ' +
+          'instead — two copies of the SDK are not interchangeable.',
+      );
+    }
+
+    // Defense in depth for the prebuilt-Filter escape hatch: the SDK returns the query UNCHANGED when
+    // a filter reduces to zero conditions ENTIRELY (see assertNonEmptyFilterGroup), so reference
+    // equality is an exact, internals-free test for "this filter was silently dropped whole".
+    //
+    // Scope, precisely: this does NOT catch a PARTIALLY empty prebuilt filter. `_parseCompositeFilter`
+    // drops empty sub-groups at any depth, so `Filter.or(Filter.and(), x)` silently becomes `x`
+    // (narrowing what should match everything) and `Filter.and(Filter.or(), x)` also becomes `x`
+    // (widening what should match nothing) — both verified on the emulator, and both produce a NEW
+    // query object, so nothing here can see them. The factory's construction-site guard closes this
+    // for filters built through `f.and()`/`f.or()`; a caller assembling raw SDK filters owns it.
+    // Fails open if a future SDK stops returning `this`.
+    const next = this.query.where(filter);
+    if (next === this.query) {
+      throw new Error(
+        'whereFilter() received a filter with no conditions, which Firestore silently drops — the ' +
+          'query would match every document in the collection. Provide at least one condition.',
+      );
+    }
+    this.query = next;
     return this;
   }
 
@@ -253,6 +502,10 @@ export class FirestoreQueryBuilder<
       this.commitInChunks,
       this.runHooks,
       this.validateUpdate,
+      // Carry the repository's id policy across the projection: without it the replacement builder
+      // fell back to the `false` default, so a post-select whereId()/whereFilter(f.whereId(...)) on a
+      // repository that opted into legacy Datastore ids wrongly threw InvalidDocumentIdError.
+      this.allowLegacyDatastoreIds,
     );
     next.query = this.query.select(...(fields as (string | FieldPath)[]));
     next.hasOrderBy = this.hasOrderBy;
@@ -410,13 +663,9 @@ export class FirestoreQueryBuilder<
   whereId(op: '<' | '<=' | '==' | '!=' | '>=' | '>', value: string): this;
   whereId(op: 'in' | 'not-in', value: readonly string[]): this;
   whereId(op: WhereFilterOp, value: string | readonly string[]): this {
-    const values = Array.isArray(value) ? value : [value as string];
-    values.forEach(v =>
-      validateDocumentId(v, 'whereId value', {
-        allowLegacyDatastoreIds: this.allowLegacyDatastoreIds,
-      }),
+    this.query = this.query.where(
+      documentIdFilter(op, value, this.allowLegacyDatastoreIds, 'reject'),
     );
-    this.query = this.query.where(FieldPath.documentId(), op, value);
     return this;
   }
 

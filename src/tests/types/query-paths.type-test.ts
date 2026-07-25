@@ -7,11 +7,17 @@
  * Each `@ts-expect-error` FAILS the type-check if the line below it stops being an error; every
  * un-annotated call must type-check.
  */
-import { FieldPath } from 'firebase-admin/firestore';
+import { FieldPath, Filter } from 'firebase-admin/firestore';
 import type { Timestamp, GeoPoint, DocumentReference } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import { FirestoreRepository } from '../../index.js';
-import type { DeepPartial, FieldPaths, PathValue } from '../../index.js';
+import type {
+  DeepPartial,
+  FieldPaths,
+  PathValue,
+  QueryFilterFactory,
+  StoredDataOf,
+} from '../../index.js';
 // `NumericFieldPaths` is internal (it constrains `sum`/`average`); import it directly to assert the
 // derived numeric-path set, in addition to exercising it through the public builder below.
 import type { NumericFieldPaths } from '../../utils/pathTypes.js';
@@ -174,6 +180,116 @@ export async function aggregateReturnTypes() {
   // @ts-expect-error totalCount() was renamed to collectionCount() in v3 (D11).
   await numRepo.query().totalCount();
   return { avg, avgNonNull, summed, counted, collectionWide };
+}
+
+// Composite filters (issue #30): the `whereFilter(f => …)` factory carries the SAME schema-aware
+// field-path typing as `where`/`orderBy`/`select` at every nesting depth, and `f.whereId` keeps the
+// builder's two-overload document-name contract.
+export function compositeFilterPathPositives() {
+  repo.query().whereFilter(f => f.where('name', '==', 'a'));
+  repo.query().whereFilter(f => f.where('address.city', '==', 'LA')); // nested path
+  repo.query().whereFilter(f => f.where('settings.notifications.email', '==', true)); // deep path
+  repo.query().whereFilter(f => f.where(new FieldPath('address', 'city'), '==', 'LA')); // escape hatch
+
+  // Nesting: typed paths are enforced inside and/or at any depth.
+  repo
+    .query()
+    .whereFilter(f =>
+      f.or(
+        f.where('name', '==', 'a'),
+        f.and(f.where('address.city', '==', 'LA'), f.where('address.zip', '==', '90001')),
+        f.whereId('in', ['a', 'b']),
+      ),
+    );
+
+  // whereId overloads: scalar ops take a string, in/not-in take a readonly string[].
+  repo.query().whereFilter(f => f.whereId('==', 'abc'));
+  repo.query().whereFilter(f => f.whereId('>=', 'abc'));
+  repo.query().whereFilter(f => f.whereId('not-in', ['a', 'b'] as readonly string[]));
+
+  // A prebuilt SDK Filter is the documented escape hatch.
+  repo.query().whereFilter(() => Filter.where('anything', '==', 1));
+
+  // Chainable: returns the same builder, so terminals and other clauses still compose.
+  return repo
+    .query()
+    .where('name', '==', 'a')
+    .whereFilter(f => f.or(f.where('tags', 'array-contains', 'x')))
+    .orderBy('createdAt', 'desc')
+    .get();
+}
+
+// A filter group extracted into a reusable predicate stays typed via the exported factory type.
+// `StoredDataOf<typeof repo>` is the ergonomic way to name the shape (it is already `Omit<S, 'id'>`).
+export function reusableFilterPredicate(uid: string) {
+  const mine = (f: QueryFilterFactory<StoredDataOf<typeof repo>>) =>
+    f.or(f.where('name', '==', uid), f.whereId('==', uid));
+  const spelledOut = (f: QueryFilterFactory<Omit<Doc, 'id'>>) =>
+    f.where('address.city', '==', 'LA');
+  return Promise.all([
+    repo.query().whereFilter(mine).get(),
+    repo.query().whereFilter(spelledOut).get(),
+  ]);
+}
+
+// `QueryFilterFactory<S>` is declared INVARIANT (`in out`). Without that annotation TypeScript
+// compares the factory's method parameters bivariantly, and both of the following would compile —
+// silently defeating the schema-aware typing that is the whole point of the factory.
+type StoredUser = { email: string; role: string };
+export function factoryVarianceIsEnforced() {
+  const foreignSchema = (f: QueryFilterFactory<StoredUser>) => f.where('email', '==', 'x');
+  // @ts-expect-error a predicate typed against an unrelated repository's shape is rejected
+  repo.query().whereFilter(foreignSchema);
+
+  // Keeping `id` in the annotated shape would let the predicate query the synthetic `id` as a stored
+  // field path — the exact mistake `where('id', …)` is a compile error to prevent.
+  const keptId = (f: QueryFilterFactory<Doc>) => f.where('id', '==', 'x');
+  // @ts-expect-error the annotated shape must exclude `id` (use StoredDataOf<typeof repo>)
+  repo.query().whereFilter(keptId);
+}
+
+export function compositeFilterPathNegatives() {
+  // @ts-expect-error typo in a nested path inside a composite
+  repo.query().whereFilter(f => f.where('address.citee', '==', 'LA'));
+  // @ts-expect-error not a field of the schema
+  repo.query().whereFilter(f => f.where('nope', '==', 1));
+  // @ts-expect-error the synthetic `id` is not a stored field path — use f.whereId(...)
+  repo.query().whereFilter(f => f.where('id', '==', 'x'));
+  // @ts-expect-error arbitrary dynamic strings are not accepted — use a FieldPath
+  repo.query().whereFilter(f => f.where('some' + 'field', '==', 1));
+  // @ts-expect-error array-element paths are not valid field paths
+  repo.query().whereFilter(f => f.where('tags.0', '==', 'x'));
+  // @ts-expect-error invalid Firestore operator
+  repo.query().whereFilter(f => f.where('name', '===', 'a'));
+  // @ts-expect-error a typo nested one level deeper still fails
+  repo.query().whereFilter(f => f.or(f.and(f.where('settings.notifications.emial', '==', true))));
+  // @ts-expect-error 'in' requires an array of ids, not a single string
+  repo.query().whereFilter(f => f.whereId('in', 'abc'));
+  // @ts-expect-error a scalar id operator requires a string, not an array
+  repo.query().whereFilter(f => f.whereId('==', ['a']));
+  // @ts-expect-error array-contains operators are excluded from document-name filters
+  repo.query().whereFilter(f => f.whereId('array-contains', 'a'));
+  // @ts-expect-error the callback must RETURN a filter — a void body does not compile
+  repo.query().whereFilter(f => {
+    f.where('name', '==', 'a');
+  });
+}
+
+// DOCUMENTED TYPE HOLE: the Admin SDK's `Filter` is an abstract class whose only members are
+// STATIC (`Filter.where` / `.or` / `.and`), so its INSTANCE type is structurally empty (`{}`) and
+// any non-nullish value is assignable to it. The compiler therefore cannot reject a callback that
+// returns something which is not a filter — which is why `whereFilter()` validates the result with
+// `instanceof Filter` at runtime. (The SDK would also reject such a value, but with an opaque
+// `"fieldPath"`/`"opStr"` argument error naming neither whereFilter nor the factory; the guard is for
+// diagnostics, not correctness.) These lines compiling IS the assertion; if a future SDK gives
+// `Filter` an instance member they start failing and the guard can be reconsidered. The runtime
+// rejection itself is covered in repository-composite-filters.integration.test.ts.
+export function filterReturnTypeIsStructurallyUnenforceable() {
+  repo
+    .query()
+    .whereFilter(() => 'name == a' as unknown as ReturnType<QueryFilterFactory<Doc>['and']>);
+  const looseFilter: ReturnType<QueryFilterFactory<Doc>['or']> = 'not really a filter';
+  return looseFilter;
 }
 
 // `PathValue` resolves the read-model type at a (possibly dotted) path.

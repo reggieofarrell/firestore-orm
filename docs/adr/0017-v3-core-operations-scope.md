@@ -4,7 +4,7 @@
 - **Date:** 2026-07-19
 - **Deciders:** maintainer
 - **Related:** ADR-0001 (fork and 2.0 re-architecture), ADR-0015 (express adapter subpath), ADR-0016
-  (dual build & support floor)
+  (dual build & support floor); amended by ADR-0023 (composite filters land in 3.0.0)
 
 ## Context
 
@@ -47,6 +47,12 @@ server-side Firestore parity. Concretely:
    server-side / structured-equality distinct (#40), and an experimental Enterprise Pipeline subpath
    (#41).
 
+   > Amendment (3.0.0, issue #30): composite filters are **no longer deferred** — they ship in 3.0.0
+   > as `FirestoreQueryBuilder.whereFilter(build)`, plus the matching `VectorQueryBuilder`
+   > prefilter, so #30 leaves this list. The remaining deferrals (#31–#41) are unchanged, as is the
+   > decision not to pursue full server-side or Enterprise Pipeline parity. Rationale and contract:
+   > ADR-0023.
+
 We explicitly do **not** block v3 on any of the deferred items.
 
 ## Consequences
@@ -74,4 +80,5 @@ capability matrix is the honest middle ground.
 
 - The v3 release review and its round-2 response — "Server-side Firestore feature parity follow-up"
   (maintainer-local review records under `reviews/`, not committed to the repo).
-- GitHub issues #30–#41 (labels `parity`, `v3.x`).
+- GitHub issues #31–#41 (labels `parity`, `v3.x`); #30 is closed by the 3.0.0 `whereFilter` API
+  (ADR-0023).

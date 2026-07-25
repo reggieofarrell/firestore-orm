@@ -135,8 +135,27 @@ const results = await vectorArticleRepo
   .get();
 ```
 
-Call `where()` and `select()` **before** `findNearest()`; both throw if invoked after the query has
-entered vector mode.
+For a **disjunction**, use `whereFilter()` — the same composite AND/OR factory as the core builder
+(see [Queries](/firestore-orm/guides/working-with-data/queries/#composite-andor-filters)):
+
+```typescript
+const results = await vectorArticleRepo
+  .vectorQuery()
+  .whereFilter(f => f.or(f.where('status', '==', 'published'), f.where('status', '==', 'featured')))
+  .findNearest({
+    vectorField: 'embedding',
+    queryVector: queryEmbedding,
+    limit: 5,
+    distanceMeasure: 'EUCLIDEAN',
+  })
+  .get();
+```
+
+An OR pre-filter can require index coverage for more than one disjunct branch alongside the vector
+field, so a composite pre-filter may need several composite vector indexes rather than one.
+
+Call `where()`, `whereFilter()`, and `select()` **before** `findNearest()`; all three throw if
+invoked after the query has entered vector mode.
 
 ## Distance measures
 
@@ -161,13 +180,14 @@ entry point returning a `VectorQueryBuilder`.
 
 ### `VectorQueryBuilder`
 
-| Method                    | Description                                    |
-| ------------------------- | ---------------------------------------------- |
-| `where(field, op, value)` | Pre-filter before vector search                |
-| `select(...fields)`       | Field mask (stored fields only — see note)     |
-| `findNearest(options)`    | Configure KNN search (required before `get()`) |
-| `get()`                   | Execute search and return documents            |
-| `getOne()`                | Return the nearest single document or `null`   |
+| Method                    | Description                                      |
+| ------------------------- | ------------------------------------------------ |
+| `where(field, op, value)` | Pre-filter before vector search                  |
+| `whereFilter(build)`      | Composite AND/OR pre-filter before vector search |
+| `select(...fields)`       | Field mask (stored fields only — see note)       |
+| `findNearest(options)`    | Configure KNN search (required before `get()`)   |
+| `get()`                   | Execute search and return documents              |
+| `getOne()`                | Return the nearest single document or `null`     |
 
 `select(...)` narrows the result type and that projection **composes through** `findNearest()`. Pass
 only stored document fields to `select()` — do **not** list `distanceResultField`. It is a computed

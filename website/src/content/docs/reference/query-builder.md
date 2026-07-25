@@ -13,8 +13,8 @@ walkthrough of these methods, see [Queries](/firestore-orm/guides/working-with-d
 `class FirestoreQueryBuilder<T, W, S = T, R = FirestoreDocument<T>>` — obtained from `repo.query()`.
 `R` is the result shape of terminal reads (`get`, `getOne`, `stream`, `paginate`, …); it defaults to
 `FirestoreDocument<T>` and is narrowed to `FirestoreDocument<DeepPartial<T>>` by `select()`.
-Chainable clause methods (`where`, `whereId`, `orderBy`, `orderById`, `limit`) return `this`;
-`select()` returns a **new** builder (see below).
+Chainable clause methods (`where`, `whereFilter`, `whereId`, `orderBy`, `orderById`, `limit`) return
+`this`; `select()` returns a **new** builder (see below).
 
 ## Clauses
 
@@ -24,7 +24,7 @@ Add a where clause. `field` is a typed stored field path — a top-level key or 
 path (`'address.city'`) derived from `S` — or a `FieldPath` for dynamic names. Operators: `==`,
 `!=`, `>`, `>=`, `<`, `<=`, `in`, `not-in`, `array-contains`, `array-contains-any`. `where('id', …)`
 does **not** compile — the synthetic `id` is not a stored field path; query the document name with
-`whereId(...)`.
+`whereId(...)`. Chained `where()` clauses are AND-only; for a disjunction use `whereFilter(...)`.
 
 **`whereId(op: '<' | '<=' | '==' | '!=' | '>=' | '>', value: string): this`**
 **`whereId(op: 'in' | 'not-in', value: readonly string[]): this`**
@@ -32,6 +32,48 @@ does **not** compile — the synthetic `id` is not a stored field path; query th
 Filter by the document id (a native document-name query via `FieldPath.documentId()`). Scalar
 operators take a `string`; `in` / `not-in` take a `readonly string[]`. This is the correct way to
 query by id.
+
+**`whereFilter(build: (f: QueryFilterFactory<Omit<S, 'id'>>) => Filter): this`**
+
+Add a **composite** filter — nested `AND` / `OR` expressions, which chained `where()` calls (an
+implicit top-level AND) cannot express. The callback receives a schema-aware
+[`QueryFilterFactory`](/firestore-orm/reference/types/):
+
+- `f.where(field, op, value)` — same typing as `where(...)` above
+  (`FieldPaths<Omit<S, 'id'>> | FieldPath`, `value: unknown`) at every nesting depth, so a typo
+  inside a nested group is still a compile error.
+- `f.whereId(op, value)` — same two overloads and the same `validateDocumentId()` boundary as
+  `whereId(...)`, honoring the repository's `allowLegacyDatastoreIds` setting.
+- `f.and(...filters)` / `f.or(...filters)` — nestable groups. **A zero-argument call throws.**
+  Firestore silently _drops_ an empty composite filter, so `f.or()` would widen the query to every
+  document in the collection rather than fail; the builder rejects it instead.
+
+A `whereFilter(...)` is AND-ed with any chained `where(...)` clauses, and composes with `orderBy` /
+`limit`, `select`, the aggregations, pagination, `stream()`, `onSnapshot()`, and the `update()` /
+`delete()` terminals. Returning a prebuilt Admin SDK `Filter` (`f => myFilter`) is a supported
+escape hatch — it is applied verbatim, without the factory's typed paths or id validation. Note the
+zero-argument guard is an **arity** check on `f.and()` / `f.or()` and cannot see inside a prebuilt
+`Filter`: an empty SDK group, returned whole or passed as a child of a factory group, is silently
+dropped by Firestore and changes the query's meaning. Only a filter reducing to _no_ conditions at
+all is rejected. A callback that returns something which is not a `Filter` throws an ORM error; this
+cannot be caught at compile time because the SDK's `Filter` type is structurally empty. `Filter` and
+`FieldPath` are imported from `firebase-admin/firestore`.
+
+**Inequality caveat.** An inequality (`<`, `<=`, `>`, `>=`, `!=`) inside an `or()` branch excludes
+documents that are missing that field — including documents matched by a _different_ branch, because
+Firestore adds an implicit `orderBy` for every inequality field in the flattened filter tree. An OR
+query can therefore return fewer rows than one of its own disjuncts, on reads, aggregations, and the
+`update()` / `delete()` terminals alike. `f.whereId(...)` with a comparison operator is exempt. See
+[Queries](/firestore-orm/guides/working-with-data/queries/#composite-andor-filters).
+
+Firestore enforces its own limits on the **server** and the ORM does not duplicate them (a local
+copy would risk rejecting a query the backend accepts, and the counts multiply across clauses the
+callback cannot see). Non-exhaustively: at most 30 disjunctions after normalization, `in` accepts at
+most 30 values, at most one `array-contains` **per disjunction**, and one `!=` / `not-in` **per
+query** — which also counts `!= null` / `!= NaN`. A `not-in` anywhere in the query is incompatible
+with any `OR`, including one from a chained `where()` outside the callback. All arrive as
+`INVALID_ARGUMENT`. A composite query can also require composite index coverage for more than one
+disjunct branch — see [Troubleshooting](/firestore-orm/reference/troubleshooting/).
 
 **`orderById(direction?: 'asc' | 'desc'): this`**
 

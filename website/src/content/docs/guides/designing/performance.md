@@ -25,6 +25,7 @@ Firestore charges for:
 | `getById()`                | 1 read                                       | Single document lookup                    |
 | `query().limit(100).get()` | 100 reads                                    | Reads up to 100 documents                 |
 | `query().get()`            | 1 read per result                            | Charges for every matched document        |
+| `query().whereFilter(…)`   | 1 read per matched document                  | OR fans out into a scan per disjunct      |
 | `query().count()`          | 1 read per 1000 docs                         | Aggregation query (cheaper than fetching) |
 | `create()`                 | 1 write                                      | Single write operation                    |
 | `bulkCreate(100)`          | 100 writes                                   | Batched but still counts as 100 writes    |
@@ -44,6 +45,28 @@ const users = await userRepo.query().where('status', '==', 'active').limit(10).g
 1. Firestore executes the query with the `status` filter and `limit(10)`
 2. Returns up to 10 documents
 3. **Cost**: 10 reads (or fewer if less than 10 matches)
+
+**Composite (OR) Query**
+
+```typescript
+const posts = await postRepo
+  .query()
+  .whereFilter(f => f.or(f.where('status', '==', 'published'), f.where('pinned', '==', true)))
+  .get();
+```
+
+1. Firestore normalizes the composite filter into disjunctive form — one disjunct per OR branch
+2. Each disjunct is evaluated against an index, and the results are combined into a single result
+   set (a document matching two branches is returned once)
+3. **Cost**: 1 read per document in the result, the same as any query — but the _index_ requirements
+   grow with the branches, and the server rejects a filter that normalizes to more than 30
+   disjunctions
+
+Keep the branch count small. An `in` filter with N values inside an OR branch expands to N
+disjunctions, so a handful of branches can cross the cap. When the branches are stable and known
+ahead of time, a single denormalized flag (see
+[Data Modeling](/firestore-orm/guides/designing/data-modeling/)) is cheaper to index and query than
+a wide disjunction.
 
 **Pagination**
 

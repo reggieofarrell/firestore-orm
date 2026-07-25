@@ -133,3 +133,88 @@ await repo.runInTransaction(async (tx, repo) => {
 
 See [Dot-notation nested updates](/firestore-orm/guides/working-with-data/dot-notation/) and
 [Transactions](/firestore-orm/guides/working-with-data/transactions/) for details.
+
+## 7. Composite Filter Limits (OR queries)
+
+Firestore normalizes a composite filter into a disjunctive form and enforces three limits on the
+**server**, so they arrive as `INVALID_ARGUMENT` rather than a local error:
+
+```typescript
+// Too many disjunctions after normalization. Result had 31 disjunctions which is
+// more than the maximum of 30
+await postRepo
+  .query()
+  .whereFilter(f => f.or(...thirtyOneConditions))
+  .get();
+
+// 'NOT_IN' cannot be used in the same query with 'IN', 'ARRAY_CONTAINS_ANY' or 'OR'
+await postRepo
+  .query()
+  .whereFilter(f => f.or(f.where('status', 'not-in', ['draft']), f.where('pinned', '==', true)))
+  .get();
+
+// Only a single 'NOT_EQUAL' … filter allowed per query
+await postRepo
+  .query()
+  .whereFilter(f => f.or(f.where('status', '!=', 'draft'), f.where('visibility', '!=', 'public')))
+  .get();
+```
+
+Watch for the multiplication: an `in` with N values _inside_ an OR branch expands to N disjunctions,
+so a few branches can cross the cap of 30 quickly.
+
+**Solution:** Chunk and merge, the same pattern as the `in` limit above — run one query per group of
+branches and dedupe by `id`:
+
+```typescript
+const groups = chunkArray(conditions, 10);
+const byId = new Map<string, Post>();
+
+for (const group of groups) {
+  const rows = await postRepo
+    .query()
+    .whereFilter(f => f.or(...group.map(c => c(f))))
+    .get();
+  rows.forEach(row => byId.set(row.id, row));
+}
+
+const posts = [...byId.values()];
+```
+
+Because Firestore normalizes the filter and evaluates each disjunct, a composite query can also
+require composite index coverage for more than one branch — one `whereFilter()` may surface several
+successive `FirestoreIndexError`s. Create the index from each error's link until every branch is
+covered.
+
+**Note:** the ORM deliberately does not pre-check these limits locally. A local copy of the server's
+normalization rules would risk rejecting a query Firestore would happily accept, would drift as the
+backend changes, and could not see clauses added outside the callback anyway. The one thing the ORM
+_does_ reject locally is an **empty** `f.or()` / `f.and()` group, because Firestore silently drops
+it and matches every document instead of failing.
+
+## 8. OR Query Returns Fewer Rows Than One of Its Branches
+
+**Issue:** a `whereFilter(f => f.or(...))` query returns fewer documents than one of its own
+disjuncts returns on its own.
+
+**Cause:** an inequality (`<`, `<=`, `>`, `>=`, `!=`) anywhere in the filter tree makes Firestore
+add an implicit `orderBy` on that field, and a document missing an ordered field cannot appear in
+the results — even if it matched a completely different branch.
+
+```typescript
+// Three documents have kind: 'x'; two of them have no `score` field.
+await postRepo.query().where('kind', '==', 'x').get(); // → 3 documents
+await postRepo
+  .query()
+  .whereFilter(f => f.or(f.where('score', '>', 5), f.where('kind', '==', 'x')))
+  .get(); // → 1 document
+```
+
+`count()` reports the same reduced number, and the `update()` / `delete()` terminals silently skip
+the excluded documents.
+
+**Solution:** keep inequalities out of `or()` branches. Use equality, `in`, or `array-contains` /
+`array-contains-any` inside a disjunction; `f.whereId(...)` with a comparison operator is also safe
+(Firestore skips `documentId()` when adding implicit orders, and a document name always exists).
+Otherwise, guarantee the field is always written, or run the branches as separate queries and merge
+by `id`.

@@ -23,6 +23,7 @@ reach the raw Admin SDK for anything not yet wrapped.
 | Validated ID boundary (`repo.id()` / `newId()`) | Rejects malformed IDs; `allowLegacyDatastoreIds` opt-in for numeric IDs |
 | Subcollections                                  | Concrete parent path                                                    |
 | Field filters + chained AND (`where`)           | Values typed `unknown` (read-converter divergence)                      |
+| Composite AND/OR filters (`whereFilter`)        | Schema-aware filter factory; also a vector prefilter                    |
 | Document-name queries (`whereId` / `orderById`) | Native doc-name filter/order; `where('id', …)` is a compile error       |
 | Ordering, forward `limit`                       |                                                                         |
 | Cursor + offset pagination                      | Opaque, forward-only cursor bound to the collection                     |
@@ -33,51 +34,46 @@ reach the raw Admin SDK for anything not yet wrapped.
 | Transactions (read-write)                       | Options/PITR deferred — see below                                       |
 | Fixed batch writes (`bulkCreate/Update/Delete`) | 500-op chunks, non-atomic above 500 (documented)                        |
 | Field transforms / sentinels                    | Strict per-field approval by default                                    |
-| Vector search (`vectorQuery().findNearest()`)   | Distance measures, result field, threshold, prefilters                  |
+| Vector search (`vectorQuery().findNearest()`)   | Distance measures, result field, threshold, prefilters (incl. AND/OR)   |
 
 ## Deferred to v3.x (tracked)
 
 These are real server-side Firestore capabilities the ORM does not yet wrap. Each has a tracking
 issue labeled `parity` / `v3.x`. Until then, use the [raw-SDK escape hatch](#raw-sdk-escape-hatch).
 
-| Capability                                                 | Issue                                                            |
-| ---------------------------------------------------------- | ---------------------------------------------------------------- |
-| Composite `where(Filter)` AND/OR (Core + vector prefilter) | [#30](https://github.com/reggieofarrell/firestore-orm/issues/30) |
-| Collection-group queries (full-path identity)              | [#31](https://github.com/reggieofarrell/firestore-orm/issues/31) |
-| Transaction options (read-only / PITR / `maxAttempts`)     | [#32](https://github.com/reggieofarrell/firestore-orm/issues/32) |
-| Conditional writes (create-only + preconditions)           | [#33](https://github.com/reggieofarrell/firestore-orm/issues/33) |
-| Generic multi-aggregation `aggregate(spec)`                | [#34](https://github.com/reggieofarrell/firestore-orm/issues/34) |
-| `getMany(ids)` multi-document reads                        | [#35](https://github.com/reggieofarrell/firestore-orm/issues/35) |
-| Typed lower-level bounds + `limitToLast()`                 | [#36](https://github.com/reggieofarrell/firestore-orm/issues/36) |
-| Query Explain / `explainStream`                            | [#37](https://github.com/reggieofarrell/firestore-orm/issues/37) |
-| BulkWriter high-throughput API + recursive delete          | [#38](https://github.com/reggieofarrell/firestore-orm/issues/38) |
-| Snapshot/write metadata + detailed listeners               | [#39](https://github.com/reggieofarrell/firestore-orm/issues/39) |
-| Server-side / structured-equality `distinctValues`         | [#40](https://github.com/reggieofarrell/firestore-orm/issues/40) |
-| Experimental Enterprise Pipeline subpath                   | [#41](https://github.com/reggieofarrell/firestore-orm/issues/41) |
+| Capability                                             | Issue                                                            |
+| ------------------------------------------------------ | ---------------------------------------------------------------- |
+| Collection-group queries (full-path identity)          | [#31](https://github.com/reggieofarrell/firestore-orm/issues/31) |
+| Transaction options (read-only / PITR / `maxAttempts`) | [#32](https://github.com/reggieofarrell/firestore-orm/issues/32) |
+| Conditional writes (create-only + preconditions)       | [#33](https://github.com/reggieofarrell/firestore-orm/issues/33) |
+| Generic multi-aggregation `aggregate(spec)`            | [#34](https://github.com/reggieofarrell/firestore-orm/issues/34) |
+| `getMany(ids)` multi-document reads                    | [#35](https://github.com/reggieofarrell/firestore-orm/issues/35) |
+| Typed lower-level bounds + `limitToLast()`             | [#36](https://github.com/reggieofarrell/firestore-orm/issues/36) |
+| Query Explain / `explainStream`                        | [#37](https://github.com/reggieofarrell/firestore-orm/issues/37) |
+| BulkWriter high-throughput API + recursive delete      | [#38](https://github.com/reggieofarrell/firestore-orm/issues/38) |
+| Snapshot/write metadata + detailed listeners           | [#39](https://github.com/reggieofarrell/firestore-orm/issues/39) |
+| Server-side / structured-equality `distinctValues`     | [#40](https://github.com/reggieofarrell/firestore-orm/issues/40) |
+| Experimental Enterprise Pipeline subpath               | [#41](https://github.com/reggieofarrell/firestore-orm/issues/41) |
 
 ## Raw-SDK escape hatch
 
 You always own the `Firestore` instance you pass into a repository, so you can drop down to the
 Admin SDK for anything the ORM does not wrap — you lose the ORM's
 validation/conversion/result-shaping for that operation, but nothing is blocked. For example, a
-composite `OR` filter (until #30 lands):
+collection-group query (until [#31](https://github.com/reggieofarrell/firestore-orm/issues/31)
+lands):
 
 ```typescript
-import { Filter } from 'firebase-admin/firestore';
-
 // `db` is the same Firestore instance you passed to your repositories.
-const snap = await db
-  .collection('posts')
-  .where(
-    Filter.or(
-      Filter.where('status', '==', 'published'),
-      Filter.where('authorId', '==', currentUserId),
-    ),
-  )
-  .get();
+const snap = await db.collectionGroup('posts').where('status', '==', 'published').get();
 
 const posts = snap.docs.map(doc => postRepo.fromSnapshot(doc)); // re-enter the read model
 ```
+
+Note the identity caveat that makes #31 more than a convenience wrapper: `fromSnapshot()` overlays
+only the leaf document name as `id`, and a collection-group result's full path is not recoverable
+from the read model — document IDs are not unique across a collection group. Read `doc.ref.path`
+from the raw snapshot if you need to tell two same-named documents apart.
 
 `fromSnapshot()` maps a raw snapshot back into the repository's read model + `id`. (There is no
 supported getter for a repository's internal `Firestore` instance — keep your own reference to the

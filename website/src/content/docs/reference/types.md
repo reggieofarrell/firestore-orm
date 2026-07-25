@@ -39,6 +39,15 @@ these types describe, see [FirestoreRepository](/firestore-orm/reference/reposit
   guard the method as well (`row.value?.method?.()`) or assert the field back to its class type
   after a null check (`(row.value as ClassType).method()`).
 - **`FieldPaths<T>` / `PathValue<T, P>`** — typed field-path union and the value type at a path.
+- **`QueryFilterFactory<S>`** — the callback argument of
+  [`whereFilter(...)`](/firestore-orm/reference/query-builder/): schema-aware `where` / `whereId` /
+  `and` / `or` builders that return an SDK `Filter`. `and()` and `or()` throw when called with no
+  filters. `Filter` itself is **not** re-exported — import it from `firebase-admin/firestore`, as
+  with `FieldPath` and `WhereFilterOp`. Useful for extracting a reusable typed predicate — annotate
+  the shape with `StoredDataOf<typeof repo>`, which already excludes the synthetic `id`:
+  `const mine = (f: QueryFilterFactory<StoredDataOf<typeof postRepo>>) => f.or(…)`. `S` is
+  **invariant**: a predicate annotated with a different repository's shape (or one that still
+  includes `id`) is a compile error rather than silently accepted.
 - **`UpdateInput<T>`** — update payload type, `UpdateData<Omit<T, 'id'>>` (typed dot-notation
   paths).
 - **`CreateInput<T>`** — create payload type, `WithFieldValue<Omit<T, 'id'>>`; `id` is not a member.

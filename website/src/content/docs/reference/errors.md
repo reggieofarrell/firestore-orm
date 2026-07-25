@@ -65,8 +65,8 @@ Properties:
 
 Thrown when a document id is malformed. Every id-taking surface validates its id before touching
 Firestore — `repo.id(raw)`, `getById`, `update`, `patch`, `upsert`, `delete`, the `bulk*` methods,
-their `*InTransaction` equivalents, and `whereId` — and rejects an id that contains `/`, is `.` or
-`..`, is wrapped in `__…__`, is empty, or exceeds 1500 bytes. See
+their `*InTransaction` equivalents, `whereId`, and `whereFilter`'s `f.whereId` — and rejects an id
+that contains `/`, is `.` or `..`, is wrapped in `__…__`, is empty, or exceeds 1500 bytes. See
 [Document Identity](/firestore-orm/guides/concepts/document-identity/).
 
 Properties:

@@ -61,8 +61,9 @@ document types without spelling the generics — see
 ## Validating untrusted ids at the boundary
 
 Every id-taking surface validates its id before touching Firestore — `getById`, `update`, `patch`,
-`upsert`, `delete`, the `bulk*` methods, their `*InTransaction` equivalents, and `whereId`. A
-malformed id throws `InvalidDocumentIdError` rather than escaping the collection boundary.
+`upsert`, `delete`, the `bulk*` methods, their `*InTransaction` equivalents, `whereId`, and
+`whereFilter`'s `f.whereId`. A malformed id throws `InvalidDocumentIdError` rather than escaping the
+collection boundary.
 
 An id is rejected when it is empty, contains `/`, is `.` or `..`, is wrapped in a `__…__` reserved
 pattern, or exceeds 1500 UTF-8 bytes. Validate a request-supplied id explicitly with

@@ -30,6 +30,7 @@ The chainable builder methods are:
   synthetic `id` is not a queryable field path; use `whereId(...)` instead.
 - `whereId(op, value)` — query by document name. Scalar operators take a `string`; `in`/`not-in`
   take a `readonly string[]`.
+- `whereFilter(build)` — compose a nested AND/OR filter with a schema-aware filter factory.
 - `select(...fields)` — project only the named fields.
 - `orderBy(field, dir = 'asc')` — sort results (required before `paginate()`).
 - `orderById(dir = 'asc')` — order by document name.
@@ -58,6 +59,131 @@ const results = await userRepo
   .where('tags', 'array-contains', 'premium')
   .get();
 ```
+
+## Composite AND/OR filters
+
+Chained `where()` clauses are an implicit **AND** — every clause must match. For a **disjunction**,
+use `whereFilter()`. The callback receives a filter factory whose field paths are typed against your
+stored model at every nesting depth, so a typo inside a nested group is still a compile error.
+
+```typescript
+// status == 'published' OR (authorId == me AND visibility == 'private')
+const posts = await postRepo
+  .query()
+  .whereFilter(f =>
+    f.or(
+      f.where('status', '==', 'published'),
+      f.and(f.where('authorId', '==', currentUserId), f.where('visibility', '==', 'private')),
+    ),
+  )
+  .orderBy('createdAt', 'desc')
+  .get();
+```
+
+`f.whereId(op, value)` puts a document-name condition inside a group, with the same validated id
+boundary as `whereId()`:
+
+```typescript
+const feed = await postRepo
+  .query()
+  .where('deleted', '==', false) // AND-ed with the composite below
+  .whereFilter(f => f.or(f.where('pinned', '==', true), f.whereId('in', featuredIds)))
+  .get();
+```
+
+A `whereFilter()` combines with everything else on the builder — chained `where()` clauses,
+`orderBy`/`limit`, `select`, the aggregations, pagination, `stream()`, `onSnapshot()`, and the
+`update()`/`delete()` terminals.
+
+Two things to know:
+
+- **`f.or()` / `f.and()` with no arguments throws.** Firestore silently _drops_ an empty composite
+  filter, so an empty group would widen your query to every document in the collection instead of
+  failing. If you build groups dynamically, check for an empty list first:
+
+  ```typescript
+  const posts = statuses.length
+    ? await postRepo
+        .query()
+        .whereFilter(f => f.or(...statuses.map(s => f.where('status', '==', s))))
+        .get()
+    : [];
+  ```
+
+- **An OR query can need more indexes than you expect.** Firestore normalizes a composite filter
+  into disjunctive form and evaluates each disjunct, so one `whereFilter()` may surface several
+  successive `FirestoreIndexError`s — follow each link until every branch is covered. The server
+  also caps a query at 30 disjunctions after normalization; see
+  [Troubleshooting](/firestore-orm/reference/troubleshooting/) and
+  [Performance & Cost](/firestore-orm/guides/designing/performance/).
+
+### ⚠️ An inequality inside an OR branch excludes documents missing that field
+
+Firestore adds an implicit `orderBy` for every inequality field (`<`, `<=`, `>`, `>=`, `!=`) found
+anywhere in the filter tree, and a document that lacks an ordered field cannot appear in the
+results. (`not-in` is an inequality too, but it can never appear inside an `OR` — Firestore rejects
+that combination outright.) Inside a disjunction that means an inequality in **one** branch can drop
+documents matched by **another** branch — so an OR query can return _fewer_ rows than one of its own
+disjuncts:
+
+```typescript
+// 3 documents have kind: 'x'; two of them have no `score` field at all.
+await postRepo.query().where('kind', '==', 'x').get(); // → 3 documents
+
+await postRepo
+  .query()
+  .whereFilter(f => f.or(f.where('score', '>', 5), f.where('kind', '==', 'x')))
+  .get(); // → 1 document — the two without `score` are gone
+```
+
+`count()` returns the same reduced number, so this is query planning, not a read-path quirk. It also
+applies to the destructive `update()` / `delete()` terminals, which would silently skip those
+documents.
+
+**Safe shapes inside `or()`:** equality, `in`, `array-contains` / `array-contains-any` — and
+`f.whereId(...)` with a comparison operator, which is exempt because Firestore skips `documentId()`
+when adding implicit orders and a document name always exists.
+
+If you need an inequality branch, either guarantee the field is always written (give it a default at
+create time) or run the branches as separate queries and merge the results by `id`.
+
+Returning a prebuilt Admin SDK `Filter` (`f => myFilter`) is supported as an escape hatch, applied
+verbatim without the factory's typed paths or id validation.
+
+### ⚠️ An empty prebuilt sub-group is dropped, not rejected
+
+The zero-argument guard above is an **arity** check on `f.and()` / `f.or()`. It cannot see inside a
+`Filter` you built yourself, so an empty SDK group — whether returned whole or passed in as a child
+of a factory group — is silently discarded by Firestore and changes what the query means:
+
+```typescript
+import { Filter } from 'firebase-admin/firestore';
+
+// `TRUE OR published` should match everything; the empty AND is dropped, so this NARROWS to published
+.whereFilter(f => f.or(Filter.and(), f.where('status', '==', 'published')))
+
+// `FALSE AND published` should match nothing; the empty OR is dropped, so this WIDENS to published
+.whereFilter(f => f.and(Filter.or(), f.where('status', '==', 'published')))
+```
+
+Only a filter that reduces to **no conditions at all** is caught (the query would otherwise match
+the whole collection). Build groups with `f.and()` / `f.or()` and the arity guard covers you; if you
+assemble raw SDK filters, check for empty groups yourself before passing them in.
+
+To reuse a filter group across call sites, extract it as a predicate and annotate the factory with
+`StoredDataOf<typeof repo>` — which is already the stored shape without the synthetic `id`:
+
+```typescript
+import type { QueryFilterFactory, StoredDataOf } from '@reggieofarrell/firestore-orm';
+
+const publishedOrMine = (uid: string) => (f: QueryFilterFactory<StoredDataOf<typeof postRepo>>) =>
+  f.or(f.where('status', '==', 'published'), f.where('authorId', '==', uid));
+
+const posts = await postRepo.query().whereFilter(publishedOrMine(currentUserId)).get();
+```
+
+The shape must match that repository exactly — annotating a predicate with a _different_
+repository's shape is a compile error, not a silent mismatch.
 
 ## Sorting
 

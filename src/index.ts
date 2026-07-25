@@ -11,7 +11,7 @@ export type {
 } from './core/FirestoreRepository.js';
 export type { FirestoreDocument } from './core/DocumentId.js';
 export { FirestoreQueryBuilder } from './core/QueryBuilder.js';
-export type { PaginatedResult } from './core/QueryBuilder.js';
+export type { PaginatedResult, QueryFilterFactory } from './core/QueryBuilder.js';
 
 export {
   NotFoundError,

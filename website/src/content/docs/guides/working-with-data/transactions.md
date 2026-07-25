@@ -1,6 +1,6 @@
 ---
 title: 'Transactions'
-description: 'runInTransaction and transaction-scoped repository methods.'
+description: 'runInTransaction, runReadOnlyAt, and transaction-scoped repository methods.'
 ---
 
 Run atomic multi-document reads and writes through a transaction-scoped, hook-aware repository.
@@ -14,13 +14,19 @@ commits together, or none of them do.
 Call `runInTransaction` on a repository. The callback receives two arguments:
 
 - `tx` — the underlying Firestore transaction handle, passed to each transaction write helper.
-- `repo` — a **transaction-scoped repository**. Use it for all reads and writes inside the callback
-  so that `before*` hooks and validation still run.
+- `repo` — a **transaction-scoped repository**. Prefer its `*InTransaction` helpers for reads and
+  writes inside the callback so that `before*` hooks and validation still run, and so reads stay
+  inside the transaction (and inside any `readTime` snapshot).
+
+  Non-transactional methods on a full repo (`getById`, `getAll`, `query()`, `create()`, …) perform
+  I/O **outside** the transaction — and outside `readTime`. When `readOnly: true`, the callback
+  `repo` is narrowed to `ReadOnlyTransactionalRepository` so those methods are absent from the type;
+  a read-write callback still receives the full repository and relies on you not calling them.
 
 ```typescript
 await accountRepo.runInTransaction(async (tx, repo) => {
-  const from = await repo.getForUpdateInTransaction(tx, 'account-1');
-  const to = await repo.getForUpdateInTransaction(tx, 'account-2');
+  const from = await repo.getInTransaction(tx, 'account-1');
+  const to = await repo.getInTransaction(tx, 'account-2');
 
   if (!from || from.balance < 100) {
     throw new Error('Insufficient funds');
@@ -40,28 +46,123 @@ The value returned from the callback becomes the resolved value of `runInTransac
 you hand data back to the surrounding code (see
 [post-transaction side effects](#solution-for-post-transaction-side-effects)).
 
+## Transaction options
+
+`runInTransaction` accepts an optional second argument that is forwarded verbatim to the Admin SDK's
+`db.runTransaction(fn, options)`:
+
+| Options shape                                          | Callback `repo` type              | Notes                                                                                                          |
+| ------------------------------------------------------ | --------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| omitted / `{ maxAttempts?: number; readOnly?: false }` | full `FirestoreRepository`        | Default retries (SDK default is 5). `maxAttempts` must be an integer ≥ 1 — the SDK validates this client-side. |
+| `{ readOnly: true; readTime?: Timestamp }`             | `ReadOnlyTransactionalRepository` | No document locks; not retried. Optional `readTime` for a consistent / PITR snapshot.                          |
+
+```typescript
+// Cap contention retries
+await counterRepo.runInTransaction(
+  async (tx, repo) => {
+    const counter = await repo.getInTransaction(tx, 'global-counter');
+    await repo.updateInTransaction(tx, 'global-counter', {
+      value: (counter?.value || 0) + 1,
+    });
+  },
+  { maxAttempts: 3 },
+);
+```
+
+**Options-object typing.** Prefer an inline literal (or `as const` /
+`satisfies FirebaseFirestore.ReadOnlyTransactionOptions`). Two shapes that do **not** match the
+overloads (`TS2769`):
+
+- `const opts = { readOnly: true }` — `readOnly` widens to `boolean`.
+- a variable typed as the SDK's `ReadOnlyTransactionOptions | ReadWriteTransactionOptions` union
+  (including `declare`d parameters, helper return values, and ternary-built options). Narrow before
+  the call, or pass a single-constituent literal / `satisfies` value.
+
+A `const` annotated as the union **with an initializer** can be control-flow-narrowed to that
+initializer (so `const opts: RO | RW = { readOnly: true }` may appear to work) — that is not the
+union being accepted.
+
+## Read-only transactions
+
+Pass `{ readOnly: true }` when you need a consistent snapshot without taking locks (and without
+retries). The callback `repo` is `ReadOnlyTransactionalRepository` — only the read-safe member set:
+
+- `getInTransaction(tx, id)` — transaction-scoped read (lock-free in this mode)
+- `fromSnapshot(snapshot)` — map a `tx.get(query)` / trigger snapshot into the read model
+- `validate` / `id` / `newId` / `getCollectionPath` — pure helpers
+- `readSchema` / `schemas` — schema accessors
+
+Write helpers and non-transactional reads are **absent from the type**. At runtime the SDK still
+rejects a write attempted through the raw `tx` handle with a plain `Error` whose message matches
+`Firestore read-only transactions cannot execute writes.` (no `code`).
+
+```typescript
+const snapshot = await accountRepo.runInTransaction(
+  async (tx, repo) => repo.getInTransaction(tx, 'account-1'),
+  { readOnly: true },
+);
+```
+
+## PITR reads
+
+Point-in-time reads go through a **read-only** transaction with `readTime`. Prefer the convenience:
+
+```typescript
+const historical = await accountRepo.runReadOnlyAt(readTime, async (tx, repo) => {
+  return repo.getInTransaction(tx, 'account-1');
+});
+```
+
+Equivalent options form: `runInTransaction(fn, { readOnly: true, readTime })`.
+
+**`readTime` window.** Without PITR retention enabled on the database, Firestore accepts a
+`readTime` within about the last 60 seconds. With
+[PITR](https://firebase.google.com/docs/firestore/enterprise/pitr) enabled, you can read within the
+configured retention window (minute granularity). Enabling PITR is a control-plane concern and stays
+out of the ORM.
+
+**Emulator note.** The Firestore emulator accepts a `readTime` well past the 60s window without
+error, where production rejects it absent PITR retention. Local success is **not** proof the
+production call will succeed. Time-travel itself _is_ honored on the emulator (including through
+`tx.get(query)`).
+
+### Query-shaped PITR (escape hatch)
+
+There is no ORM query-in-transaction API yet. For a filtered PITR read, use the Admin SDK query on
+`tx` and map with `fromSnapshot` (available on the read-only callback repo):
+
+```typescript
+await userRepo.runReadOnlyAt(readTime, async (tx, repo) => {
+  const snap = await tx.get(
+    db.collection(repo.getCollectionPath()).where('status', '==', 'active'),
+  );
+  return snap.docs.map(d => repo.fromSnapshot(d));
+});
+```
+
 ## Transaction write helpers
 
 All reads and writes inside the callback go through the transaction-scoped `repo` and take the `tx`
 handle as their first argument:
 
-| Method                                        | Behavior                                                                                |
-| --------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `getForUpdateInTransaction(tx, id)`           | Reads a document for update; returns the document (with `id`) or `null` if it is absent |
-| `createInTransaction(tx, data)`               | Creates a document with an auto-generated Firestore id                                  |
-| `updateInTransaction(tx, id, data, options?)` | Updates the document identified by `id`                                                 |
-| `patchInTransaction(tx, id, data)`            | Merge-patches the document identified by `id` (always merges; takes **no** options)     |
-| `deleteInTransaction(tx, id)`                 | Deletes the document identified by `id`                                                 |
+| Method                                        | Behavior                                                                                                                                                                        |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `getInTransaction(tx, id)`                    | Reads a document inside the transaction; returns the document (with `id`) or `null` if it is absent. Takes a lock in a read-write transaction; lock-free when `readOnly: true`. |
+| `createInTransaction(tx, data)`               | Creates a document with an auto-generated Firestore id                                                                                                                          |
+| `updateInTransaction(tx, id, data, options?)` | Updates the document identified by `id`                                                                                                                                         |
+| `patchInTransaction(tx, id, data)`            | Merge-patches the document identified by `id` (always merges; takes **no** options)                                                                                             |
+| `deleteInTransaction(tx, id)`                 | Deletes the document identified by `id`                                                                                                                                         |
 
 Notes:
 
 - Firestore requires that **all reads happen before any writes** within a transaction. Do your
-  `getForUpdateInTransaction` reads first, then perform writes.
+  `getInTransaction` reads first, then perform writes.
 - `id` is always stripped from write payloads. The document id comes from the auto-generated
   Firestore id for `createInTransaction`, and from the `id` argument for `updateInTransaction`,
   `patchInTransaction`, and `deleteInTransaction`.
 - `patchInTransaction` always merges and, unlike the non-transaction `patch`, takes no options
   argument.
+- Write helpers are unavailable on the typed surface of a read-only / `runReadOnlyAt` callback.
 
 ## Hooks inside transactions
 

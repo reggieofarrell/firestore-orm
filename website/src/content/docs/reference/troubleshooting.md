@@ -118,12 +118,12 @@ repository. See [Subcollections](/firestore-orm/guides/working-with-data/subcoll
 
 **Issue:** Your transaction logic needs the current document state before it can compute an update.
 
-**Solution:** Read inside the transaction with `getForUpdateInTransaction()` only when your business
-rules actually need the prior state, then apply a dot-notation update:
+**Solution:** Read inside the transaction with `getInTransaction()` only when your business rules
+actually need the prior state, then apply a dot-notation update:
 
 ```typescript
 await repo.runInTransaction(async (tx, repo) => {
-  const doc = await repo.getForUpdateInTransaction(tx, 'doc-123');
+  const doc = await repo.getInTransaction(tx, 'doc-123');
   if (!doc) throw new Error('Document not found');
   await repo.updateInTransaction(tx, 'doc-123', {
     'nested.field': 'value',

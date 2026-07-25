@@ -180,6 +180,48 @@ try {
       `acceptsGroupFilter(f => f.or(f.where('status', '==', 'x'), f.wherePath('==', 'a/b')));\n` +
       `// @ts-expect-error the group factory has no whereId\n` +
       `acceptsGroupFilter(f => f.whereId('==', 'p1'));\n` +
+      // Transaction options surface (issue #32). The exported ReadOnlyTransactionalRepository type
+      // and the runInTransaction / runReadOnlyAt overloads must survive declaration emit across the
+      // peer-major matrix. Pins below aim for parity with src/tests/types/transaction-options.type-test.ts
+      // for the contracts that matter under peer majors: RO rejects writes + non-tx reads + the old
+      // rename, getInTransaction / fromSnapshot / getCollectionPath remain, true-union / widened
+      // boolean options fail with TS2769, and Full→RO assignability holds after declaration emit.
+      `import type { ReadOnlyTransactionalRepository } from '${PKG}';\n` +
+      `declare const roRepo: ReadOnlyTransactionalRepository<{ name: string }>;\n` +
+      `declare const txHandle: FirebaseFirestore.Transaction;\n` +
+      `declare const readTime: FirebaseFirestore.Timestamp;\n` +
+      // Genuinely union-typed options (no initializer) so CFA cannot narrow the union away — pins
+      // the real TS2769 overload rejection that a CFA-narrowed `const opts: RO | RW = { readOnly: true }`
+      // would vacuous-pass.
+      `declare const trueUnionOptions: FirebaseFirestore.ReadOnlyTransactionOptions | FirebaseFirestore.ReadWriteTransactionOptions;\n` +
+      `const txRepo = FirestoreRepository.withSchema(dbForGroup, 'txdocs', z.object({ name: z.string() }));\n` +
+      `void txRepo.runInTransaction(async (tx, repo) => {\n` +
+      `  const doc = await repo.getInTransaction(tx, 'a');\n` +
+      `  // @ts-expect-error read-only callback has no createInTransaction\n` +
+      `  await repo.createInTransaction(tx, { name: 'x' });\n` +
+      `  // @ts-expect-error getForUpdateInTransaction was renamed to getInTransaction\n` +
+      `  await repo.getForUpdateInTransaction(tx, 'a');\n` +
+      `  // @ts-expect-error getById bypasses the transaction and readTime — absent from the RO type\n` +
+      `  await repo.getById('a');\n` +
+      `  return doc;\n` +
+      `}, { readOnly: true });\n` +
+      `void txRepo.runReadOnlyAt(readTime, async (tx, repo) => {\n` +
+      `  const path = repo.getCollectionPath();\n` +
+      `  const mapped = repo.fromSnapshot({} as FirebaseFirestore.DocumentSnapshot);\n` +
+      `  return mapped ?? (await repo.getInTransaction(tx, 'a')) ?? path;\n` +
+      `});\n` +
+      // Widened { readOnly: boolean } matches neither overload — consumers must use `as const` or a
+      // literal options object. Pin so a declaration-emit regression that accepts boolean is caught.
+      `const widenedReadOnlyOpts = { readOnly: true };\n` +
+      `// @ts-expect-error widened { readOnly: boolean } matches neither overload — use as const\n` +
+      `void txRepo.runInTransaction(async () => null, widenedReadOnlyOpts);\n` +
+      `// @ts-expect-error true RO|RW union matches neither overload (TS2769)\n` +
+      `void txRepo.runInTransaction(async () => null, trueUnionOptions);\n` +
+      `// Interface⇄class: full repo must satisfy the RO surface (declaration-emit guard).\n` +
+      `const satisfiesRo: ReadOnlyTransactionalRepository<{ name: string }> = txRepo;\n` +
+      `void satisfiesRo;\n` +
+      `void roRepo;\n` +
+      `void txHandle;\n` +
       `export const used = [FirestoreRepository, FirestoreQueryBuilder, groupIsHandle, groupBuilder, groupPath, groupParentPath, NotFoundError, ValidationError, ConflictError, FirestoreIndexError, parseFirestoreError, makeValidator, zNumberWrite, zDateWrite, zArrayWrite, zSentinel, withDelete, isDotNotation, expandDotNotation, mergeDotNotationUpdate, convertTimestampsToMillis, createMillisTimestampConverter, withVectorSearch, vectorEmbeddingSchema, vvl, goodEmb, badEmb, reusable];\n`,
   );
   tscExpectOk(esm, 'ESM root+vector consumer (express NOT installed)');

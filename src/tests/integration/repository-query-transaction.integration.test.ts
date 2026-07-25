@@ -210,7 +210,7 @@ describe('FirestoreRepository query and transaction behavior', () => {
       trackUser(user.id);
 
       await userRepo.runInTransaction(async (tx, repo) => {
-        const existing = await repo.getForUpdateInTransaction(tx, user.id);
+        const existing = await repo.getInTransaction(tx, user.id);
         expect(existing).toBeTruthy();
 
         await repo.updateInTransaction(tx, user.id, {
@@ -238,8 +238,8 @@ describe('FirestoreRepository query and transaction behavior', () => {
       trackUser(user2.id);
 
       await userRepo.runInTransaction(async (tx, repo) => {
-        const existing1 = await repo.getForUpdateInTransaction(tx, user1.id);
-        const existing2 = await repo.getForUpdateInTransaction(tx, user2.id);
+        const existing1 = await repo.getInTransaction(tx, user1.id);
+        const existing2 = await repo.getInTransaction(tx, user2.id);
 
         expect(existing1).toBeTruthy();
         expect(existing2).toBeTruthy();
@@ -338,7 +338,7 @@ describe('FirestoreRepository query and transaction behavior', () => {
 
       await expect(
         userRepo.runInTransaction(async (tx, repo) => {
-          await repo.getForUpdateInTransaction(tx, user.id);
+          await repo.getInTransaction(tx, user.id);
 
           await repo.updateInTransaction(tx, user.id, {
             'profile.verified': true,

@@ -172,16 +172,18 @@ See [Error handling](/firestore-orm/reference/errors/) for the full error taxono
 ## 7. Use transactions for critical operations
 
 Any operation requiring consistency across multiple documents should use a transaction.
-`runInTransaction` passes a transaction-scoped repository; do all reads with
-`getForUpdateInTransaction` before any writes.
+`runInTransaction` passes a transaction-scoped repository; do all reads with `getInTransaction`
+before any writes. For a lock-free consistent snapshot or a PITR / time-travel read, use
+`{ readOnly: true }` or `runReadOnlyAt(readTime, fn)` — see
+[Transactions](/firestore-orm/guides/working-with-data/transactions/).
 
 ```typescript
 // ✅ Atomic transfer
 await accountRepo.runInTransaction(async (tx, repo) => {
-  const from = await repo.getForUpdateInTransaction(tx, fromId);
-  const to = await repo.getForUpdateInTransaction(tx, toId);
+  const from = await repo.getInTransaction(tx, fromId);
+  const to = await repo.getInTransaction(tx, toId);
 
-  // getForUpdateInTransaction returns FirestoreDocument<Account> | null — guard before use.
+  // getInTransaction returns FirestoreDocument<Account> | null — guard before use.
   if (!from || !to) {
     throw new Error('Account not found');
   }

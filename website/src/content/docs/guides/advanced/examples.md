@@ -173,7 +173,7 @@ export class OrderService {
   async cancelOrder(orderId: string) {
     // Use transaction to ensure inventory is restored
     await orderRepo.runInTransaction(async (tx, repo) => {
-      const order = await repo.getForUpdateInTransaction(tx, orderId);
+      const order = await repo.getInTransaction(tx, orderId);
 
       if (!order) {
         throw new Error('Order not found');
@@ -229,8 +229,7 @@ export class OrderService {
 
 Reads use `getById(id)`, which returns `FirestoreDocument<T>` or `null` — there is no
 `repo.get(id)`. The cancellation path uses `runInTransaction`, which hands you a transaction-scoped
-`repo`; inside it, `getForUpdateInTransaction` locks the row and `updateInTransaction` stages the
-write.
+`repo`; inside it, `getInTransaction` locks the row and `updateInTransaction` stages the write.
 
 ## Example 2: Multi-tenant SaaS application
 
@@ -315,7 +314,7 @@ export class TenantService {
   async addMember(tenantId: string, userId: string, role: string) {
     // Use transaction to ensure seat limit
     await tenantRepo.runInTransaction(async (tx, repo) => {
-      const tenant = await repo.getForUpdateInTransaction(tx, tenantId);
+      const tenant = await repo.getInTransaction(tx, tenantId);
 
       if (!tenant) {
         throw new Error('Tenant not found');

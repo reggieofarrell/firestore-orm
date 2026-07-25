@@ -472,7 +472,7 @@ class OrderRepository extends FirestoreRepository<Order> {
     options?: UpdateOptions,
   ): Promise<{ id: ID } | FirestoreDocument<Order>> {
     return this.runInTransaction(async (tx, repo) => {
-      const order = await repo.getForUpdateInTransaction(tx, id);
+      const order = await repo.getInTransaction(tx, id);
       if (!order) {
         throw new NotFoundError(`Order with id ${id} not found`);
       }

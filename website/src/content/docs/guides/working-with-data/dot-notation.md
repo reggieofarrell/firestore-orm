@@ -184,7 +184,7 @@ convenience alias (it takes no options).
 ```typescript
 await userRepo.runInTransaction(async (tx, repo) => {
   // Read first only when your business logic needs current state
-  const user = await repo.getForUpdateInTransaction(tx, 'user-123');
+  const user = await repo.getInTransaction(tx, 'user-123');
 
   if (!user) {
     throw new Error('User not found');
@@ -294,13 +294,13 @@ await userRepo.update('user-123', {
 
 **2. Transaction Requirements**
 
-`updateInTransaction()` supports dot notation directly. Use `getForUpdateInTransaction()` only when
-your transaction logic needs the existing document state.
+`updateInTransaction()` supports dot notation directly. Use `getInTransaction()` only when your
+transaction logic needs the existing document state.
 
 ```typescript
 // Valid - read first only when needed by business logic
 await repo.runInTransaction(async (tx, repo) => {
-  const doc = await repo.getForUpdateInTransaction(tx, 'doc-123');
+  const doc = await repo.getInTransaction(tx, 'doc-123');
   if (!doc) throw new Error('Document not found');
   await repo.updateInTransaction(tx, 'doc-123', {
     'nested.field': 'value',

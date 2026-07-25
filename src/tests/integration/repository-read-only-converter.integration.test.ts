@@ -15,7 +15,7 @@
  *
  * It also asserts the converter transform on the read paths whose wiring is distinct from `getById`:
  * the query builder (`query().get()` / `.stream()`, which feed `readCol()` into the QueryBuilder),
- * a transactional read (`getForUpdateInTransaction`), and delete-path hook payloads (`delete()` reads
+ * a transactional read (`getInTransaction`), and delete-path hook payloads (`delete()` reads
  * via the converter-wrapped ref before firing the `beforeDelete` / `afterDelete` hooks).
  */
 import { z } from 'zod';
@@ -157,11 +157,11 @@ describe('read-only converters: writes bypass the converter (issue #11)', () => 
     expect([...values].sort((a, b) => a - b)).toEqual([100, 101]);
   });
 
-  it('getForUpdateInTransaction() applies the converter on a transactional read', async () => {
+  it('getInTransaction() applies the converter on a transactional read', async () => {
     const created = await repo.create({ name: 'zeta', value: 7 });
 
     const read = await repo.runInTransaction(async (tx, txRepo) => {
-      return await txRepo.getForUpdateInTransaction(tx, created.id);
+      return await txRepo.getInTransaction(tx, created.id);
     });
 
     expect(read?.name).toBe('ZETA');

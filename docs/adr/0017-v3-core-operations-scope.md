@@ -62,6 +62,15 @@ server-side Firestore parity. Concretely:
    > (#32–#41) are unchanged, as is the decision not to pursue full server-side or Enterprise
    > Pipeline parity. Rationale and contract: ADR-0024.
 
+   > Amendment (3.0.0, issue #32): transaction options (read-only / PITR / `maxAttempts`) are **no
+   > longer deferred** — they ship in 3.0.0 as a second argument on
+   > `runInTransaction(fn, options?)`, a `runReadOnlyAt(readTime, fn)` convenience, and a
+   > type-narrowed `ReadOnlyTransactionalRepository` callback when `readOnly: true`. The same change
+   > renames `getForUpdateInTransaction` → `getInTransaction` (mode-agnostic name; locking is a
+   > property of the transaction mode). So #32 leaves this list. The remaining deferrals (#33–#41)
+   > are unchanged, as is the decision not to pursue full server-side or Enterprise Pipeline parity.
+   > Rationale and contract: ADR-0025.
+
 We explicitly do **not** block v3 on any of the deferred items.
 
 ## Consequences
@@ -89,5 +98,6 @@ capability matrix is the honest middle ground.
 
 - The v3 release review and its round-2 response — "Server-side Firestore feature parity follow-up"
   (maintainer-local review records under `reviews/`, not committed to the repo).
-- GitHub issues #32–#41 (labels `parity`, `v3.x`); #30 is closed by the 3.0.0 `whereFilter` API
-  (ADR-0023) and #31 by the 3.0.0 `collectionGroup()` API (ADR-0024).
+- GitHub issues #33–#41 (labels `parity`, `v3.x`); #30 is closed by the 3.0.0 `whereFilter` API
+  (ADR-0023), #31 by the 3.0.0 `collectionGroup()` API (ADR-0024), and #32 by the 3.0.0 transaction
+  options / `runReadOnlyAt` / `getInTransaction` rename (ADR-0025).

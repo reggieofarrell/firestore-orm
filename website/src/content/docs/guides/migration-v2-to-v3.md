@@ -228,6 +228,22 @@ These change only compile-time types (no runtime behavior):
 - `findByField` and its `getOneByField*` siblings accept typed stored field paths and take
   `value: unknown`.
 
+### 15. Transactions: `getForUpdateInTransaction` → `getInTransaction`
+
+**`getForUpdateInTransaction(tx, id)` is renamed to `getInTransaction(tx, id)`.** The method body
+was always mode-agnostic (`tx.get` + id overlay); locking is a property of the transaction mode, not
+of the method. Under a read-only / PITR transaction the old name was false in both halves — nothing
+is locked and no update can follow — and it is the sole **transaction-scoped document read** on the
+new `ReadOnlyTransactionalRepository` surface (mapping still goes through `fromSnapshot` for
+query-shaped PITR), so it fronts every PITR example. There is **no** deprecated alias. Same kind of
+rename as
+[`collectionCount`](#9-aggregations-totalcount--collectioncount-and-average-returns-number--null)
+(ADR-0021 D11), landed in the same unreleased 3.0.0 window.
+
+v3 also adds transaction options (`runInTransaction(fn, options?)` with `maxAttempts` /
+`{ readOnly: true, readTime? }`) and `runReadOnlyAt(readTime, fn)`. See
+[Transactions](/firestore-orm/guides/working-with-data/transactions/).
+
 Smaller hardening you are unlikely to hit: pagination inputs must be positive finite integers, bulk
 operations reject duplicate ids, cursors are bound to their collection, and vector validation
 rejects non-finite values.
@@ -459,7 +475,8 @@ Details: [Schema Validation](/firestore-orm/guides/concepts/schema-validation/) 
       in place (no return value)
 - [ ] Move any `toFirestore` create-time logic into `beforeCreate` / `beforeUpdate` (etc.)
 - [ ] Capture `create` / `bulkCreate` results as `{ id }` (or pass `{ returnDoc: true }`); rename
-      `totalCount()` → `collectionCount()`; handle `average()` returning `null`
+      `totalCount()` → `collectionCount()`; rename `getForUpdateInTransaction()` →
+      `getInTransaction()`; handle `average()` returning `null`
 - [ ] Replace `FieldValue.delete()` on `create` / `upsert` with `update()` / `patch()`
 - [ ] Migrate `withVectorSearch(repo).query().findNearest(…)` to `.vectorQuery().findNearest(…)`
 - [ ] Replace untyped `subcollection(parent, name)` with a schema or

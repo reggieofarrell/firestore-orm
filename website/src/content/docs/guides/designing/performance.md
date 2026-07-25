@@ -119,8 +119,8 @@ await userRepo.delete(userId);
 
 ```typescript
 await accountRepo.runInTransaction(async (tx, repo) => {
-  const from = await repo.getForUpdateInTransaction(tx, 'acc-1');
-  const to = await repo.getForUpdateInTransaction(tx, 'acc-2');
+  const from = await repo.getInTransaction(tx, 'acc-1');
+  const to = await repo.getInTransaction(tx, 'acc-2');
 
   await repo.updateInTransaction(tx, 'acc-1', { balance: from.balance - 100 });
   await repo.updateInTransaction(tx, 'acc-2', { balance: to.balance + 100 });

@@ -5,6 +5,7 @@ export type {
   UpdateOptions,
   ReadConverter,
   SafeResult,
+  ReadOnlyTransactionalRepository,
   DataOf,
   StoredDataOf,
   DocumentOf,

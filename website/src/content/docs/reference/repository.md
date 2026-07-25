@@ -264,35 +264,52 @@ Get the parent document ID (for subcollections); `null` for a top-level reposito
 
 **`getCollectionPath(): string`**
 
-Get the full collection path.
+Get the full collection path. Pure — also available on `ReadOnlyTransactionalRepository` so
+query-shaped PITR escape hatches can build a collection reference from the callback repo.
 
 ## Transactions
 
-**`runInTransaction<R>(fn: (tx: Transaction, repo: FirestoreRepository<T, W, S, WO>) => Promise<R>): Promise<R>`**
+**`runInTransaction<R>(fn, options: FirebaseFirestore.ReadOnlyTransactionOptions): Promise<R>`** /
+**`runInTransaction<R>(fn, options?: FirebaseFirestore.ReadWriteTransactionOptions): Promise<R>`**
 
-Execute a function within a Firestore transaction. The callback receives a transaction-scoped
-`repo`; use its `*InTransaction` methods so that hooks fire correctly. See
-[Transactions](/firestore-orm/guides/working-with-data/transactions/).
+Execute a function within a Firestore transaction. Options are forwarded to the Admin SDK
+(`maxAttempts` on read-write; `{ readOnly: true, readTime? }` for a lock-free / PITR snapshot). The
+option types are Admin SDK types (`FirebaseFirestore.ReadOnlyTransactionOptions` /
+`FirebaseFirestore.ReadWriteTransactionOptions`) and are **not** re-exported by this package. When
+`readOnly: true`, the callback `repo` is narrowed to `ReadOnlyTransactionalRepository` (read-safe
+members only — write helpers and non-transactional reads are absent from the type). Otherwise the
+callback receives a full transaction-scoped `repo`; use its `*InTransaction` methods so that hooks
+fire correctly. See [Transactions](/firestore-orm/guides/working-with-data/transactions/).
 
-**`getForUpdateInTransaction(tx: Transaction, id: ID): Promise<FirestoreDocument<T> | null>`**
+**`runReadOnlyAt<R>(readTime: Timestamp, fn): Promise<R>`**
 
-Read a document for update within a transaction.
+Convenience for a read-only transaction at `readTime`. Equivalent to
+`runInTransaction(fn, { readOnly: true, readTime })`. Callback `repo` is
+`ReadOnlyTransactionalRepository`.
+
+**`getInTransaction(tx: Transaction, id: ID): Promise<FirestoreDocument<T> | null>`**
+
+Read a document inside a transaction. Takes a pessimistic lock in a read-write transaction;
+lock-free when `readOnly: true`. Available on both the full repo and
+`ReadOnlyTransactionalRepository`.
 
 **`updateInTransaction(tx: Transaction, id: ID, data: UpdateInput<W>, options?: { merge?: boolean }): Promise<void>`**
 
 Update a document within a transaction. Pass `{ merge: true }` to normalize nested objects to dot
-paths before writing.
+paths before writing. **Not** on `ReadOnlyTransactionalRepository`.
 
 **`patchInTransaction(tx: Transaction, id: ID, data: UpdateInput<W>): Promise<void>`**
 
 Merge-style update within a transaction — equivalent to
-`updateInTransaction(tx, id, data, { merge: true })`. Takes no options.
+`updateInTransaction(tx, id, data, { merge: true })`. Takes no options. **Not** on
+`ReadOnlyTransactionalRepository`.
 
 **`createInTransaction(tx: Transaction, data: CreateInput<W>): Promise<{ id: ID }>`**
 
 Create a document within a transaction (auto-generated ID). Returns `{ id }` — a transaction cannot
-read a document back after writing it, so there is no `returnDoc` option.
+read a document back after writing it, so there is no `returnDoc` option. **Not** on
+`ReadOnlyTransactionalRepository`.
 
 **`deleteInTransaction(tx: Transaction, id: ID): Promise<void>`**
 
-Delete a document within a transaction.
+Delete a document within a transaction. **Not** on `ReadOnlyTransactionalRepository`.

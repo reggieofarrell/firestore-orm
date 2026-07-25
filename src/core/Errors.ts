@@ -47,10 +47,25 @@ export class ValidationError extends Error {
 
 /**
  * Error thrown when an operation conflicts with existing data.
- * Useful for enforcing uniqueness constraints or business rules.
+ *
+ * The library itself raises this for create-only collisions — `createWithId`,
+ * `bulkCreateWithIds`, and `createWithIdInTransaction` when the target id already exists. That is
+ * the normalized form of Firestore's `ALREADY_EXISTS` status (gRPC code 6), mapped to HTTP **409**
+ * by the Express adapter. It is also a convenient error to throw yourself when enforcing uniqueness
+ * or other business rules in application code.
  *
  * @example
- * // In your application code
+ * // Library-raised: a create-only write lost the race
+ * try {
+ *   await userRepo.createWithId('external-id-123', { name: 'Ada' });
+ * } catch (error) {
+ *   if (error instanceof ConflictError) {
+ *     console.log('That id is already taken');
+ *   }
+ * }
+ *
+ * @example
+ * // Application-raised uniqueness check
  * const existingUser = await userRepo.findByField('email', email);
  * if (existingUser.length > 0) {
  *   throw new ConflictError('Email already exists');

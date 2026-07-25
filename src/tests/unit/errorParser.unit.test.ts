@@ -61,8 +61,12 @@ describe('parseFirestoreError', () => {
   });
 
   it('should not treat a failed-precondition without an index message as an index error', () => {
+    // Code 9 without the 'requires an index' marker is a write-precondition failure (#33), not a
+    // missing-index error — assert the positive classification so a future reorder cannot leave
+    // this as a silent fallthrough again.
     const parsed = parseFirestoreError({ code: 9, details: 'some other precondition' });
     expect(parsed).not.toBeInstanceOf(FirestoreIndexError);
+    expect(parsed).toBeInstanceOf(PreconditionFailedError);
   });
 
   describe('conditional writes (issue #33)', () => {

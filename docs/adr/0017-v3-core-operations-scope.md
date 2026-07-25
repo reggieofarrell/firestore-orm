@@ -108,6 +108,7 @@ capability matrix is the honest middle ground.
 
 - The v3 release review and its round-2 response — "Server-side Firestore feature parity follow-up"
   (maintainer-local review records under `reviews/`, not committed to the repo).
-- GitHub issues #33–#41 (labels `parity`, `v3.x`); #30 is closed by the 3.0.0 `whereFilter` API
-  (ADR-0023), #31 by the 3.0.0 `collectionGroup()` API (ADR-0024), and #32 by the 3.0.0 transaction
-  options / `runReadOnlyAt` / `getInTransaction` rename (ADR-0025).
+- GitHub issues #34–#41 (labels `parity`, `v3.x`); #30 is closed by the 3.0.0 `whereFilter` API
+  (ADR-0023), #31 by the 3.0.0 `collectionGroup()` API (ADR-0024), #32 by the 3.0.0 transaction
+  options / `runReadOnlyAt` / `getInTransaction` rename (ADR-0025), and #33 by the 3.0.0 conditional
+  writes / `lastUpdateTime` preconditions API (ADR-0026).

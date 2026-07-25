@@ -16,7 +16,8 @@
  *  - A6: after-create hooks observe the PARSED write output (transforms applied), not the raw input.
  *  - A1: a hook cannot repoint or drop bulk create/update/delete writes by reordering, splicing, or
  *    id-swapping the payload it receives — the runtime iterates a stable pre-hook work list and takes
- *    targets from captured ids / snapshot refs, never from the hook-handed value.
+ *    targets from captured ids / snapshot refs, never from the hook-handed value. Covers both
+ *    `bulkCreate` (auto ids) and `bulkCreateWithIds` (caller ids — trap T5 for issue #33).
  */
 import { z } from 'zod';
 import { FirestoreRepository } from '../../core/FirestoreRepository.js';
@@ -325,6 +326,52 @@ describe('v3 identity model (integration)', () => {
       expect(created.some(c => c.id === 'HIJACKED')).toBe(false);
       expect((await userRepo.getById(created[0].id))?.name).toBe('one');
       expect((await userRepo.getById(created[1].id))?.name).toBe('two');
+    });
+
+    /**
+     * Trap T5 (#33): `bulkCreateWithIds` must reproduce bulkCreate's hook-identity invariants
+     * exactly — captured caller ids, a stable pre-hook work list, and a frozen hook-handed array —
+     * so a beforeBulkCreate hook cannot repoint, reorder, or splice the create-only writes.
+     */
+    it('bulkCreateWithIds: reorder/splice/id-swap in a before-hook cannot repoint writes', async () => {
+      const { userRepo, trackUser } = harness;
+      const firstId = trackUser('bcwi-one');
+      const secondId = trackUser('bcwi-two');
+
+      userRepo.on('beforeBulkCreate', docs => {
+        // Same adversarial mutations as the bulkCreate case above: the write loop iterates the
+        // captured work list, never this array, so even a successful mutation would be ignored.
+        const arr = docs as Array<{ id: string; name: string }>;
+        try {
+          arr.reverse();
+        } catch {
+          /* frozen — expected */
+        }
+        try {
+          (arr[0] as { id: string }).id = 'HIJACKED';
+        } catch {
+          /* non-writable — expected */
+        }
+        try {
+          arr.pop();
+        } catch {
+          /* frozen — expected */
+        }
+        // Documented in-place data mutation must still reach the write under the CALLER's id.
+        (arr[0] as { name?: string }).name = 'hook-mutated-one';
+      });
+
+      const created = await userRepo.bulkCreateWithIds([
+        { id: firstId, data: { name: 'one' } },
+        { id: secondId, data: { name: 'two' } },
+      ]);
+
+      // Caller-supplied ids survive; nothing lands under 'HIJACKED'; data mutation on the first
+      // draft still persists under firstId (the work-list pairing was not broken by the reorder).
+      expect(created).toEqual([{ id: firstId }, { id: secondId }]);
+      expect((await userRepo.getById(firstId))?.name).toBe('hook-mutated-one');
+      expect((await userRepo.getById(secondId))?.name).toBe('two');
+      await expect(userRepo.getById('HIJACKED')).resolves.toBeNull();
     });
 
     it('bulkPatch: an id-swap in a before-hook cannot redirect the write', async () => {

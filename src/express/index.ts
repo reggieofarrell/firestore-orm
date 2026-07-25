@@ -66,9 +66,11 @@ import {
  *
  * @example
  * // Response for PreconditionFailedError (412)
+ * // Message text is whatever the thrown error carried — do not match on server wording (emulator
+ * // Datastore-flavored strings differ from production).
  * {
  *   "error": "PreconditionFailedError",
- *   "message": "the stored version does not match the required base version"
+ *   "message": "Write precondition failed"
  * }
  */
 export function errorHandler(err: any, req: Request, res: Response, _next: NextFunction) {

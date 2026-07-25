@@ -2148,8 +2148,9 @@ export class FirestoreRepository<
    * collection-group-scoped index in production — even for a single `where(...)`. The emulator does
    * not enforce this.
    *
-   * @throws {Error} If this repository's read schema declares a top-level `path` or `parentPath`,
-   *   which the group identity overlay would shadow.
+   * @throws {Error} If this repository's read **or stored** schema declares a top-level `path` or
+   *   `parentPath`, which the group identity overlay would shadow (or, for a stored-only field,
+   *   which `where('path', …)` could filter while the result can never expose).
    *
    * @example
    * // Every `posts` subcollection, across every user.

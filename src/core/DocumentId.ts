@@ -34,8 +34,9 @@ export type FirestoreDocument<ReadData extends object> = Omit<ReadData, 'id'> & 
  *
  * As with {@link FirestoreDocument} and `id`, the identity keys are overlaid **after** the document
  * data, so a stored field of the same name is shadowed. `FirestoreRepository.collectionGroup()`
- * rejects a schema-validated repository whose read schema declares a top-level `path` or
- * `parentPath` for exactly that reason.
+ * rejects a schema-validated repository whose **read or stored** schema declares a top-level
+ * `path` or `parentPath` for exactly that reason — the stored model matters too because query
+ * field paths derive from it.
  *
  * Distribution: `ReadData extends unknown` makes the `Omit` distribute over a union read model, so a
  * branch-specific field survives instead of collapsing to the members' common keys. See

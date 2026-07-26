@@ -31,6 +31,7 @@ reach the raw Admin SDK for anything not yet wrapped.
 | Field projections (`select`)                     | Result type narrows to `FirestoreDocument<DeepPartial<T>>`                                                                                                                                                                                |
 | Real-time listeners (`onSnapshot`)               | Full-model arrays; not combinable with `select()`                                                                                                                                                                                         |
 | Count / sum / average aggregates                 | Numeric field-path typing for sum/average                                                                                                                                                                                                 |
+| Multi-aggregation `aggregate(spec)`              | Aliased count/sum/average in one request; max 5; sparse-field caveat (see queries guide)                                                                                                                                                  |
 | Native query streaming (`stream`)                | Backed by the SDK's `Query.stream()`                                                                                                                                                                                                      |
 | Transactions (read-write + read-only / PITR)     | `runInTransaction(fn, options?)`, `runReadOnlyAt(readTime, fn)`; `maxAttempts` on RW; RO callback is `ReadOnlyTransactionalRepository`                                                                                                    |
 | Fixed batch writes (`bulkCreate/Update/Delete`)  | 500-op chunks, non-atomic above 500 (documented)                                                                                                                                                                                          |
@@ -45,7 +46,6 @@ issue labeled `parity` / `v3.x`. Until then, use the [raw-SDK escape hatch](#raw
 
 | Capability                                         | Issue                                                            |
 | -------------------------------------------------- | ---------------------------------------------------------------- |
-| Generic multi-aggregation `aggregate(spec)`        | [#34](https://github.com/reggieofarrell/firestore-orm/issues/34) |
 | `getMany(ids)` multi-document reads                | [#35](https://github.com/reggieofarrell/firestore-orm/issues/35) |
 | Typed lower-level bounds + `limitToLast()`         | [#36](https://github.com/reggieofarrell/firestore-orm/issues/36) |
 | Query Explain / `explainStream`                    | [#37](https://github.com/reggieofarrell/firestore-orm/issues/37) |

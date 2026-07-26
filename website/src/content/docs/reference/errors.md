@@ -175,10 +175,13 @@ The index-required branch is checked **before** the general code-`9` branch, so 
 failure is still a `FirestoreIndexError` and never a `PreconditionFailedError`. Both the numeric
 code (`6`, `9`) and the string form (`'already-exists'`, `'failed-precondition'`) are recognized.
 
-:::caution[Breaking change in v3] Before this mapping existed, an `already-exists` or non-index
-`failed-precondition` error passed through `parseFirestoreError` unchanged and reached your `catch`
-as a raw Firestore `Error`. Code that inspected `error.code` on those raw errors must now branch on
-`ConflictError` / `PreconditionFailedError` instead. :::
+<!-- prettier-ignore -->
+:::caution[Breaking change in v3]
+Before this mapping existed, an `already-exists` or non-index `failed-precondition` error passed
+through `parseFirestoreError` unchanged and reached your `catch` as a raw Firestore `Error`. Code
+that inspected `error.code` on those raw errors must now branch on `ConflictError` /
+`PreconditionFailedError` instead.
+:::
 
 ## Mapping errors to HTTP responses
 

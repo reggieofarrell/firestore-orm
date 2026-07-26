@@ -5,7 +5,7 @@ import { ValidationError } from './Errors.js';
 import { UpdateInput } from './Validation.js';
 import { DeepPartial, FieldPaths, NumericFieldPaths } from '../utils/pathTypes.js';
 import { validateDocumentId } from '../utils/documentId.js';
-import { deepFreeze } from '../utils/safeObject.js';
+import { deepFreeze, safeAssign } from '../utils/safeObject.js';
 import {
   AggregateField,
   CollectionReference,
@@ -45,6 +45,47 @@ export type PaginatedResult<T extends object> = {
   items: FirestoreDocument<T>[];
   nextCursor: string | null;
   hasMore: boolean;
+};
+
+/**
+ * One entry in an {@link AggregationSpec}. `count` takes no field; `sum` and `average` take a
+ * numeric stored field path (top-level, nested/dotted, or a `FieldPath`).
+ *
+ * `field?: never` on the count variant is load-bearing: excess-property checking against a union
+ * admits any property present in ANY member, so without it `{ kind: 'count', field: 'total' }`
+ * type-checks and the stray field is silently dropped.
+ */
+export type CountAggregation = { kind: 'count'; field?: never };
+export type SumAggregation<S extends object> = {
+  kind: 'sum';
+  field: NumericFieldPaths<S> | FieldPath;
+};
+export type AverageAggregation<S extends object> = {
+  kind: 'average';
+  field: NumericFieldPaths<S> | FieldPath;
+};
+export type AggregationSpecEntry<S extends object> =
+  CountAggregation | SumAggregation<S> | AverageAggregation<S>;
+
+/** A caller-supplied multi-aggregation spec: result alias -> aggregation descriptor. */
+export type AggregationSpec<S extends object> = Record<string, AggregationSpecEntry<S>>;
+
+/**
+ * The result of {@link FirestoreQueryBuilderBase.aggregate} — the spec's own aliases, each carrying
+ * the type its aggregation produces: `count`/`sum` -> `number`, `average` -> `number | null`
+ * (ADR-0020 null fidelity).
+ *
+ * The three branches are deliberate. A literal spec narrows precisely; a spec whose entries are only
+ * known as the union (one built from runtime configuration) matches neither of the first two
+ * branches and falls through to the SAFE `number | null`, rather than falsely promising `number` for
+ * an average it might contain.
+ */
+export type AggregationResult<Spec extends AggregationSpec<any>> = {
+  [K in keyof Spec]: Spec[K] extends { kind: 'average' }
+    ? number | null
+    : Spec[K] extends { kind: 'count' | 'sum' }
+      ? number
+      : number | null;
 };
 
 /**
@@ -739,6 +780,10 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
    * Calculate the sum for a numeric field using Firestore's native aggregation query.
    * This executes on the Firestore backend and returns only the aggregate result.
    *
+   * Not combinable with a prior {@link select}: Firestore rejects property masks when aggregation
+   * fields are present. Use an unprojected query, or {@link aggregate} with a count-only spec after
+   * `select()`.
+   *
    * @param field - The numeric field to sum
    * @returns The summed value for matching documents
    *
@@ -749,6 +794,9 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
    *   .sum('total');
    */
   async sum(field: NumericFieldPaths<Omit<S, 'id'>> | FieldPath): Promise<number> {
+    // Field-referencing aggregations are incompatible with a select() mask (backend
+    // INVALID_ARGUMENT). Guard locally so callers get a clear Error before the round trip.
+    this.assertNoSelectWithFieldAggregation('sum()');
     try {
       const snapshot = await this.query
         .aggregate({ sum: AggregateField.sum(field as string | FieldPath) })
@@ -766,6 +814,10 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
    * Calculate the average for a numeric field using Firestore's native aggregation query.
    * This executes on the Firestore backend and returns only the aggregate result.
    *
+   * Not combinable with a prior {@link select}: Firestore rejects property masks when aggregation
+   * fields are present. Use an unprojected query, or {@link aggregate} with a count-only spec after
+   * `select()`.
+   *
    * @param field - The numeric field to average
    * @returns The average value for matching documents, or `null` when there are no numeric values
    *   to average (an empty match set). This is distinct from an average that genuinely computes to
@@ -778,6 +830,8 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
    *   .average('rating'); // number | null
    */
   async average(field: NumericFieldPaths<Omit<S, 'id'>> | FieldPath): Promise<number | null> {
+    // Same select()+field-aggregation incompatibility as sum() — see assertNoSelectWithFieldAggregation.
+    this.assertNoSelectWithFieldAggregation('average()');
     try {
       const snapshot = await this.query
         .aggregate({ average: AggregateField.average(field as string | FieldPath) })
@@ -789,6 +843,157 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
       return snapshot.data().average;
     } catch (error: any) {
       throw parseFirestoreError(error);
+    }
+  }
+
+  /**
+   * Run multiple aliased aggregations in a **single** Firestore aggregate request — the dashboard
+   * case: count + total + average (or any mix) without three round trips.
+   *
+   * Spec shape is a plain descriptor object (not a callback factory): each key is the result alias,
+   * each value is `{ kind: 'count' }` or `{ kind: 'sum' | 'average', field }`. Field paths keep the
+   * same {@link NumericFieldPaths} typing as {@link sum} / {@link average}. Result aliases map to
+   * `number` for `count`/`sum` and `number | null` for `average` (ADR-0020 null fidelity). A
+   * runtime-built (widened) spec degrades safely to `number | null` per alias.
+   *
+   * **Sparse-field intersection (emulator-observed; production UNVERIFIED):** when the spec
+   * includes a `sum`/`average` over a field that only some matching documents carry, the document
+   * set for the **entire** request collapses to documents that have that field — so a sibling
+   * `count` can return less than `count()` alone. Prefer aggregating required schema fields; when
+   * you need an unconditioned count alongside a sparse-field sum, issue `count()` as a separate
+   * call. See ADR-0027.
+   *
+   * Other semantics:
+   * - Backend max is **5** aggregations per request (not capped locally — the server message is
+   *   actionable if Google raises the limit).
+   * - Non-numeric values are skipped by `sum`/`average` but still counted by `count`, so
+   *   `average !== sum / count` when non-numerics are present.
+   * - `sum` of int64 values beyond 2^53 loses JavaScript number precision.
+   * - `where` / `orderBy` / `limit` / `limitToLast` / cursors / `offset` all apply; `orderBy(field)`
+   *   itself excludes documents missing that field.
+   * - Aggregation queries need the same indexes the underlying query needs.
+   * - `select()` + a count-only spec is legal; `select()` + any `sum`/`average` is rejected locally.
+   * - The alias `'__proto__'` is rejected before any SDK call (SDK alias-map crash).
+   * - Unknown / missing `kind` values are rejected locally (runtime-built specs via `JSON.parse`
+   *   are the sanctioned untyped path — silently treating them as `average` would be wrong).
+   *
+   * @param spec - Alias → aggregation descriptor map (at least one entry; max 5 enforced by backend)
+   * @returns An object whose own keys are the spec aliases and whose values match each kind's type
+   *
+   * @example
+   * const stats = await orderRepo
+   *   .query()
+   *   .where('status', '==', 'completed')
+   *   .aggregate({
+   *     orders: { kind: 'count' },
+   *     revenue: { kind: 'sum', field: 'total' },
+   *     avgOrder: { kind: 'average', field: 'total' },
+   *   });
+   * // stats.orders: number; stats.revenue: number; stats.avgOrder: number | null
+   */
+  async aggregate<Spec extends AggregationSpec<Omit<S, 'id'>>>(
+    spec: Spec,
+  ): Promise<AggregationResult<Spec>> {
+    // Guards run OUTSIDE the try/catch so they stay plain Error (not parseFirestoreError-rewritten),
+    // matching paginate()/distinctValues() local misuse guards.
+    const aliases = Object.keys(spec);
+    if (aliases.length === 0) {
+      throw new Error(
+        'aggregate() requires a non-empty spec. Pass at least one aliased aggregation ' +
+          "(for example `{ orders: { kind: 'count' } }`).",
+      );
+    }
+    // The Admin SDK maps aliases through a plain `{}` object; assigning `__proto__` hits the
+    // prototype setter, is discarded, and later decode asserts — an uncatchable process crash.
+    if (aliases.includes('__proto__')) {
+      throw new Error(
+        'aggregate() rejects the alias "__proto__": the Admin SDK client↔server alias map cannot ' +
+          'round-trip that key and the failure is an uncatchable process crash. Choose a different ' +
+          'alias.',
+      );
+    }
+
+    // Exhaustive kind check + kind-aware select guard. Runtime-built specs (JSON.parse / dashboards)
+    // are untyped by design (ADR-0027 D1); without this, an unknown kind used to fall through to
+    // AggregateField.average and silently return the wrong statistic. Missing/undefined entries
+    // are rejected here too so the build loop never reads `.kind` off undefined inside the try.
+    let hasFieldAggregation = false;
+    for (const alias of aliases) {
+      const entry = (spec as AggregationSpec<Omit<S, 'id'>>)[alias];
+      const kind = entry?.kind;
+      if (kind !== 'count' && kind !== 'sum' && kind !== 'average') {
+        throw new Error(
+          `aggregate() received an unsupported kind ${JSON.stringify(kind)} for alias ` +
+            `${JSON.stringify(alias)}. Supported kinds are 'count', 'sum', and 'average'.`,
+        );
+      }
+      if (kind === 'sum' || kind === 'average') {
+        hasFieldAggregation = true;
+      }
+    }
+    if (this.hasSelect && hasFieldAggregation) {
+      throw new Error(
+        'aggregate() with sum/average is not supported after select(): Firestore rejects ' +
+          'property masks when aggregation fields are present. Call aggregate() on an unprojected ' +
+          'query, or use a count-only spec after select().',
+      );
+    }
+
+    try {
+      // Build the SDK AggregateSpec with safeAssign so caller-controlled alias keys never invoke
+      // inherited setters (defense in depth alongside the __proto__ guard above).
+      const sdkSpec: Record<string, AggregateField<number | null>> = {};
+      for (const alias of aliases) {
+        const entry = (spec as AggregationSpec<Omit<S, 'id'>>)[alias];
+        // Kinds were validated outside the try; keep the mapping exhaustive (no silent average
+        // fallthrough) so a future edit cannot reintroduce F1.
+        if (entry.kind === 'count') {
+          safeAssign(sdkSpec, alias, AggregateField.count());
+        } else if (entry.kind === 'sum') {
+          safeAssign(sdkSpec, alias, AggregateField.sum(entry.field as string | FieldPath));
+        } else if (entry.kind === 'average') {
+          // Public kind stays 'average' (matches average()); the SDK's internal wire kind is 'avg'.
+          safeAssign(sdkSpec, alias, AggregateField.average(entry.field as string | FieldPath));
+        }
+      }
+
+      const raw = (await this.query.aggregate(sdkSpec).get()).data() as Record<string, unknown>;
+
+      // Rebuild with the caller's alias order; normalize sum with ?? 0, pass average null through.
+      const result: Record<string, unknown> = {};
+      for (const alias of aliases) {
+        const entry = (spec as AggregationSpec<Omit<S, 'id'>>)[alias];
+        const value = raw[alias];
+        if (entry.kind === 'sum') {
+          safeAssign(result, alias, (value as number | null | undefined) ?? 0);
+        } else if (entry.kind === 'average') {
+          // ADR-0020: keep null so "no values" stays distinct from an average of 0.
+          safeAssign(result, alias, value);
+        } else {
+          // count is always a number.
+          safeAssign(result, alias, value);
+        }
+      }
+      return result as AggregationResult<Spec>;
+    } catch (error: any) {
+      throw parseFirestoreError(error);
+    }
+  }
+
+  /**
+   * Local guard shared by {@link sum}, {@link average}, and (kind-aware) {@link aggregate}:
+   * Firestore rejects a field mask combined with any field-referencing aggregation. Count-only
+   * aggregations after select() remain legal and are not routed through this helper.
+   *
+   * @param methodName - Public method name for the error message (`sum()` / `average()`)
+   */
+  protected assertNoSelectWithFieldAggregation(methodName: string): void {
+    if (this.hasSelect) {
+      throw new Error(
+        `${methodName} is not supported after select(): Firestore rejects property masks when ` +
+          'aggregation fields (sum/average) are present. Call it on an unprojected query, or use ' +
+          'aggregate() with a count-only spec after select().',
+      );
     }
   }
 

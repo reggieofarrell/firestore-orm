@@ -81,6 +81,13 @@ server-side Firestore parity. Concretely:
    > remaining deferrals (#34–#41) are unchanged, as is the decision not to pursue full server-side
    > or Enterprise Pipeline parity. Rationale and contract: ADR-0026.
 
+   > Amendment (3.0.0, issue #34): generic multi-aggregation is **no longer deferred** — it ships in
+   > 3.0.0 as `FirestoreQueryBuilderBase.aggregate(spec)`, a plain descriptor map of aliased `count`
+   > / `sum` / `average` entries with typed numeric field paths and a three-branch result mapping
+   > (`average` stays `number | null` per ADR-0020). So #34 leaves this list. The remaining
+   > deferrals (#35–#41) are unchanged, as is the decision not to pursue full server-side or
+   > Enterprise Pipeline parity. Rationale and contract: ADR-0027.
+
 We explicitly do **not** block v3 on any of the deferred items.
 
 ## Consequences
@@ -108,7 +115,8 @@ capability matrix is the honest middle ground.
 
 - The v3 release review and its round-2 response — "Server-side Firestore feature parity follow-up"
   (maintainer-local review records under `reviews/`, not committed to the repo).
-- GitHub issues #34–#41 (labels `parity`, `v3.x`); #30 is closed by the 3.0.0 `whereFilter` API
+- GitHub issues #35–#41 (labels `parity`, `v3.x`); #30 is closed by the 3.0.0 `whereFilter` API
   (ADR-0023), #31 by the 3.0.0 `collectionGroup()` API (ADR-0024), #32 by the 3.0.0 transaction
-  options / `runReadOnlyAt` / `getInTransaction` rename (ADR-0025), and #33 by the 3.0.0 conditional
-  writes / `lastUpdateTime` preconditions API (ADR-0026).
+  options / `runReadOnlyAt` / `getInTransaction` rename (ADR-0025), #33 by the 3.0.0 conditional
+  writes / `lastUpdateTime` preconditions API (ADR-0026), and #34 by the 3.0.0 `aggregate(spec)` API
+  (ADR-0027).

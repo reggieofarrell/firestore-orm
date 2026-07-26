@@ -4,8 +4,9 @@
 - **Date:** 2026-07-21
 - **Deciders:** Reggie O'Farrell
 - **Related:** the v3 pre-release codebase review (maintainer-local, finding B9); issue
-  [#34](https://github.com/reggieofarrell/firestore-orm/issues/34);
-  [`src/core/QueryBuilder.ts`](../../src/core/QueryBuilder.ts).
+  [#34](https://github.com/reggieofarrell/firestore-orm/issues/34) (landed — `aggregate()` applies
+  the same null-fidelity rule: `average` aliases stay `number | null`, `sum` aliases use `?? 0`; see
+  ADR-0027); [`src/core/QueryBuilder.ts`](../../src/core/QueryBuilder.ts).
 
 ## Context
 

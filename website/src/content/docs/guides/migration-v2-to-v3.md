@@ -170,6 +170,9 @@ or `patch()` to clear a field. The other sentinels (`increment`, `arrayUnion`, `
 - **`average(field)` returns `number | null`** (was effectively `number`). It resolves to `null`
   when there are no numeric values to average, so "no data" stays distinct from a genuine average of
   `0`. `sum(field)` still returns `number` (`0` on no match).
+- **`aggregate(spec)`** is new in 3.0.0: multiple aliased `count` / `sum` / `average` values in one
+  round trip (typed aliases; backend max 5). See
+  [Aggregations](/firestore-orm/guides/working-with-data/queries/#aggregations).
 - `distinctValues(field)` now drops only `undefined` and preserves a stored `null` as a distinct
   value.
 

@@ -27,6 +27,7 @@ Firestore charges for:
 | `query().get()`            | 1 read per result                            | Charges for every matched document        |
 | `query().whereFilter(…)`   | 1 read per matched document                  | OR fans out into a scan per disjunct      |
 | `query().count()`          | 1 read per 1000 docs                         | Aggregation query (cheaper than fetching) |
+| `query().aggregate(spec)`  | 1 aggregation request (up to 5 aliases)      | One round trip for count+sum+average      |
 | `create()`                 | 1 write                                      | Single write operation                    |
 | `bulkCreate(100)`          | 100 writes                                   | Batched but still counts as 100 writes    |
 | `update()`                 | 1 write                                      | Even if updating one field                |
@@ -134,11 +135,21 @@ await accountRepo.runInTransaction(async (tx, repo) => {
 
 ### Cost Optimization Tips
 
-1. **Use `count()` instead of fetching when you only need quantity**
+1. **Use `count()` / `aggregate()` instead of fetching when you only need aggregates**
 
    ```typescript
-   // ✅ Efficient
+   // ✅ Efficient — one aggregation request
    const total = await userRepo.query().where('status', '==', 'active').count();
+
+   // ✅ Efficient — count + sum + average in ONE request
+   const stats = await orderRepo
+     .query()
+     .where('status', '==', 'completed')
+     .aggregate({
+       orders: { kind: 'count' },
+       revenue: { kind: 'sum', field: 'total' },
+       avgOrder: { kind: 'average', field: 'total' },
+     });
 
    // ❌ Expensive
    const users = await userRepo.query().where('status', '==', 'active').get();
@@ -186,18 +197,19 @@ await accountRepo.runInTransaction(async (tx, repo) => {
 
 Based on testing with Firebase Admin SDK:
 
-| Operation         | Documents          | Time   | Notes                              |
-| ----------------- | ------------------ | ------ | ---------------------------------- |
-| `create()`        | 1                  | ~50ms  | Single document write              |
-| `bulkCreate()`    | 100                | ~300ms | Batched writes                     |
-| `bulkCreate()`    | 500                | ~800ms | Single batch                       |
-| `bulkCreate()`    | 1000               | ~1.6s  | Split into 2 batches               |
-| `getById()`       | 1                  | ~30ms  | Cached locally after first read    |
-| `query().get()`   | 100                | ~100ms | Includes network + deserialization |
-| `query().count()` | 10,000             | ~200ms | Aggregation query                  |
-| `update()`        | 1                  | ~50ms  | Partial update                     |
-| `bulkUpdate()`    | 100                | ~350ms | Batched updates                    |
-| `transaction`     | 2 reads + 2 writes | ~100ms | Atomic operation                   |
+| Operation             | Documents          | Time   | Notes                              |
+| --------------------- | ------------------ | ------ | ---------------------------------- |
+| `create()`            | 1                  | ~50ms  | Single document write              |
+| `bulkCreate()`        | 100                | ~300ms | Batched writes                     |
+| `bulkCreate()`        | 500                | ~800ms | Single batch                       |
+| `bulkCreate()`        | 1000               | ~1.6s  | Split into 2 batches               |
+| `getById()`           | 1                  | ~30ms  | Cached locally after first read    |
+| `query().get()`       | 100                | ~100ms | Includes network + deserialization |
+| `query().count()`     | 10,000             | ~200ms | Aggregation query                  |
+| `query().aggregate()` | filtered set       | ~200ms | Multi-aggregation (one round trip) |
+| `update()`            | 1                  | ~50ms  | Partial update                     |
+| `bulkUpdate()`        | 100                | ~350ms | Batched updates                    |
+| `transaction`         | 2 reads + 2 writes | ~100ms | Atomic operation                   |
 
 **Notes:**
 

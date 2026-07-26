@@ -4,13 +4,15 @@ import {
   FirestoreIndexError,
   InvalidDocumentIdError,
   NotFoundError,
+  PreconditionFailedError,
   ValidationError,
 } from '../core/Errors.js';
 
 /**
  * Express middleware that maps repository errors to appropriate HTTP responses.
  * Automatically handles ValidationError (400), InvalidDocumentIdError (400), NotFoundError (404),
- * FirestoreIndexError (503), ConflictError (409), and generic errors (500).
+ * FirestoreIndexError (503), ConflictError (409), PreconditionFailedError (412), and generic errors
+ * (500).
  *
  * Imported from the optional `@reggieofarrell/firestore-orm/express` subpath so `express` stays out
  * of the core package's type graph. `express` is declared as an optional peer dependency — install
@@ -61,6 +63,15 @@ import {
  *   "error": "ConflictError",
  *   "message": "Email already exists"
  * }
+ *
+ * @example
+ * // Response for PreconditionFailedError (412)
+ * // Message text is whatever the thrown error carried — do not match on server wording (emulator
+ * // Datastore-flavored strings differ from production).
+ * {
+ *   "error": "PreconditionFailedError",
+ *   "message": "Write precondition failed"
+ * }
  */
 export function errorHandler(err: any, req: Request, res: Response, _next: NextFunction) {
   if (err instanceof ValidationError) {
@@ -101,6 +112,16 @@ export function errorHandler(err: any, req: Request, res: Response, _next: NextF
   if (err instanceof ConflictError) {
     return res.status(409).json({
       error: 'ConflictError',
+      message: err.message,
+    });
+  }
+
+  if (err instanceof PreconditionFailedError) {
+    // A `lastUpdateTime` precondition that did not hold is exactly HTTP 412: the client's stated
+    // precondition about the resource's current version was false, and the write was not applied.
+    // Distinct from 409 (ConflictError), which signals a create-only collision on an existing id.
+    return res.status(412).json({
+      error: 'PreconditionFailedError',
       message: err.message,
     });
   }

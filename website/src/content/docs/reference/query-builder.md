@@ -132,13 +132,26 @@ query builder instance (use `count()` for the query-aware count).
 **`sum(field: NumericFieldPaths<Omit<S, 'id'>> | FieldPath): Promise<number>`**
 
 Firestore-native sum aggregation over a numeric stored field path (top-level or nested/dotted
-numeric fields only) or a `FieldPath`. Returns `0` when no documents match.
+numeric fields only) or a `FieldPath`. Returns `0` when no documents match. Not combinable with a
+prior `select()` (local guard).
 
 **`average(field: NumericFieldPaths<Omit<S, 'id'>> | FieldPath): Promise<number | null>`**
 
 Firestore-native average aggregation over a numeric stored field path (top-level or nested/dotted
 numeric fields only) or a `FieldPath`. Returns **`null`** when there are no numeric values to
-average — distinct from an average that genuinely computes to `0`.
+average — distinct from an average that genuinely computes to `0`. Not combinable with a prior
+`select()` (local guard).
+
+**`aggregate<Spec extends AggregationSpec<Omit<S, 'id'>>>(spec: Spec): Promise<AggregationResult<Spec>>`**
+
+Run multiple aliased aggregations in **one** Firestore aggregate request. Spec keys are result
+aliases; values are `{ kind: 'count' }` or `{ kind: 'sum' | 'average', field }` with the same
+numeric-path typing as `sum` / `average`. Result aliases map to `number` for `count`/`sum` and
+`number | null` for `average`. Backend max is **5** aggregations per request. Empty specs, the alias
+`'__proto__'`, and unknown / missing `kind` values are rejected locally. `select()` + count-only is
+allowed; `select()` + any `sum`/`average` throws locally. Prefer required schema fields — a
+sparse-field `sum`/`average` can collapse the document set for the whole request (see the queries
+guide). Also available on collection-group builders (inherited from the shared read base).
 
 **`distinctValues<K extends keyof Omit<T, 'id'>>(field: K): Promise<T[K][]>`**
 

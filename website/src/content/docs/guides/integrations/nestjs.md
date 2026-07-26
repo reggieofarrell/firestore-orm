@@ -272,9 +272,14 @@ exception filter. `ValidationError` exposes `.issues` (the underlying Zod issues
 // filters/firestore-exception.filter.ts
 import { ExceptionFilter, Catch, ArgumentsHost, HttpStatus } from '@nestjs/common';
 import { Response } from 'express';
-import { ValidationError, NotFoundError, ConflictError } from '@reggieofarrell/firestore-orm';
+import {
+  ValidationError,
+  NotFoundError,
+  ConflictError,
+  PreconditionFailedError,
+} from '@reggieofarrell/firestore-orm';
 
-@Catch(ValidationError, NotFoundError, ConflictError)
+@Catch(ValidationError, NotFoundError, ConflictError, PreconditionFailedError)
 export class FirestoreExceptionFilter implements ExceptionFilter {
   catch(exception: any, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
@@ -296,6 +301,12 @@ export class FirestoreExceptionFilter implements ExceptionFilter {
       response.status(HttpStatus.CONFLICT).json({
         statusCode: HttpStatus.CONFLICT,
         error: 'Conflict',
+        message: exception.message,
+      });
+    } else if (exception instanceof PreconditionFailedError) {
+      response.status(HttpStatus.PRECONDITION_FAILED).json({
+        statusCode: HttpStatus.PRECONDITION_FAILED,
+        error: 'Precondition Failed',
         message: exception.message,
       });
     }

@@ -38,6 +38,9 @@ const IGNORE_DIRS = new Set([
   'dist',
   'coverage',
   '.astro', // Astro generated types under website/.astro
+  // Scratch notes/plans/probes/reviews are gitignored working files — they must not fail
+  // release:verify when a relative-looking link is intentionally informal.
+  'tmp',
 ]);
 const DOC_EXT = /\.mdc?$/; // .md or .mdc
 

@@ -170,6 +170,9 @@ or `patch()` to clear a field. The other sentinels (`increment`, `arrayUnion`, `
 - **`average(field)` returns `number | null`** (was effectively `number`). It resolves to `null`
   when there are no numeric values to average, so "no data" stays distinct from a genuine average of
   `0`. `sum(field)` still returns `number` (`0` on no match).
+- **`aggregate(spec)`** is new in 3.0.0: multiple aliased `count` / `sum` / `average` values in one
+  round trip (typed aliases; backend max 5). See
+  [Aggregations](/firestore-orm/guides/working-with-data/queries/#aggregations).
 - `distinctValues(field)` now drops only `undefined` and preserves a stored `null` as a distinct
   value.
 
@@ -247,6 +250,26 @@ v3 also adds transaction options (`runInTransaction(fn, options?)` with `maxAtte
 Smaller hardening you are unlikely to hit: pagination inputs must be positive finite integers, bulk
 operations reject duplicate ids, cursors are bound to their collection, and vector validation
 rejects non-finite values.
+
+### 16. `parseFirestoreError` reclassifies create-only collisions and failed preconditions
+
+**`parseFirestoreError` is publicly exported**, and in v3 it normalizes two Firestore status codes
+it previously returned unchanged:
+
+| Firestore status                             | v2 (and earlier) | v3                                     |
+| -------------------------------------------- | ---------------- | -------------------------------------- |
+| gRPC `6` / `already-exists`                  | raw `Error`      | `ConflictError` (HTTP 409 via Express) |
+| gRPC `9` / `failed-precondition` (non-index) | raw `Error`      | `PreconditionFailedError` (HTTP 412)   |
+
+Missing-index errors (`code 9` whose `details` contain `requires an index`) still become
+`FirestoreIndexError` — that narrower check stays **above** the blanket precondition branch.
+
+If your application caught a raw Firestore `Error` and inspected `.code` after any repository
+operation (not only the new conditional-write surfaces), switch those branches to
+`instanceof ConflictError` / `instanceof PreconditionFailedError`. The new create-only /
+`lastUpdateTime` APIs (`createWithId`, `getByIdWithUpdateTime`, …) are additive — see
+[Conditional writes](/firestore-orm/guides/working-with-data/crud-operations/#conditional-writes)
+and [Errors](/firestore-orm/reference/errors/).
 
 ### Behavior fix: Zod defaults are no longer injected on a partial `update()`
 
@@ -477,6 +500,8 @@ Details: [Schema Validation](/firestore-orm/guides/concepts/schema-validation/) 
 - [ ] Capture `create` / `bulkCreate` results as `{ id }` (or pass `{ returnDoc: true }`); rename
       `totalCount()` → `collectionCount()`; rename `getForUpdateInTransaction()` →
       `getInTransaction()`; handle `average()` returning `null`
+- [ ] If you inspected raw Firestore `.code` after `parseFirestoreError` (or any repository catch),
+      switch gRPC `6` / `9` branches to `ConflictError` / `PreconditionFailedError`
 - [ ] Replace `FieldValue.delete()` on `create` / `upsert` with `update()` / `patch()`
 - [ ] Migrate `withVectorSearch(repo).query().findNearest(…)` to `.vectorQuery().findNearest(…)`
 - [ ] Replace untyped `subcollection(parent, name)` with a schema or

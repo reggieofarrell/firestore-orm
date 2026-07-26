@@ -17,6 +17,7 @@ describe('package exports', () => {
     expect(orm.ValidationError).toBeDefined();
     expect(orm.ConflictError).toBeDefined();
     expect(orm.FirestoreIndexError).toBeDefined();
+    expect(orm.PreconditionFailedError).toBeDefined();
     expect(orm.parseFirestoreError).toBeDefined();
   });
 

@@ -16,26 +16,28 @@ reach the raw Admin SDK for anything not yet wrapped.
 
 ## Supported (first-class)
 
-| Capability                                      | Notes                                                                                                                                  |
-| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Document create / read / update / delete        | Typed read/write models; `{ id }`-by-default create returns                                                                            |
-| Auto-generated and explicit IDs (`upsert`)      | `upsert(id, …)` reads-then-writes (not create-only)                                                                                    |
-| Validated ID boundary (`repo.id()` / `newId()`) | Rejects malformed IDs; `allowLegacyDatastoreIds` opt-in for numeric IDs                                                                |
-| Subcollections                                  | Concrete parent path                                                                                                                   |
-| Field filters + chained AND (`where`)           | Values typed `unknown` (read-converter divergence)                                                                                     |
-| Composite AND/OR filters (`whereFilter`)        | Schema-aware filter factory; also a vector prefilter                                                                                   |
-| Collection-group queries (`collectionGroup`)    | Read-only; results carry full-path identity; needs group-scoped indexes                                                                |
-| Document-name queries (`whereId` / `orderById`) | Native doc-name filter/order; `where('id', …)` is a compile error                                                                      |
-| Ordering, forward `limit`                       |                                                                                                                                        |
-| Cursor + offset pagination                      | Opaque, forward-only cursor bound to the collection                                                                                    |
-| Field projections (`select`)                    | Result type narrows to `FirestoreDocument<DeepPartial<T>>`                                                                             |
-| Real-time listeners (`onSnapshot`)              | Full-model arrays; not combinable with `select()`                                                                                      |
-| Count / sum / average aggregates                | Numeric field-path typing for sum/average                                                                                              |
-| Native query streaming (`stream`)               | Backed by the SDK's `Query.stream()`                                                                                                   |
-| Transactions (read-write + read-only / PITR)    | `runInTransaction(fn, options?)`, `runReadOnlyAt(readTime, fn)`; `maxAttempts` on RW; RO callback is `ReadOnlyTransactionalRepository` |
-| Fixed batch writes (`bulkCreate/Update/Delete`) | 500-op chunks, non-atomic above 500 (documented)                                                                                       |
-| Field transforms / sentinels                    | Strict per-field approval by default                                                                                                   |
-| Vector search (`vectorQuery().findNearest()`)   | Distance measures, result field, threshold, prefilters (incl. AND/OR)                                                                  |
+| Capability                                       | Notes                                                                                                                                                                                                                                     |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Document create / read / update / delete         | Typed read/write models; `{ id }`-by-default create returns                                                                                                                                                                               |
+| Auto-generated and explicit IDs (`upsert`)       | `upsert(id, …)` reads-then-writes (not create-only)                                                                                                                                                                                       |
+| Validated ID boundary (`repo.id()` / `newId()`)  | Rejects malformed IDs; `allowLegacyDatastoreIds` opt-in for numeric IDs                                                                                                                                                                   |
+| Subcollections                                   | Concrete parent path                                                                                                                                                                                                                      |
+| Field filters + chained AND (`where`)            | Values typed `unknown` (read-converter divergence)                                                                                                                                                                                        |
+| Composite AND/OR filters (`whereFilter`)         | Schema-aware filter factory; also a vector prefilter                                                                                                                                                                                      |
+| Collection-group queries (`collectionGroup`)     | Read-only; results carry full-path identity; needs group-scoped indexes                                                                                                                                                                   |
+| Document-name queries (`whereId` / `orderById`)  | Native doc-name filter/order; `where('id', …)` is a compile error                                                                                                                                                                         |
+| Ordering, forward `limit`                        |                                                                                                                                                                                                                                           |
+| Cursor + offset pagination                       | Opaque, forward-only cursor bound to the collection                                                                                                                                                                                       |
+| Field projections (`select`)                     | Result type narrows to `FirestoreDocument<DeepPartial<T>>`                                                                                                                                                                                |
+| Real-time listeners (`onSnapshot`)               | Full-model arrays; not combinable with `select()`                                                                                                                                                                                         |
+| Count / sum / average aggregates                 | Numeric field-path typing for sum/average                                                                                                                                                                                                 |
+| Multi-aggregation `aggregate(spec)`              | Aliased count/sum/average in one request; max 5; sparse-field caveat (see queries guide)                                                                                                                                                  |
+| Native query streaming (`stream`)                | Backed by the SDK's `Query.stream()`                                                                                                                                                                                                      |
+| Transactions (read-write + read-only / PITR)     | `runInTransaction(fn, options?)`, `runReadOnlyAt(readTime, fn)`; `maxAttempts` on RW; RO callback is `ReadOnlyTransactionalRepository`                                                                                                    |
+| Fixed batch writes (`bulkCreate/Update/Delete`)  | 500-op chunks, non-atomic above 500 (documented)                                                                                                                                                                                          |
+| Conditional writes (create-only + preconditions) | `createWithId` / `bulkCreateWithIds` / `createWithIdInTransaction`; `lastUpdateTime` on update/delete; `getByIdWithUpdateTime`. General snapshot/write metadata remains [#39](https://github.com/reggieofarrell/firestore-orm/issues/39). |
+| Field transforms / sentinels                     | Strict per-field approval by default                                                                                                                                                                                                      |
+| Vector search (`vectorQuery().findNearest()`)    | Distance measures, result field, threshold, prefilters (incl. AND/OR)                                                                                                                                                                     |
 
 ## Deferred to v3.x (tracked)
 
@@ -44,8 +46,6 @@ issue labeled `parity` / `v3.x`. Until then, use the [raw-SDK escape hatch](#raw
 
 | Capability                                         | Issue                                                            |
 | -------------------------------------------------- | ---------------------------------------------------------------- |
-| Conditional writes (create-only + preconditions)   | [#33](https://github.com/reggieofarrell/firestore-orm/issues/33) |
-| Generic multi-aggregation `aggregate(spec)`        | [#34](https://github.com/reggieofarrell/firestore-orm/issues/34) |
 | `getMany(ids)` multi-document reads                | [#35](https://github.com/reggieofarrell/firestore-orm/issues/35) |
 | Typed lower-level bounds + `limitToLast()`         | [#36](https://github.com/reggieofarrell/firestore-orm/issues/36) |
 | Query Explain / `explainStream`                    | [#37](https://github.com/reggieofarrell/firestore-orm/issues/37) |

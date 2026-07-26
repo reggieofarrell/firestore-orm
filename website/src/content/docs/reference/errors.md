@@ -3,9 +3,10 @@ title: 'Error Handling'
 description: 'Error classes, when they throw, and the parseFirestoreError normalizer.'
 ---
 
-Typed error classes for validation, not-found, conflict, malformed-id, and missing-index failures,
-plus the `parseFirestoreError` normalizer. The drop-in Express middleware that maps these to HTTP
-responses lives in [Express integration](/firestore-orm/guides/integrations/express/).
+Typed error classes for validation, not-found, conflict, failed-precondition, malformed-id, and
+missing-index failures, plus the `parseFirestoreError` normalizer. The drop-in Express middleware
+that maps these to HTTP responses lives in
+[Express integration](/firestore-orm/guides/integrations/express/).
 
 ## Overview
 
@@ -17,6 +18,7 @@ import {
   ValidationError,
   NotFoundError,
   ConflictError,
+  PreconditionFailedError,
   FirestoreIndexError,
   InvalidDocumentIdError,
 } from '@reggieofarrell/firestore-orm';
@@ -35,6 +37,12 @@ try {
   } else if (error instanceof NotFoundError) {
     // Handle not found
     console.log('Document not found');
+  } else if (error instanceof ConflictError) {
+    // A create-only write lost the race for that id
+    console.log('Document already exists');
+  } else if (error instanceof PreconditionFailedError) {
+    // Someone else wrote the document since we read it — re-read and retry
+    console.log('Stale write — document changed underneath us');
   } else if (error instanceof FirestoreIndexError) {
     // Handle missing composite index
     console.log(error.toString()); // Includes link to create index
@@ -80,7 +88,8 @@ Thrown when a document that must exist is missing. Specifically:
 
 - the `*OrThrow` reads — `getByIdOrThrow(id)` and `getOneByFieldOrThrow(field, value)` (the latter
   when **no** document matches)
-- `delete(id)` on a document that does not exist
+- `delete(id)` on a document that does not exist — including when a `lastUpdateTime` precondition
+  was supplied, because the existence pre-read runs before the guarded write
 
 It is also the normalized form of a raw Firestore `not-found` error (see `parseFirestoreError`).
 
@@ -90,9 +99,41 @@ Properties:
 
 ### `ConflictError`
 
-Thrown by `getOneByFieldOrThrow(field, value)` when **more than one** document matches the field
-value — the method expects exactly one. It is also a convenient error to throw yourself when
-enforcing uniqueness or other business rules in application code.
+Thrown when:
+
+- a **create-only** write loses — `createWithId`, `bulkCreateWithIds`, or
+  `createWithIdInTransaction` targeting an ID that already exists. This is the normalized form of a
+  raw Firestore `already-exists` error (gRPC code `6`), and the check is atomic on the backend, so
+  of two concurrent creates on one ID exactly one wins and the other gets this error.
+- `getOneByFieldOrThrow(field, value)` matches **more than one** document — the method expects
+  exactly one.
+
+It is also a convenient error to throw yourself when enforcing uniqueness or other business rules in
+application code.
+
+Properties:
+
+- `message: string` — error description
+
+### `PreconditionFailedError`
+
+Thrown when a write's `lastUpdateTime` precondition did not hold — the document was modified (or
+removed) by someone else since the version you read. This is the lost-update signal for optimistic
+concurrency, and it is the normalized form of a raw Firestore `failed-precondition` error (gRPC code
+`9`) that is not a missing-index error.
+
+The rejected write is never applied, so the stored document is exactly what the other writer left —
+a retry against a freshly-read token is always safe. See
+[Conditional writes](/firestore-orm/guides/working-with-data/crud-operations/#conditional-writes).
+
+Two neighbouring cases are deliberately **not** this error:
+
+- a create-only collision is `ConflictError` (gRPC `6`), not a precondition failure;
+- a **missing** document is `NotFoundError` only when no precondition was supplied. With a
+  `lastUpdateTime`, Firestore reports the absent document as stored version 0, so
+  `update(id, data, { lastUpdateTime })` on a deleted document raises `PreconditionFailedError`.
+  (`delete(id, { lastUpdateTime })` still raises `NotFoundError`, because `delete` performs its own
+  existence pre-read first.)
 
 Properties:
 
@@ -125,8 +166,22 @@ it directly — the errors you catch are already normalized. It maps:
 - a Firestore `not-found` error (gRPC code `5`) → `NotFoundError`
 - an index-required error (gRPC code `9` whose details mention `requires an index`) →
   `FirestoreIndexError`, with `indexUrl` and `fields` extracted from the error details
+- an `already-exists` error (gRPC code `6`) → `ConflictError`
+- any other `failed-precondition` error (gRPC code `9`) → `PreconditionFailedError`
 - any other `Error` → returned unchanged; a non-`Error` value (a string or plain object) is wrapped
   in a new `Error`
+
+The index-required branch is checked **before** the general code-`9` branch, so a missing-index
+failure is still a `FirestoreIndexError` and never a `PreconditionFailedError`. Both the numeric
+code (`6`, `9`) and the string form (`'already-exists'`, `'failed-precondition'`) are recognized.
+
+<!-- prettier-ignore -->
+:::caution[Breaking change in v3]
+Before this mapping existed, an `already-exists` or non-index `failed-precondition` error passed
+through `parseFirestoreError` unchanged and reached your `catch` as a raw Firestore `Error`. Code
+that inspected `error.code` on those raw errors must now branch on `ConflictError` /
+`PreconditionFailedError` instead.
+:::
 
 ## Mapping errors to HTTP responses
 

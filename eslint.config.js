@@ -23,6 +23,9 @@ export default [
       '**/*.spec.ts',
       '**/benchmarks/**',
       'scripts/**',
+      // Scratch notes/plans/probes/reviews (gitignored) — must not fail lint the way a
+      // relative-looking link in tmp/ used to fail check:docs (issue #34 review O2).
+      'tmp/**',
       // Starlight / Astro generated + installed trees
       'website/dist/**',
       'website/.astro/**',

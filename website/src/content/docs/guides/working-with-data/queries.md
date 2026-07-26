@@ -37,9 +37,9 @@ The chainable builder methods are:
 - `limit(n)` — cap the number of documents returned.
 
 Terminal methods that execute the query include `get()`, `getOne()`, `exists()`, `count()`,
-`collectionCount()`, `sum()`, `average()`, `distinctValues()`, `paginate()`, `offsetPaginate()`,
-`paginateWithCount()`, `stream()`, `onSnapshot()`, `update()`, and `delete()`. There is no public
-`.startAfter()` chaining — cursor pagination is handled entirely through
+`collectionCount()`, `sum()`, `average()`, `aggregate()`, `distinctValues()`, `paginate()`,
+`offsetPaginate()`, `paginateWithCount()`, `stream()`, `onSnapshot()`, `update()`, and `delete()`.
+There is no public `.startAfter()` chaining — cursor pagination is handled entirely through
 `paginate(pageSize, cursor)`.
 
 **Performance note:** Firestore charges per document read. Use `limit()` and pagination to control
@@ -365,6 +365,17 @@ const avgRating = await reviewRepo.query().where('productId', '==', 'prod-123').
 // Count matching documents
 const activeCount = await userRepo.query().where('status', '==', 'active').count();
 
+// Multiple aliased aggregations in ONE request (dashboards)
+const stats = await orderRepo
+  .query()
+  .where('status', '==', 'completed')
+  .aggregate({
+    orders: { kind: 'count' },
+    revenue: { kind: 'sum', field: 'total' },
+    avgOrder: { kind: 'average', field: 'total' },
+  });
+// stats.orders: number; stats.revenue: number; stats.avgOrder: number | null
+
 // Total collection count — ignores any accumulated where() clauses
 const totalUsers = await userRepo.query().where('status', '==', 'active').collectionCount();
 
@@ -378,8 +389,23 @@ const categories = await productRepo.query().distinctValues('category');
 `count()` respects the query's filters, whereas `collectionCount()` counts the entire collection and
 ignores any `where()` clauses on the builder. `sum(field)` and `average(field)` operate on numeric
 fields; `average(field)` returns `number | null`, yielding `null` (distinct from `0`) when there are
-no numeric values. `distinctValues(field)` returns the unique values for a field, dropping
-`undefined` but preserving stored `null`.
+no numeric values. `aggregate(spec)` runs several aliased `count` / `sum` / `average` entries in a
+single round trip (backend max **5** per request). `distinctValues(field)` returns the unique values
+for a field, dropping `undefined` but preserving stored `null`.
+
+<!-- prettier-ignore -->
+:::caution
+When an `aggregate()` spec includes a `sum` or `average` over a field that only **some** matching
+documents carry, the document set for the **entire** request collapses to documents that have that
+field — so a sibling `count` can return less than `count()` alone. Prefer aggregating fields your
+schema makes required. When you need an unconditioned count alongside a sparse-field sum, issue
+`count()` as a **separate** call. Observed against the Firestore emulator; production parity is
+unverified — see ADR-0027.
+:::
+
+`select()` + a **count-only** aggregation is legal. `select()` combined with any `sum` / `average`
+(including via `aggregate()`) is rejected locally — Firestore does not allow property masks with
+aggregation fields.
 
 ## Selecting fields
 

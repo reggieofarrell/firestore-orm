@@ -197,32 +197,18 @@ export class OrderService {
   }
 
   async getOrderStats(startDate: string, endDate: string) {
-    const orders = await orderRepo
+    const stats = await orderRepo
       .query()
       .where('status', '==', 'delivered')
       .where('createdAt', '>=', startDate)
       .where('createdAt', '<=', endDate)
-      .get();
+      .aggregate({
+        totalOrders: { kind: 'count' },
+        totalRevenue: { kind: 'sum', field: 'total' },
+        avgOrderValue: { kind: 'average', field: 'total' },
+      });
 
-    const totalRevenue = await orderRepo
-      .query()
-      .where('status', '==', 'delivered')
-      .where('createdAt', '>=', startDate)
-      .where('createdAt', '<=', endDate)
-      .sum('total');
-
-    const avgOrderValue = await orderRepo
-      .query()
-      .where('status', '==', 'delivered')
-      .where('createdAt', '>=', startDate)
-      .where('createdAt', '<=', endDate)
-      .average('total');
-
-    return {
-      totalOrders: orders.length,
-      totalRevenue,
-      avgOrderValue,
-    };
+    return stats;
   }
 }
 ```

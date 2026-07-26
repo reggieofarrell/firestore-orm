@@ -33,6 +33,19 @@ export type ID = string;
 export type UpdateOptions = {
   merge?: boolean;
   returnDoc?: boolean;
+  /**
+   * Optimistic-concurrency precondition. When supplied, the write is applied **only** if the
+   * document's current `updateTime` is exactly this timestamp; otherwise Firestore rejects it and the
+   * repository raises {@link PreconditionFailedError} with the stored document untouched.
+   *
+   * Read the token with {@link FirestoreRepository.getByIdWithUpdateTime}. It must be a
+   * `FirebaseFirestore.Timestamp` instance — the Admin SDK rejects a `Date`/number client-side.
+   *
+   * Note this changes the missing-document outcome: a plain `update` on a deleted document raises
+   * `NotFoundError` (gRPC 5), while a precondition-guarded one raises `PreconditionFailedError`
+   * (Firestore reports the absent document as stored version 0, gRPC 9).
+   */
+  lastUpdateTime?: FirebaseFirestore.Timestamp;
 };
 
 /**
@@ -974,6 +987,28 @@ export class FirestoreRepository<
   }
 
   /**
+   * Builds the Admin SDK `Precondition` for an optional `lastUpdateTime`, or `undefined` when the
+   * caller supplied none.
+   *
+   * HAZARD this exists to make unmissable: an explicit `undefined` must NEVER reach `update()`.
+   * `DocumentReference.update` / `WriteBatch.update` / `Transaction.update` also accept an
+   * alternating field/value overload, so `update(payload, undefined)` is parsed as a *field*
+   * argument and throws "Input is not an object" — it is not treated as an omitted precondition.
+   * (`delete(undefined)` happens to be tolerated, but every delete call site branches the same way
+   * for one consistent rule.) An empty `{}` is also not a substitute: it is a valid no-op
+   * precondition, so relying on it would quietly widen the SDK surface every write touches.
+   *
+   * Therefore every call site MUST branch on the result of this helper and call the one-argument
+   * form when it is `undefined` — never forward it positionally. A unit test asserts that a
+   * precondition-free `update` reaches the SDK with exactly one argument.
+   */
+  private toPrecondition(
+    lastUpdateTime: FirebaseFirestore.Timestamp | undefined,
+  ): FirebaseFirestore.Precondition | undefined {
+    return lastUpdateTime ? { lastUpdateTime } : undefined;
+  }
+
+  /**
    * Rejects duplicate document ids in a bulk operation. Two actions targeting the same document in
    * one batch are ambiguous (for updates, which payload wins?) and inflate result counts, so require
    * the caller to deduplicate first rather than guessing intent.
@@ -1177,6 +1212,101 @@ export class FirestoreRepository<
   }
 
   /**
+   * Create a document under a **caller-supplied id**, failing if that id is already taken.
+   *
+   * This is Firestore `DocumentReference.create()` semantics — a create-only write, not an
+   * overwrite. It is the counterpart to {@link upsert}, which writes regardless of existence:
+   * - `createWithId` → the document must NOT exist; a collision raises {@link ConflictError}.
+   * - `upsert` → creates or updates, never conflicts.
+   *
+   * The check is performed by the backend as part of the write, so it is atomic: two concurrent
+   * `createWithId` calls on the same id cannot both succeed — exactly one wins and the loser gets a
+   * `ConflictError`. That is why this is the correct primitive for claiming an externally-derived
+   * identifier (an email hash, an idempotency key, an upstream record id), where a
+   * read-then-`upsert` would leave a race window open.
+   *
+   * Everything else matches {@link create}: `beforeCreate` / `afterCreate` fire with the caller's id,
+   * the payload goes through the same create validation (dotted keys and `FieldValue.delete()`
+   * sentinels are rejected), and the return contract is `{ id }` unless `{ returnDoc: true }` asks
+   * for a read-back through the `readConverter`.
+   *
+   * @param id - Document ID to claim
+   * @param data - Document data (without ID)
+   * @param options - `{ returnDoc: true }` to return the converted read model instead of `{ id }`
+   * @returns `{ id }` by default, or the created document (`FirestoreDocument<T>`) when `returnDoc` is true
+   * @throws {InvalidDocumentIdError} If the id is not a single valid Firestore path segment
+   * @throws {ValidationError} If schema validation fails, or the payload carries a delete sentinel
+   * @throws {ConflictError} If a document already exists at that id
+   *
+   * @example
+   * // Claim an externally-derived id exactly once
+   * try {
+   *   await userRepo.createWithId('external-id-123', { name: 'John Doe' });
+   * } catch (error) {
+   *   if (error instanceof ConflictError) {
+   *     console.log('That id is already taken');
+   *   }
+   * }
+   *
+   * @example
+   * // Return the converted read model
+   * const user = await userRepo.createWithId('user-123', { name: 'Ada' }, { returnDoc: true });
+   */
+  async createWithId(
+    id: ID,
+    data: CreateInput<W>,
+    options: { returnDoc: true },
+  ): Promise<FirestoreDocument<T>>;
+  async createWithId(
+    id: ID,
+    data: CreateInput<W>,
+    options?: { returnDoc?: false },
+  ): Promise<{ id: ID }>;
+  async createWithId(
+    id: ID,
+    data: CreateInput<W>,
+    options?: { returnDoc?: boolean },
+  ): Promise<{ id: ID } | FirestoreDocument<T>> {
+    // Security boundary (review B1): a caller-supplied id is validated BEFORE any hook runs or any
+    // I/O happens, because `CollectionReference.doc()` accepts a slash-separated path and would
+    // otherwise let a malformed id address a document outside this collection.
+    this.validateId(id);
+    try {
+      // The `id` is non-writable on the before-hook payload (review R2): a hook may mutate data
+      // fields but cannot repoint identity. The write target is built from the captured `id`
+      // argument, never from this payload.
+      const docToCreate = FirestoreRepository.withReadonlyId(
+        { ...(data as Record<string, any>) },
+        id,
+      );
+      await this.runHooks('beforeCreate', docToCreate);
+      // No standalone dot-notation guard here (unlike `upsert`): that guard exists only because
+      // upsert's behavior is existence-dependent. `createWithId` is always a create, so
+      // validateCreateData's own dotted-key rejection is both sufficient and correct.
+      const validData = this.validateCreateData(docToCreate as CreateInput<W>);
+
+      // `create()` — NOT `set()`. The backend rejects the write when the document already exists,
+      // which parseFirestoreError normalizes (gRPC 6 ALREADY_EXISTS) into ConflictError.
+      const docRef = this.writeCol().doc(id);
+      await docRef.create(validData as any);
+
+      // After-create hooks observe the parsed write OUTPUT plus the caller's id in a frozen envelope
+      // (review R4/R2) — identical to create()/upsert().
+      await this.emitAfterCreate(validData, id);
+
+      if (options?.returnDoc === true) {
+        return await this.getByIdOrThrow(id);
+      }
+      return { id };
+    } catch (err: any) {
+      if (err instanceof z.ZodError) {
+        throw new ValidationError(err.issues);
+      }
+      throw parseFirestoreError(err);
+    }
+  }
+
+  /**
    * Create multiple documents in a single batched operation.
    * More efficient than calling create() in a loop. Uses Firestore batches (500 ops per batch).
    *
@@ -1271,6 +1401,113 @@ export class FirestoreRepository<
   }
 
   /**
+   * Create multiple documents under **caller-supplied ids** in a single batched operation, failing
+   * if any of those ids is already taken.
+   *
+   * The bulk counterpart to {@link createWithId}: every write uses Firestore's create-only
+   * semantics, so a single pre-existing id rejects the whole call with {@link ConflictError}. At or
+   * below 500 entries the batch is atomic — when one create collides, **no** sibling in the batch
+   * lands. Above 500 entries the existing chunked-commit caveat applies (earlier 500-op chunks stay
+   * committed); use a transaction if you need all-or-nothing beyond that.
+   *
+   * Duplicate ids **within the input** are rejected up front, before any I/O. Firestore's own
+   * insert-then-insert diagnostic for that case is an opaque `INVALID_ARGUMENT`, so catching it
+   * locally is what produces an actionable message.
+   *
+   * @param entries - Array of `{ id, data }` pairs to create
+   * @param options - `{ returnDoc: true }` to return the converted read models instead of `{ id }[]`
+   * @returns `{ id }[]` by default, or the created documents when `returnDoc` is true
+   * @throws {InvalidDocumentIdError} If any id is not a single valid Firestore path segment
+   * @throws {Error} If the input contains duplicate ids
+   * @throws {ValidationError} If any document fails validation
+   * @throws {ConflictError} If any id already exists (nothing in the batch is written)
+   *
+   * @example
+   * await userRepo.bulkCreateWithIds([
+   *   { id: 'user-1', data: { name: 'Alice' } },
+   *   { id: 'user-2', data: { name: 'Bob' } },
+   * ]);
+   */
+  async bulkCreateWithIds(
+    entries: { id: ID; data: CreateInput<W> }[],
+    options: { returnDoc: true },
+  ): Promise<FirestoreDocument<T>[]>;
+  async bulkCreateWithIds(
+    entries: { id: ID; data: CreateInput<W> }[],
+    options?: { returnDoc?: false },
+  ): Promise<{ id: ID }[]>;
+  async bulkCreateWithIds(
+    entries: { id: ID; data: CreateInput<W> }[],
+    options?: { returnDoc?: boolean },
+  ): Promise<{ id: ID }[] | FirestoreDocument<T>[]> {
+    // Security boundary + input contract, both BEFORE any hook or I/O: every caller-supplied id is
+    // validated (review B1), then duplicates are rejected because two creates on the same document
+    // in one batch are ambiguous and inflate the result count.
+    const requestedIds = entries.map(entry => entry.id);
+    requestedIds.forEach(id => this.validateId(id));
+    this.assertNoDuplicateIds(requestedIds, 'bulkCreateWithIds');
+    try {
+      const colRef = this.writeCol();
+
+      // Capture the ids up front (review B2), exactly as bulkCreate captures its generated ids — the
+      // only difference is that here the captured value is the CALLER's id. A hook that mutates a
+      // draft's `id` therefore cannot redirect the write target: the write ref and the returned id
+      // both come from `capturedIds`, while the (possibly hook-mutated) draft data is what gets
+      // validated.
+      const capturedIds = [...requestedIds];
+      const drafts: (CreateInput<W> & { id: ID })[] = entries.map(
+        (entry, index) =>
+          FirestoreRepository.withReadonlyId(
+            { ...(entry.data as Record<string, any>) },
+            capturedIds[index],
+          ) as unknown as CreateInput<W> & { id: ID },
+      );
+      // Stable pre-hook work list (review A1): each captured id is paired with its draft OBJECT
+      // before the hook runs. A `beforeBulkCreate` hook may mutate a draft's DATA fields in place,
+      // but reordering, splicing, or replacing entries in the array it receives cannot change which
+      // id gets which data — the write loop iterates THIS list, not the hook-handed `drafts` array.
+      const work = drafts.map((draft, index) => ({ id: capturedIds[index], draft }));
+
+      // Freeze the array the hook sees (review R2): membership/order/length are immutable and each
+      // draft's `id` is already non-writable, while `data` fields stay mutable (shared with `work`),
+      // so documented in-place data mutation still reaches the write.
+      Object.freeze(drafts);
+      await this.runHooks('beforeBulkCreate', drafts);
+
+      const actions: ((batch: FirebaseFirestore.WriteBatch) => void)[] = [];
+      // Result/hook payload is built from the VALIDATED create OUTPUT (never the raw draft), so any
+      // key Zod strips is absent from both the return value and the afterBulkCreate payload
+      // (review R4).
+      const validatedDocs: (CreateOutput<WO> & { id: ID })[] = [];
+
+      for (const { id, draft } of work) {
+        const docRef = colRef.doc(id);
+        const validData = this.validateCreateData(draft as CreateInput<W>);
+
+        // `batch.create` — NOT `batch.set`: create-only semantics, and the batch stays atomic, so a
+        // collision on any entry means none of the siblings land.
+        actions.push(batch => batch.create(docRef, validData as any));
+        validatedDocs.push({
+          ...validData,
+          id,
+        });
+      }
+
+      await this.commitInChunks(actions);
+      // emitAfterBulkCreate freezes the array and each doc so the hook cannot mutate the accounting.
+      await this.emitAfterBulkCreate(validatedDocs);
+
+      if (options?.returnDoc === true) {
+        return await Promise.all(validatedDocs.map(doc => this.getByIdOrThrow(doc.id)));
+      }
+      return validatedDocs.map(doc => ({ id: doc.id }));
+    } catch (error: any) {
+      if (error instanceof z.ZodError) throw new ValidationError(error.issues);
+      throw parseFirestoreError(error);
+    }
+  }
+
+  /**
    * Retrieve a document by its ID.
    * Returns null if the document doesn't exist.
    *
@@ -1294,6 +1531,61 @@ export class FirestoreRepository<
       const data = snapshot.data() as any;
       // Overlay the authoritative document name (snapshot.id), never the caller-supplied argument.
       return { ...(data as T), id: snapshot.id };
+    } catch (error: any) {
+      throw parseFirestoreError(error);
+    }
+  }
+
+  /**
+   * Retrieve a document by its ID **together with its Firestore `updateTime`** — the token that
+   * drives optimistic-concurrency (compare-and-set) writes.
+   *
+   * This is the read half of the conditional-write flow: pass the returned `updateTime` back as
+   * `lastUpdateTime` on {@link update} / {@link patch} / {@link delete} (or their bulk and
+   * transaction variants) and the write commits only if nobody else changed the document in between.
+   *
+   * The result is a **pair** — `{ doc, updateTime }` — rather than an `updateTime` overlaid on the
+   * document. Overlaying would shadow a stored field named `updateTime` and make it unreachable,
+   * exactly the collision ADR-0018 avoids for `id`. Every other read on this repository keeps its
+   * existing return type; nothing here changes {@link getById}.
+   *
+   * Reads go through `readCol()`, so a configured `readConverter` applies to `doc` and the `id`
+   * overlay behaves identically to {@link getById}. A converter-applied snapshot still carries the
+   * server's `updateTime`, and the token it yields is accepted on the (raw) write reference.
+   *
+   * @param id - Document ID
+   * @returns `{ doc, updateTime }`, or `null` when the document does not exist
+   * @throws {InvalidDocumentIdError} If the id is not a single valid Firestore path segment
+   *
+   * @example
+   * // Precondition-guarded read-modify-write
+   * const current = await userRepo.getByIdWithUpdateTime('user-123');
+   * if (current) {
+   *   await userRepo.update(
+   *     current.doc.id,
+   *     { name: current.doc.name.trim() },
+   *     { lastUpdateTime: current.updateTime },
+   *   );
+   * }
+   */
+  async getByIdWithUpdateTime(
+    id: ID,
+  ): Promise<{ doc: FirestoreDocument<T>; updateTime: FirebaseFirestore.Timestamp } | null> {
+    this.validateId(id);
+    try {
+      const snapshot = await this.readCol().doc(id).get();
+      if (!snapshot.exists) return null;
+
+      const data = snapshot.data() as any;
+      return {
+        // Overlay the authoritative document name (snapshot.id), never the caller-supplied argument
+        // — identical to getById.
+        doc: { ...(data as T), id: snapshot.id },
+        // `DocumentSnapshot.updateTime` is optional in the typings only because it is absent for a
+        // NON-EXISTENT document; the `!snapshot.exists` early return above already excluded that
+        // case, so the assertion is sound rather than optimistic.
+        updateTime: snapshot.updateTime!,
+      };
     } catch (error: any) {
       throw parseFirestoreError(error);
     }
@@ -1510,9 +1802,11 @@ export class FirestoreRepository<
    *
    * @param id - Document ID to update
    * @param data - Partial document data (supports dot notation like 'address.city')
-   * @param options - Optional update behavior settings
+   * @param options - Optional update behavior settings (`merge`, `returnDoc`, `lastUpdateTime`)
    * @returns Updated document ID
-   * @throws {NotFoundError} If document doesn't exist
+   * @throws {NotFoundError} If document doesn't exist and no `lastUpdateTime` was supplied
+   * @throws {PreconditionFailedError} If `lastUpdateTime` no longer matches the stored version
+   *   (including when the document has been deleted — Firestore reports that as stored version 0)
    * @throws {ValidationError} If validation fails
    *
    * @example
@@ -1520,6 +1814,17 @@ export class FirestoreRepository<
    * await userRepo.update('user-123', {
    *   email: 'newemail@example.com'
    * });
+   *
+   * @example
+   * // Conditional (compare-and-set) update — commits only if nobody wrote in between
+   * const current = await userRepo.getByIdWithUpdateTime('user-123');
+   * if (current) {
+   *   await userRepo.update(
+   *     'user-123',
+   *     { email: 'newemail@example.com' },
+   *     { lastUpdateTime: current.updateTime },
+   *   );
+   * }
    *
    * @example
    * // Dot notation for nested fields
@@ -1606,7 +1911,14 @@ export class FirestoreRepository<
       if (rejectDeleteSentinels) {
         this.assertNoDeleteSentinel(writePayload as Record<string, any>);
       }
-      await docRef.update(writePayload as any);
+      // T1 branch: never forward an `undefined` precondition positionally — `update()`'s
+      // field/value overload would parse it as a field argument and throw. See toPrecondition().
+      const precondition = this.toPrecondition(options?.lastUpdateTime);
+      if (precondition) {
+        await docRef.update(writePayload as any, precondition);
+      } else {
+        await docRef.update(writePayload as any);
+      }
       await this.runHooks('afterUpdate', Object.freeze({ id }));
 
       // When returnDoc is enabled, we re-read the document after write completion.
@@ -1627,31 +1939,63 @@ export class FirestoreRepository<
   /**
    * Convenience alias for merge-style partial updates.
    * Equivalent to update(id, data, { merge: true }).
+   *
+   * Accepts the same optimistic-concurrency `lastUpdateTime` precondition as {@link update} — the
+   * merge normalization happens before the write, so the precondition still guards the exact stored
+   * version the caller read.
+   *
+   * @example
+   * const current = await userRepo.getByIdWithUpdateTime('user-123');
+   * if (current) {
+   *   await userRepo.patch(
+   *     'user-123',
+   *     { 'profile.nickname': 'Johnny' },
+   *     { lastUpdateTime: current.updateTime },
+   *   );
+   * }
    */
   async patch(
     id: ID,
     data: UpdateInput<W>,
-    options: { returnDoc: true },
+    options: { returnDoc: true; lastUpdateTime?: FirebaseFirestore.Timestamp },
   ): Promise<FirestoreDocument<T>>;
-  async patch(id: ID, data: UpdateInput<W>, options?: { returnDoc?: false }): Promise<{ id: ID }>;
   async patch(
     id: ID,
     data: UpdateInput<W>,
-    options?: { returnDoc?: boolean },
+    options?: { returnDoc?: false; lastUpdateTime?: FirebaseFirestore.Timestamp },
+  ): Promise<{ id: ID }>;
+  async patch(
+    id: ID,
+    data: UpdateInput<W>,
+    options?: { returnDoc?: boolean; lastUpdateTime?: FirebaseFirestore.Timestamp },
   ): Promise<{ id: ID } | FirestoreDocument<T>> {
+    // Forward the precondition on both branches. Passing `lastUpdateTime: undefined` through this
+    // ORM-owned options bag is safe (unlike forwarding `undefined` to the SDK — see toPrecondition):
+    // runUpdate branches on truthiness before it reaches Firestore.
     if (options?.returnDoc === true) {
-      return this.update(id, data, { merge: true, returnDoc: true });
+      return this.update(id, data, {
+        merge: true,
+        returnDoc: true,
+        lastUpdateTime: options.lastUpdateTime,
+      });
     }
-    return this.update(id, data, { merge: true });
+    return this.update(id, data, { merge: true, lastUpdateTime: options?.lastUpdateTime });
   }
 
   /**
    * Update multiple documents in a single batched operation.
    * Supports dot notation for nested field updates.
    *
-   * @param updates - Array of update operations with ID and data
+   * Each entry may carry its own `lastUpdateTime` precondition. Preconditions are evaluated by the
+   * backend at commit time, so at or below 500 operations the batch stays atomic: if any one
+   * precondition fails, the whole batch is rejected and **nothing** changes. Above 500 operations the
+   * existing chunked-commit caveat applies — earlier chunks are already committed when a later chunk
+   * fails.
+   *
+   * @param updates - Array of update operations with ID, data, and an optional `lastUpdateTime`
    * @returns Array of updated document IDs
    * @throws {NotFoundError} If any document doesn't exist
+   * @throws {PreconditionFailedError} If any supplied `lastUpdateTime` no longer matches
    * @throws {ValidationError} If any validation fails
    *
    * @example
@@ -1667,8 +2011,21 @@ export class FirestoreRepository<
    *   { id: 'user-1', data: { 'profile.verified': true } },
    *   { id: 'user-2', data: { 'settings.theme': 'dark' } }
    * ]);
+   *
+   * @example
+   * // Per-entry preconditions — all-or-nothing at or below 500 operations
+   * await userRepo.bulkUpdate([
+   *   { id: 'user-1', data: { status: 'active' }, lastUpdateTime: firstToken },
+   *   { id: 'user-2', data: { status: 'active' }, lastUpdateTime: secondToken },
+   * ]);
    */
-  async bulkUpdate(updates: { id: ID; data: UpdateInput<W> }[]): Promise<{ id: ID }[]> {
+  async bulkUpdate(
+    updates: {
+      id: ID;
+      data: UpdateInput<W>;
+      lastUpdateTime?: FirebaseFirestore.Timestamp;
+    }[],
+  ): Promise<{ id: ID }[]> {
     return this.bulkWrite(updates, false);
   }
 
@@ -1680,7 +2037,7 @@ export class FirestoreRepository<
    * behaviorally identical.
    */
   private async bulkWrite(
-    updates: { id: ID; data: UpdateInput<W> }[],
+    updates: { id: ID; data: UpdateInput<W>; lastUpdateTime?: FirebaseFirestore.Timestamp }[],
     merge: boolean,
   ): Promise<{ id: ID }[]> {
     this.assertNoDuplicateIds(
@@ -1717,7 +2074,15 @@ export class FirestoreRepository<
         const writePayload = this.sanitizeUpdateData(validData);
 
         this.assertNonEmptyUpdatePayload(writePayload as Record<string, any>);
-        actions.push(batch => batch.update(docRef, writePayload as any));
+        // T1 branch, per entry: the precondition is read from the CAPTURED entry (never from the
+        // frozen hook view, which deliberately carries only `id`/`data`), and the one-argument form
+        // is used whenever the caller supplied no token. See toPrecondition().
+        const precondition = this.toPrecondition(entry.lastUpdateTime);
+        if (precondition) {
+          actions.push(batch => batch.update(docRef, writePayload as any, precondition));
+        } else {
+          actions.push(batch => batch.update(docRef, writePayload as any));
+        }
         ids.push(id);
       }
 
@@ -1738,9 +2103,13 @@ export class FirestoreRepository<
    * nested objects are flattened to dot-notation updates, explicit dot keys
    * take precedence over flattened keys, and writes execute via batch.update.
    *
-   * @param updates - Array of update operations with ID and data
+   * Each entry may carry its own `lastUpdateTime` precondition, with the same atomicity behavior as
+   * {@link bulkUpdate}.
+   *
+   * @param updates - Array of update operations with ID, data, and an optional `lastUpdateTime`
    * @returns Array of updated document IDs
    * @throws {NotFoundError} If any document doesn't exist
+   * @throws {PreconditionFailedError} If any supplied `lastUpdateTime` no longer matches
    * @throws {ValidationError} If any validation fails
    *
    * @example
@@ -1749,7 +2118,13 @@ export class FirestoreRepository<
    *   { id: 'user-2', data: { 'profile.settings.notifications': true } as any },
    * ]);
    */
-  async bulkPatch(updates: { id: ID; data: UpdateInput<W> }[]): Promise<{ id: ID }[]> {
+  async bulkPatch(
+    updates: {
+      id: ID;
+      data: UpdateInput<W>;
+      lastUpdateTime?: FirebaseFirestore.Timestamp;
+    }[],
+  ): Promise<{ id: ID }[]> {
     // Validate raw input first, then normalize — the same order as single-document patch(). This
     // keeps patch() and bulkPatch() consistent (a nested object is validated as a whole object, an
     // explicit dot-notation key is validated at its leaf) rather than validating a pre-flattened
@@ -1853,8 +2228,20 @@ export class FirestoreRepository<
    * Permanently delete a document from Firestore.
    * This is a hard delete - the document cannot be recovered.
    *
+   * Optionally guarded by a `lastUpdateTime` precondition, so a document that changed since the
+   * caller read it is not deleted out from under the newer writer.
+   *
+   * Note the interaction with this method's own existence pre-read: `delete(id, { lastUpdateTime })`
+   * on an **already-missing** document raises {@link NotFoundError} (the pre-read throws first), not
+   * `PreconditionFailedError`. Only a document that exists but has moved on reaches the backend
+   * precondition. The pre-read is unconditional and unchanged — `delete(id)` without a precondition
+   * behaves exactly as before, and this method never auto-preconditions on its own snapshot (that
+   * would turn today's benign races into errors).
+   *
    * @param id - Document ID to delete
+   * @param options - `{ lastUpdateTime }` to delete only if the document is still at that version
    * @throws {NotFoundError} If document doesn't exist
+   * @throws {PreconditionFailedError} If `lastUpdateTime` no longer matches the stored version
    *
    * @example
    * // Delete a user permanently
@@ -1870,8 +2257,15 @@ export class FirestoreRepository<
    *     console.log('User not found');
    *   }
    * }
+   *
+   * @example
+   * // Conditional delete — only if the document has not changed since it was read
+   * const current = await userRepo.getByIdWithUpdateTime('user-123');
+   * if (current) {
+   *   await userRepo.delete('user-123', { lastUpdateTime: current.updateTime });
+   * }
    */
-  async delete(id: ID): Promise<void> {
+  async delete(id: ID, options?: { lastUpdateTime?: FirebaseFirestore.Timestamp }): Promise<void> {
     this.validateId(id);
     try {
       const docRef = this.readCol().doc(id);
@@ -1884,7 +2278,14 @@ export class FirestoreRepository<
       // same deeply-frozen data. Delete payloads are observe-only (no data-mutation contract).
       const docData = deepFreeze({ ...(snapshot.data() as T), id: snapshot.id });
       await this.runHooks('beforeDelete', docData);
-      await docRef.delete();
+      // T1 branch: `delete(undefined)` happens to be tolerated by the SDK, but every write site
+      // branches identically so there is one rule to remember. See toPrecondition().
+      const precondition = this.toPrecondition(options?.lastUpdateTime);
+      if (precondition) {
+        await docRef.delete(precondition);
+      } else {
+        await docRef.delete();
+      }
       await this.runHooks('afterDelete', deepFreeze({ ...docData }));
     } catch (error: any) {
       throw parseFirestoreError(error);
@@ -1895,8 +2296,19 @@ export class FirestoreRepository<
    * Permanently delete multiple documents in a batched operation.
    * This is a hard delete - documents cannot be recovered.
    *
-   * @param ids - Array of document IDs to delete
+   * Accepts either a plain array of ids or an array of `{ id, lastUpdateTime? }` entries, so
+   * individual deletes can be guarded by an optimistic-concurrency precondition. The two forms are
+   * separate overloads and cannot be mixed in one array.
+   *
+   * Preconditions do not change the "already gone → not counted" behavior: the existence pre-read
+   * still filters missing documents out **before** the batch is built, so an entry whose document has
+   * already been deleted is skipped rather than raising `PreconditionFailedError`. An empty input (or
+   * an input where nothing exists) returns `0` without a commit.
+   *
+   * @param entries - Array of document IDs, or of `{ id, lastUpdateTime? }` entries
    * @returns Number of documents actually deleted
+   * @throws {PreconditionFailedError} If a supplied `lastUpdateTime` no longer matches (at or below
+   *   500 operations the batch is atomic, so nothing is deleted)
    *
    * @example
    * // Delete multiple users
@@ -1914,10 +2326,35 @@ export class FirestoreRepository<
    *   .get()
    *   .then(users => users.map(u => u.id));
    * await userRepo.bulkDelete(testUserIds);
+   *
+   * @example
+   * // Conditional bulk delete — each entry guarded by the version it was read at
+   * await userRepo.bulkDelete([
+   *   { id: 'user-1', lastUpdateTime: firstToken },
+   *   { id: 'user-2' }, // unguarded entries may be mixed in as objects
+   * ]);
    */
-  async bulkDelete(ids: ID[]): Promise<number> {
+  async bulkDelete(ids: ID[]): Promise<number>;
+  async bulkDelete(
+    entries: { id: ID; lastUpdateTime?: FirebaseFirestore.Timestamp }[],
+  ): Promise<number>;
+  async bulkDelete(
+    entries: ID[] | { id: ID; lastUpdateTime?: FirebaseFirestore.Timestamp }[],
+  ): Promise<number> {
+    // Normalize the two overloads to one internal shape. The overloads keep a mixed
+    // `['a', { id: 'b' }]` array from type-checking; this cast is the implementation-signature
+    // widening TypeScript requires to iterate the union.
+    const normalized = (
+      entries as (ID | { id: ID; lastUpdateTime?: FirebaseFirestore.Timestamp })[]
+    ).map(entry => (typeof entry === 'string' ? { id: entry } : entry));
+    const ids = normalized.map(entry => entry.id);
     ids.forEach(id => this.validateId(id));
     this.assertNoDuplicateIds(ids, 'bulkDelete');
+    // Preconditions are keyed by id because the write targets are derived from the surviving
+    // SNAPSHOTS (missing documents are filtered out below), not from the caller's array positions.
+    const preconditionById = new Map<ID, FirebaseFirestore.Timestamp | undefined>(
+      normalized.map(entry => [entry.id, entry.lastUpdateTime]),
+    );
     try {
       const snapshots = await Promise.all(ids.map(id => this.readCol().doc(id).get()));
       const existing = snapshots.filter(snapshot => snapshot.exists);
@@ -1944,9 +2381,17 @@ export class FirestoreRepository<
         Object.freeze({ ids: capturedIds, documents: docsData }),
       );
 
-      const actions = targetRefs.map(
-        ref => (batch: FirebaseFirestore.WriteBatch) => batch.delete(ref),
-      );
+      // T1 branch, per target: the one-argument form is used whenever the entry carried no token.
+      const actions = targetRefs.map(ref => {
+        const precondition = this.toPrecondition(preconditionById.get(ref.id));
+        return (batch: FirebaseFirestore.WriteBatch) => {
+          if (precondition) {
+            batch.delete(ref, precondition);
+          } else {
+            batch.delete(ref);
+          }
+        };
+      });
 
       await this.commitInChunks(actions);
       await this.runHooks(
@@ -2496,8 +2941,16 @@ export class FirestoreRepository<
    * @param tx - Firestore transaction object
    * @param id - Document ID
    * @param data - Partial data to update (supports dot notation)
-   * @param options - Optional update behavior settings
+   * A `lastUpdateTime` precondition may be supplied here too. A failed precondition does **not**
+   * trigger a transaction retry — Firestore retries on contention, not on a rejected precondition —
+   * so the callback runs exactly once and the whole transaction fails with
+   * {@link PreconditionFailedError}. Inside a read-write transaction the transaction's own
+   * pessimistic lock is usually the better tool; a precondition is for a token read *outside* the
+   * transaction.
+   *
+   * @param options - Optional update behavior settings (`merge`, `lastUpdateTime`)
    * @throws {ValidationError} If validation fails
+   * @throws {PreconditionFailedError} If `lastUpdateTime` no longer matches (transaction not retried)
    *
    * @example
    * await repo.runInTransaction(async (tx, repo) => {
@@ -2533,9 +2986,10 @@ export class FirestoreRepository<
     id: ID,
     data: UpdateInput<W>,
     // Transaction updates cannot honor `returnDoc` (a transaction cannot read a document back after
-    // writing it), so the option is deliberately absent here — only `merge` is meaningful. This
-    // mirrors `createInTransaction`, which also excludes `returnDoc`.
-    options?: { merge?: boolean },
+    // writing it), so the option is deliberately absent here — only `merge` and the optimistic-
+    // concurrency `lastUpdateTime` are meaningful. This mirrors `createInTransaction`, which also
+    // excludes `returnDoc`.
+    options?: { merge?: boolean; lastUpdateTime?: FirebaseFirestore.Timestamp },
   ): Promise<void> {
     this.validateId(id);
     try {
@@ -2558,7 +3012,14 @@ export class FirestoreRepository<
       const writePayload = this.sanitizeUpdateData(validData);
 
       this.assertNonEmptyUpdatePayload(writePayload as Record<string, any>);
-      tx.update(docRef, writePayload as any);
+      // T1 branch: `tx.update(ref, data, undefined)` throws "Input is not an object" exactly like the
+      // document and batch surfaces. See toPrecondition().
+      const precondition = this.toPrecondition(options?.lastUpdateTime);
+      if (precondition) {
+        tx.update(docRef, writePayload as any, precondition);
+      } else {
+        tx.update(docRef, writePayload as any);
+      }
     } catch (error: any) {
       if (error instanceof z.ZodError) {
         throw new ValidationError(error.issues);
@@ -2570,13 +3031,21 @@ export class FirestoreRepository<
   /**
    * Convenience alias for merge-style transaction updates.
    * Equivalent to updateInTransaction(tx, id, data, { merge: true }).
+   *
+   * Accepts the same `lastUpdateTime` precondition, with the same no-retry behavior on failure.
    */
   async patchInTransaction(
     tx: FirebaseFirestore.Transaction,
     id: ID,
     data: UpdateInput<W>,
+    options?: { lastUpdateTime?: FirebaseFirestore.Timestamp },
   ): Promise<void> {
-    return this.updateInTransaction(tx, id, data, { merge: true });
+    // `lastUpdateTime: undefined` is safe through this ORM-owned options bag — updateInTransaction
+    // branches on truthiness before anything reaches the SDK.
+    return this.updateInTransaction(tx, id, data, {
+      merge: true,
+      lastUpdateTime: options?.lastUpdateTime,
+    });
   }
 
   /**
@@ -2631,12 +3100,75 @@ export class FirestoreRepository<
   }
 
   /**
+   * Create a document under a **caller-supplied id** within a transaction, failing if that id is
+   * already taken. The transactional counterpart to {@link createWithId}.
+   *
+   * Returns only `{ id }` for the same reason as {@link createInTransaction}: a transaction cannot
+   * read a document back after writing it, so there is no `returnDoc` option.
+   *
+   * A collision does **not** trigger a transaction retry. Firestore retries on contention, not on a
+   * rejected create — the callback runs exactly once and the whole transaction fails with
+   * {@link ConflictError}. Only `beforeCreate` fires; after-hooks never run inside a transaction
+   * because the write is not committed until the callback returns (matching every other
+   * `*InTransaction` helper).
+   *
+   * @param tx - Firestore transaction object
+   * @param id - Document ID to claim
+   * @param data - Document data
+   * @returns `{ id }` — the caller-supplied document id
+   * @throws {InvalidDocumentIdError} If the id is not a single valid Firestore path segment
+   * @throws {ValidationError} If validation fails
+   * @throws {ConflictError} If a document already exists at that id (raised when the transaction runs)
+   *
+   * @example
+   * await repo.runInTransaction(async (tx, repo) => {
+   *   await repo.createWithIdInTransaction(tx, 'order-123', {
+   *     userId: 'user-123',
+   *     total: 99.99,
+   *   });
+   * });
+   */
+  async createWithIdInTransaction(
+    tx: FirebaseFirestore.Transaction,
+    id: ID,
+    data: CreateInput<W>,
+  ): Promise<{ id: ID }> {
+    // Security boundary (review B1): validate the caller-supplied id before any hook or write.
+    this.validateId(id);
+    try {
+      const docRef = this.writeCol().doc(id);
+      // Non-writable `id` on the before-hook payload (review R2); the write target is `docRef`.
+      const docData = FirestoreRepository.withReadonlyId({ ...(data as Record<string, any>) }, id);
+
+      await this.runHooks('beforeCreate', docData);
+      const validData = this.validateCreateData(docData as CreateInput<W>);
+
+      // `tx.create` — create-only semantics inside the transaction. NOTE: after* hooks intentionally
+      // do not run inside a transaction, matching createInTransaction/updateInTransaction.
+      tx.create(docRef, validData as any);
+      return { id };
+    } catch (error: any) {
+      if (error instanceof z.ZodError) {
+        throw new ValidationError(error.issues);
+      }
+      throw parseFirestoreError(error);
+    }
+  }
+
+  /**
    * Delete a document within a transaction.
    * Must be used inside runInTransaction callback.
    *
+   * Optionally guarded by a `lastUpdateTime` precondition. As with the transactional update, a
+   * failed precondition fails the transaction outright rather than retrying it. Note this method's
+   * own transactional existence read runs first, so a missing document still raises
+   * {@link NotFoundError} regardless of any precondition.
+   *
    * @param tx - Firestore transaction object
    * @param id - Document ID
+   * @param options - `{ lastUpdateTime }` to delete only if the document is still at that version
    * @throws {NotFoundError} If document doesn't exist
+   * @throws {PreconditionFailedError} If `lastUpdateTime` no longer matches (transaction not retried)
    *
    * @example
    * await repo.runInTransaction(async (tx, repo) => {
@@ -2646,7 +3178,11 @@ export class FirestoreRepository<
    *   }
    * });
    */
-  async deleteInTransaction(tx: FirebaseFirestore.Transaction, id: ID): Promise<void> {
+  async deleteInTransaction(
+    tx: FirebaseFirestore.Transaction,
+    id: ID,
+    options?: { lastUpdateTime?: FirebaseFirestore.Timestamp },
+  ): Promise<void> {
     this.validateId(id);
     try {
       const docRef = this.readCol().doc(id);
@@ -2658,7 +3194,13 @@ export class FirestoreRepository<
       // nested data. Delete payloads are observe-only.
       const docData = deepFreeze({ ...(snapshot.data() as T), id: snapshot.id });
       await this.runHooks('beforeDelete', docData);
-      tx.delete(docRef);
+      // T1 branch, applied for consistency with every other write site. See toPrecondition().
+      const precondition = this.toPrecondition(options?.lastUpdateTime);
+      if (precondition) {
+        tx.delete(docRef, precondition);
+      } else {
+        tx.delete(docRef);
+      }
     } catch (error: any) {
       throw parseFirestoreError(error);
     }

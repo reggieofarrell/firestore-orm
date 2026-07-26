@@ -13,6 +13,14 @@ export type {
 export type { FirestoreDocument, CollectionGroupDocument } from './core/DocumentId.js';
 export { FirestoreQueryBuilder } from './core/QueryBuilder.js';
 export type { PaginatedResult, QueryFilterFactory } from './core/QueryBuilder.js';
+export type {
+  CountAggregation,
+  SumAggregation,
+  AverageAggregation,
+  AggregationSpecEntry,
+  AggregationSpec,
+  AggregationResult,
+} from './core/QueryBuilder.js';
 export {
   FirestoreCollectionGroup,
   FirestoreCollectionGroupQueryBuilder,
@@ -25,6 +33,7 @@ export {
   ConflictError,
   FirestoreIndexError,
   InvalidDocumentIdError,
+  PreconditionFailedError,
 } from './core/Errors.js';
 export type { InvalidDocumentIdReason } from './core/Errors.js';
 

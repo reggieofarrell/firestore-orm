@@ -4,7 +4,7 @@ import {
   Firestore,
   QueryDocumentSnapshot,
 } from 'firebase-admin/firestore';
-import { FieldPaths } from '../utils/pathTypes.js';
+import { FieldPaths, OmitId } from '../utils/pathTypes.js';
 import {
   collectDeleteSentinelPaths,
   CreateInput,
@@ -23,6 +23,7 @@ import { flattenToDotNotation, hasDotNotationKeys, isDotNotation } from '../util
 import { deepFreeze } from '../utils/safeObject.js';
 import { FirestoreCollectionGroup } from './CollectionGroup.js';
 import type { FirestoreDocument } from './DocumentId.js';
+import { asFirestoreDocument } from './DocumentId.js';
 import {
   validateCollectionPath,
   validateCollectionSegment,
@@ -1530,7 +1531,7 @@ export class FirestoreRepository<
 
       const data = snapshot.data() as any;
       // Overlay the authoritative document name (snapshot.id), never the caller-supplied argument.
-      return { ...(data as T), id: snapshot.id };
+      return asFirestoreDocument<T>({ ...(data as T), id: snapshot.id });
     } catch (error: any) {
       throw parseFirestoreError(error);
     }
@@ -1580,7 +1581,7 @@ export class FirestoreRepository<
       return {
         // Overlay the authoritative document name (snapshot.id), never the caller-supplied argument
         // — identical to getById.
-        doc: { ...(data as T), id: snapshot.id },
+        doc: asFirestoreDocument<T>({ ...(data as T), id: snapshot.id }),
         // `DocumentSnapshot.updateTime` is optional in the typings only because it is absent for a
         // NON-EXISTENT document; the `!snapshot.exists` early return above already excluded that
         // case, so the assertion is sound rather than optimistic.
@@ -1640,7 +1641,7 @@ export class FirestoreRepository<
     const data = this.readConverter
       ? this.readConverter(snapshot as FirebaseFirestore.QueryDocumentSnapshot)
       : (snapshot.data() as T);
-    return { ...(data as T), id: snapshot.id };
+    return asFirestoreDocument<T>({ ...(data as T), id: snapshot.id });
   }
 
   /**
@@ -2372,7 +2373,9 @@ export class FirestoreRepository<
       // deepFreeze (not shallow) so a beforeBulkDelete hook cannot mutate NESTED document data that a
       // later afterBulkDelete hook observes (review R2). Delete documents are observe-only.
       const docsData = Object.freeze(
-        existing.map(snapshot => deepFreeze({ ...(snapshot.data() as T), id: snapshot.id })),
+        existing.map(snapshot =>
+          asFirestoreDocument<T>(deepFreeze({ ...(snapshot.data() as T), id: snapshot.id })),
+        ),
       ) as readonly FirestoreDocument<T>[];
       const deletedCount = capturedIds.length;
 
@@ -2421,14 +2424,14 @@ export class FirestoreRepository<
    * const pendingOrders = await orderRepo.findByField('status', 'pending');
    */
   async findByField(
-    field: FieldPaths<Omit<S, 'id'>> | FieldPath,
+    field: FieldPaths<OmitId<S>> | FieldPath,
     value: unknown,
   ): Promise<FirestoreDocument<T>[]> {
     try {
       const snapshot = await this.readCol()
         .where(field as string | FieldPath, '==', value)
         .get();
-      return snapshot.docs.map(doc => ({ ...(doc.data() as T), id: doc.id }));
+      return snapshot.docs.map(doc => asFirestoreDocument<T>({ ...(doc.data() as T), id: doc.id }));
     } catch (error: any) {
       throw parseFirestoreError(error);
     }
@@ -2459,7 +2462,7 @@ export class FirestoreRepository<
    * }
    */
   async getOneByField(
-    field: FieldPaths<Omit<S, 'id'>> | FieldPath,
+    field: FieldPaths<OmitId<S>> | FieldPath,
     value: unknown,
   ): Promise<FirestoreDocument<T> | null> {
     try {
@@ -2475,7 +2478,7 @@ export class FirestoreRepository<
 
       // The query is limited to one document, so index 0 is always the first and only match here.
       const doc = snapshot.docs[0];
-      return { ...(doc.data() as T), id: doc.id };
+      return asFirestoreDocument<T>({ ...(doc.data() as T), id: doc.id });
     } catch (error: any) {
       throw parseFirestoreError(error);
     }
@@ -2493,7 +2496,7 @@ export class FirestoreRepository<
    * @throws {ConflictError} If more than one document matches the provided field/value
    */
   async getOneByFieldOrThrow(
-    field: FieldPaths<Omit<S, 'id'>> | FieldPath,
+    field: FieldPaths<OmitId<S>> | FieldPath,
     value: unknown,
   ): Promise<FirestoreDocument<T>> {
     try {
@@ -2515,7 +2518,7 @@ export class FirestoreRepository<
       }
 
       const doc = snapshot.docs[0];
-      return { ...(doc.data() as T), id: doc.id };
+      return asFirestoreDocument<T>({ ...(doc.data() as T), id: doc.id });
     } catch (error: any) {
       throw parseFirestoreError(error);
     }
@@ -2549,7 +2552,7 @@ export class FirestoreRepository<
                 return;
               }
 
-              callback({ ...(snapshot.data() as T), id: snapshot.id });
+              callback(asFirestoreDocument<T>({ ...(snapshot.data() as T), id: snapshot.id }));
             } catch (error: any) {
               if (onError) {
                 onError(parseFirestoreError(error));
@@ -2582,7 +2585,7 @@ export class FirestoreRepository<
   async getAll(): Promise<FirestoreDocument<T>[]> {
     try {
       const snapshot = await this.readCol().get();
-      return snapshot.docs.map(doc => ({ ...(doc.data() as T), id: doc.id }));
+      return snapshot.docs.map(doc => asFirestoreDocument<T>({ ...(doc.data() as T), id: doc.id }));
     } catch (error: any) {
       throw parseFirestoreError(error);
     }
@@ -2929,7 +2932,7 @@ export class FirestoreRepository<
     const snapshot = await tx.get(docRef);
 
     if (!snapshot.exists) return null;
-    return { ...(snapshot.data() as T), id: snapshot.id };
+    return asFirestoreDocument<T>({ ...(snapshot.data() as T), id: snapshot.id });
   }
 
   /**
@@ -3212,8 +3215,7 @@ export class FirestoreRepository<
  * top-level `id` removed (review R5). `Omit<'id'>` normalizes a legacy/raw repository whose generic
  * argument still carries `id`; it is a no-op for validated (schema-inferred) repositories.
  */
-export type DataOf<R> =
-  R extends FirestoreRepository<infer T, any, any, any> ? Omit<T, 'id'> : never;
+export type DataOf<R> = R extends FirestoreRepository<infer T, any, any, any> ? OmitId<T> : never;
 
 /**
  * Extracts a repository's **stored data** type (`S`) — the at-rest Firestore shape that query field
@@ -3221,7 +3223,7 @@ export type DataOf<R> =
  * legacy/raw repository whose generic argument still carries `id`; it is a no-op for validated repos.
  */
 export type StoredDataOf<R> =
-  R extends FirestoreRepository<any, any, infer S, any> ? Omit<S, 'id'> : never;
+  R extends FirestoreRepository<any, any, infer S, any> ? OmitId<S> : never;
 
 /**
  * Extracts a repository's **document** result type — {@link FirestoreDocument}`<DataOf<R>>` (read

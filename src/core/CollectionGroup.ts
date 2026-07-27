@@ -30,7 +30,7 @@ import {
 } from './QueryBuilder.js';
 import { parseFirestoreError } from './ErrorParser.js';
 import { validateDocumentPath } from '../utils/documentId.js';
-import type { DeepPartial, FieldPaths } from '../utils/pathTypes.js';
+import type { DeepPartial, FieldPaths, OmitId } from '../utils/pathTypes.js';
 
 const GROUP_FILTER_HINTS: CompositeFilterHints = {
   factoryMethods: 'f.where / f.wherePath / f.and / f.or',
@@ -282,9 +282,9 @@ export class FirestoreCollectionGroupQueryBuilder<
    *   .whereFilter(f => f.or(f.where('status', '==', 'published'), f.where('pinned', '==', true)))
    *   .get();
    */
-  whereFilter(build: (f: CollectionGroupFilterFactory<Omit<S, 'id'>>) => Filter): this {
+  whereFilter(build: (f: CollectionGroupFilterFactory<OmitId<S>>) => Filter): this {
     return this.applyCompositeFilter(
-      build(createCollectionGroupFilterFactory<Omit<S, 'id'>>(this.allowLegacyDatastoreIds)),
+      build(createCollectionGroupFilterFactory<OmitId<S>>(this.allowLegacyDatastoreIds)),
     );
   }
 
@@ -298,7 +298,7 @@ export class FirestoreCollectionGroupQueryBuilder<
    * not from the field mask.
    */
   select(
-    ...fields: (FieldPaths<Omit<S, 'id'>> | FieldPath)[]
+    ...fields: (FieldPaths<OmitId<S>> | FieldPath)[]
   ): FirestoreCollectionGroupQueryBuilder<T, S, CollectionGroupDocument<DeepPartial<T>>> {
     const next = new FirestoreCollectionGroupQueryBuilder<
       T,

@@ -30,7 +30,9 @@ A nested field named `id` (e.g. `author.id`) is unaffected — only a **top-leve
 
 ## Where `id` lives
 
-The read type `T` carries **no** `id`. Reads resolve to `FirestoreDocument<T>`:
+The read type `T` carries **no** `id`. Reads resolve to `FirestoreDocument<T>` — a distributive
+conditional for unresolved generics so union read models narrow on discriminant checks (ADR-0028).
+For a concrete `T` the shape is:
 
 ```typescript
 type FirestoreDocument<T> = Omit<T, 'id'> & { readonly id: ID };

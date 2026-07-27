@@ -1,9 +1,16 @@
 import { parseFirestoreError } from './ErrorParser.js';
 import { HookEvent, ID } from './FirestoreRepository.js';
-import { FirestoreDocument } from './DocumentId.js';
+import { FirestoreDocument, asFirestoreDocument } from './DocumentId.js';
 import { ValidationError } from './Errors.js';
 import { UpdateInput } from './Validation.js';
-import { DeepPartial, FieldPaths, NumericFieldPaths } from '../utils/pathTypes.js';
+import {
+  DeepPartial,
+  FieldPaths,
+  NumericFieldPaths,
+  OmitId,
+  KeysOf,
+  ValueAtKey,
+} from '../utils/pathTypes.js';
 import { validateDocumentId } from '../utils/documentId.js';
 import { deepFreeze, safeAssign } from '../utils/safeObject.js';
 import {
@@ -508,7 +515,7 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
    *
    * @returns The query builder instance
    */
-  where(field: FieldPaths<Omit<S, 'id'>> | FieldPath, op: WhereFilterOp, value: unknown): this {
+  where(field: FieldPaths<OmitId<S>> | FieldPath, op: WhereFilterOp, value: unknown): this {
     // A `FieldPath.documentId()` operand is a document NAME, so it clears the same validated
     // boundary as the source's document-name method; every other field path is ordinary stored data
     // and passes straight through. Keeps one policy across `where`, the document-name method, and
@@ -542,7 +549,7 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
    *
    * @returns The query builder instance
    */
-  orderBy(field: FieldPaths<Omit<S, 'id'>> | FieldPath, direction: 'asc' | 'desc' = 'asc'): this {
+  orderBy(field: FieldPaths<OmitId<S>> | FieldPath, direction: 'asc' | 'desc' = 'asc'): this {
     this.query = this.query.orderBy(field as string | FieldPath, direction);
     // Cursor pagination depends on deterministic ordering across pages.
     // We track explicit ordering so paginate() can enforce this guarantee.
@@ -793,7 +800,7 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
    *   .where('status', '==', 'completed')
    *   .sum('total');
    */
-  async sum(field: NumericFieldPaths<Omit<S, 'id'>> | FieldPath): Promise<number> {
+  async sum(field: NumericFieldPaths<OmitId<S>> | FieldPath): Promise<number> {
     // Field-referencing aggregations are incompatible with a select() mask (backend
     // INVALID_ARGUMENT). Guard locally so callers get a clear Error before the round trip.
     this.assertNoSelectWithFieldAggregation('sum()');
@@ -829,7 +836,7 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
    *   .where('productId', '==', productId)
    *   .average('rating'); // number | null
    */
-  async average(field: NumericFieldPaths<Omit<S, 'id'>> | FieldPath): Promise<number | null> {
+  async average(field: NumericFieldPaths<OmitId<S>> | FieldPath): Promise<number | null> {
     // Same select()+field-aggregation incompatibility as sum() — see assertNoSelectWithFieldAggregation.
     this.assertNoSelectWithFieldAggregation('average()');
     try {
@@ -891,7 +898,7 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
    *   });
    * // stats.orders: number; stats.revenue: number; stats.avgOrder: number | null
    */
-  async aggregate<Spec extends AggregationSpec<Omit<S, 'id'>>>(
+  async aggregate<Spec extends AggregationSpec<OmitId<S>>>(
     spec: Spec,
   ): Promise<AggregationResult<Spec>> {
     // Guards run OUTSIDE the try/catch so they stay plain Error (not parseFirestoreError-rewritten),
@@ -919,7 +926,7 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
     // are rejected here too so the build loop never reads `.kind` off undefined inside the try.
     let hasFieldAggregation = false;
     for (const alias of aliases) {
-      const entry = (spec as AggregationSpec<Omit<S, 'id'>>)[alias];
+      const entry = (spec as AggregationSpec<OmitId<S>>)[alias];
       const kind = entry?.kind;
       if (kind !== 'count' && kind !== 'sum' && kind !== 'average') {
         throw new Error(
@@ -944,7 +951,7 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
       // inherited setters (defense in depth alongside the __proto__ guard above).
       const sdkSpec: Record<string, AggregateField<number | null>> = {};
       for (const alias of aliases) {
-        const entry = (spec as AggregationSpec<Omit<S, 'id'>>)[alias];
+        const entry = (spec as AggregationSpec<OmitId<S>>)[alias];
         // Kinds were validated outside the try; keep the mapping exhaustive (no silent average
         // fallthrough) so a future edit cannot reintroduce F1.
         if (entry.kind === 'count') {
@@ -962,7 +969,7 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
       // Rebuild with the caller's alias order; normalize sum with ?? 0, pass average null through.
       const result: Record<string, unknown> = {};
       for (const alias of aliases) {
-        const entry = (spec as AggregationSpec<Omit<S, 'id'>>)[alias];
+        const entry = (spec as AggregationSpec<OmitId<S>>)[alias];
         const value = raw[alias];
         if (entry.kind === 'sum') {
           safeAssign(result, alias, (value as number | null | undefined) ?? 0);
@@ -1030,7 +1037,9 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
    *   .where('createdAt', '>', lastMonth)
    *   .distinctValues('status');
    */
-  async distinctValues<K extends keyof Omit<T, 'id'>>(field: K): Promise<T[K][]> {
+  async distinctValues<K extends Extract<KeysOf<OmitId<T>>, string>>(
+    field: K,
+  ): Promise<ValueAtKey<T, K>[]> {
     // Typed against the READ model (review A9): this terminal reads `doc.data()`, which is the
     // converter-applied read shape `T`, not the stored shape `S` — a converter can rename a stored
     // field, so typing against `S` would let a correctly-typed call read an absent read-model
@@ -1049,7 +1058,7 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
       // Drop only `undefined` (an absent field), not `null`: `null` is a real, stored, distinct
       // field value and must survive deduplication. A loose `!= undefined` would also strip `null`
       // (since `null == undefined`), conflating "field absent" with "field is null" (ADR-0020, B9).
-      return [...new Set(values)].filter(val => val !== undefined) as T[K][];
+      return [...new Set(values)].filter(val => val !== undefined) as ValueAtKey<T, K>[];
     } catch (error: any) {
       throw parseFirestoreError(error);
     }
@@ -1374,9 +1383,9 @@ export class FirestoreQueryBuilder<
    *
    * @returns The query builder instance
    */
-  whereFilter(build: (f: QueryFilterFactory<Omit<S, 'id'>>) => Filter): this {
+  whereFilter(build: (f: QueryFilterFactory<OmitId<S>>) => Filter): this {
     return this.applyCompositeFilter(
-      build(createQueryFilterFactory<Omit<S, 'id'>>(this.allowLegacyDatastoreIds)),
+      build(createQueryFilterFactory<OmitId<S>>(this.allowLegacyDatastoreIds)),
     );
   }
 
@@ -1402,7 +1411,7 @@ export class FirestoreQueryBuilder<
    * @returns The query builder instance
    */
   select(
-    ...fields: (FieldPaths<Omit<S, 'id'>> | FieldPath)[]
+    ...fields: (FieldPaths<OmitId<S>> | FieldPath)[]
   ): FirestoreQueryBuilder<T, W, S, FirestoreDocument<DeepPartial<T>>> {
     // Return a NEW builder rather than mutating and re-casting `this`. Mutating in place left any
     // pre-select alias of this builder statically typed for the full model while its shared runtime
@@ -1636,7 +1645,9 @@ export class FirestoreQueryBuilder<
       // deepFreeze (not shallow) so a beforeBulkDelete hook cannot mutate NESTED document data that a
       // later afterBulkDelete hook observes (review R2). Delete documents are observe-only.
       const docsData = Object.freeze(
-        snapshot.docs.map(doc => deepFreeze({ ...(doc.data() as T), id: doc.id })),
+        snapshot.docs.map(doc =>
+          asFirestoreDocument<T>(deepFreeze({ ...(doc.data() as T), id: doc.id })),
+        ),
       ) as readonly FirestoreDocument<T>[];
       const deletedCount = snapshot.size;
 

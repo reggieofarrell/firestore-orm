@@ -1,7 +1,24 @@
 # starlight-versions writes frozen snapshots of prior major docs under
 # website/src/content/docs/<major>/ (e.g. 2.0/) plus a versions/*.json sidebar
 # snapshot. These are generated plugin output, not hand-authored — leave them
-# exactly as emitted instead of reformatting them. The current/latest docs at
-# website/src/content/docs/ (and everything else) stay prettier-formatted.
+# exactly as emitted instead of reformatting them.
 website/src/content/docs/[0-9]*/**
 website/src/content/versions/*.json
+
+# Starlight content markdown is exempt from prettier entirely.
+#
+# `proseWrap: always` re-wraps prose across line boundaries, which breaks remark
+# directives: a `:::caution` aside whose closing `:::` gets pulled onto the
+# preceding content line stops terminating the directive and renders as literal
+# text on the published page. Neither `check:docs` nor `docs:build` catches it —
+# it is only visible in the built HTML. This bit issue #33 (a stray `:::` shipped
+# live in reference/errors.md) and again in #34, and the workaround was to sprinkle
+# `<!-- prettier-ignore -->` above every aside, which is easy to forget and easy to
+# get wrong. Formatting authored docs is not worth a class of silent rendering bugs.
+#
+# Two `<!-- prettier-ignore -->` markers remain in the content (queries.md,
+# errors.md); they are now no-ops and can be dropped at any time.
+#
+# Code, config, ADRs under docs/, and the repo READMEs are still prettier-formatted.
+website/**/*.md
+website/**/*.mdx

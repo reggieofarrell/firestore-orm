@@ -31,6 +31,10 @@ website/**/*.mdx
 .rulesync/
 .agents/
 .cursor/rules/
+.cursor/commands/
+.cursor/skills/
 .claude/rules/
+.claude/commands/
+.claude/skills/
 /AGENTS.md
 /CLAUDE.md

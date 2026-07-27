@@ -64,8 +64,9 @@ rules:
 
 ## Tooling
 
-- **Skills & commands:** `.claude/skills/` and `.claude/commands/` are symlinked to `.cursor/`
-  (single source of truth).
+- **Skills & commands:** authored in `.rulesync/skills/*/SKILL.md` and `.rulesync/commands/*.md`;
+  `npm run rules:sync` generates them for every tool (Cursor, Claude Code, and the AGENTS.md family
+  under `.agents/`). Edit the `.rulesync/` source, never the generated files.
 - **Architecture decisions:** record significant/contract-level changes as an ADR in `docs/adr/`
   (use the `/adr` skill; start from `docs/adr/0000-template.md`).
 - **Commits:** Conventional Commits (enforced by commitlint on the `commit-msg` hook).

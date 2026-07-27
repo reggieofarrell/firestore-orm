@@ -177,11 +177,11 @@ write-input types).
 
 ## AI-assisted testing
 
-Agent **rules** are authored once in `.rulesync/rules/*.md` and generated to every tool with
-[rulesync](https://github.com/dyoshikawa/rulesync) via `npm run rules:sync`. **Edit
-`.rulesync/rules/`, never the generated files.** `npm run rules:check` (`rulesync generate --check`)
-fails if the generated files drift from the source, and runs in the `pre-push` hook and CI (and is
-part of `release:verify`). Generated outputs are prettier-ignored (emitted verbatim). Testing rules:
+Agent **rules, commands, and skills** are authored once under `.rulesync/` and generated to every
+tool with [rulesync](https://github.com/dyoshikawa/rulesync) via `npm run rules:sync`. **Edit
+`.rulesync/`, never the generated files.** `npm run rules:check` (`rulesync generate --check`) fails
+if the generated files drift from the source, and runs in the `pre-push` hook and CI (and is part of
+`release:verify`). Generated outputs are prettier-ignored (emitted verbatim). Testing rules:
 
 - `test-awareness` — suggests tests after code changes (always-on)
 - `test-guardrails` — scoped guardrails for `src/tests/**`
@@ -196,8 +196,11 @@ symlink to `AGENTS.md` (same bytes, no duplication). Because neither Cursor nor 
 root re-emitted as a scoped rule, the root overview rule targets only the AGENTS.md family —
 rulesync logs a benign "No root rulesync rule file found for target 'cursor'/'claudecode'" note.
 
-Skills and commands are **not** managed by rulesync: they live under `.cursor/` (single source), and
-`.claude/skills/` + `.claude/commands/` are symlinks to `.cursor/`:
+Skills and commands are also rulesync-managed (authored in `.rulesync/skills/*/SKILL.md` and
+`.rulesync/commands/*.md`), so they propagate to every agent — Cursor (`.cursor/skills`,
+`.cursor/commands`), Claude Code (`.claude/skills`, `.claude/commands`), and the AGENTS.md family
+(`.agents/skills`). The former `.claude/skills` / `.claude/commands` symlinks into `.cursor/` are
+gone. Testing-related entries:
 
 - `skills/unit-testing/SKILL.md` — unit test patterns
 - `skills/integration-testing/SKILL.md` — emulator integration patterns

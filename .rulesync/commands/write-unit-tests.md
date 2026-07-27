@@ -1,3 +1,7 @@
+---
+targets:
+  - '*'
+---
 # Write Unit Tests
 
 Analyze changed files on the current branch and write or update Jest **unit** tests. Proceed

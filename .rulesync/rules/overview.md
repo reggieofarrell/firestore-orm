@@ -1,9 +1,10 @@
 ---
 root: true
-# Cursor reads root project memory from the generated `AGENTS.md` natively, so the root rule is not
-# emitted as a redundant always-on `.cursor/rules/*.mdc`. Scoped rules still target Cursor.
+# The root project memory is generated only to AGENTS.md, which Cursor and Codex read natively.
+# Claude Code does NOT read AGENTS.md, so CLAUDE.md is a committed symlink to AGENTS.md (repo root).
+# Neither tool needs the root re-emitted as a scoped rule, so this rule targets the AGENTS.md family
+# only; scoped rules still target Cursor and Claude.
 targets:
-  - claudecode
   - agentsmd
   - codexcli
 description: firestore-orm project overview, working mode, project rules, and environment/tooling notes
@@ -11,11 +12,13 @@ description: firestore-orm project overview, working mode, project rules, and en
 
 # firestore-orm — project instructions
 
-Canonical, always-loaded project memory. Authored once here and generated to each tool's root file
-(`CLAUDE.md`, `AGENTS.md`, and Cursor). `@reggieofarrell/firestore-orm` is a **TypeScript library**
-(published to npm) — a type-safe Firestore ORM for the Firebase Admin SDK. There is no long-running
-application server; "running it" means building the library and exercising it against the local
-**Firestore emulator**. See also `README.md` and `docs/development/testing.md`.
+Canonical, always-loaded project memory. Authored once in `.rulesync/rules/overview.md` and
+generated to the root `AGENTS.md`, which Cursor and Codex read natively. **Claude Code does not read
+`AGENTS.md`**, so `CLAUDE.md` is a symlink to `AGENTS.md` at the repo root — one content file, read by
+every tool. `@reggieofarrell/firestore-orm` is a **TypeScript library** (published to npm) — a
+type-safe Firestore ORM for the Firebase Admin SDK. There is no long-running application server;
+"running it" means building the library and exercising it against the local **Firestore emulator**.
+See also `README.md` and `docs/development/testing.md`.
 
 ## Working mode: be exhaustively thorough (default)
 

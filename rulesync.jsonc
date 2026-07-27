@@ -6,10 +6,15 @@
   // hand-edited.
   //
   // Targets:
-  //   cursor     -> .cursor/rules/*.mdc
-  //   claudecode -> CLAUDE.md (root) + .claude/rules/*.md
+  //   cursor     -> .cursor/rules/*.mdc                        (scoped rules; root read from AGENTS.md)
+  //   claudecode -> .claude/rules/*.md                         (scoped rules only)
   //   agentsmd   -> AGENTS.md (root) + .agents/memories/*.md   (cross-tool AGENTS.md standard)
   //   codexcli   -> AGENTS.md (Codex reads AGENTS.md; same output as agentsmd for `rules`)
+  //
+  // Root project memory is generated ONLY to AGENTS.md (the root rule targets agentsmd/codexcli).
+  // Claude Code does not read AGENTS.md, so `CLAUDE.md` is a committed symlink to `AGENTS.md`; it is
+  // intentionally NOT generated here. rulesync logs a benign "No root rulesync rule file found for
+  // target 'cursor'/'claudecode'" note because neither gets a generated root rule file.
   "targets": ["cursor", "claudecode", "agentsmd", "codexcli"],
   "features": ["rules"],
 }

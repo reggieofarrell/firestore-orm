@@ -190,9 +190,11 @@ part of `release:verify`). Generated outputs are prettier-ignored (emitted verba
 
 Generated per tool: Cursor (`.cursor/rules/*.mdc`), Claude Code (`.claude/rules/*.md`), and the
 cross-tool `AGENTS.md` standard (root `AGENTS.md` + `.agents/memories/*.md`, read by Codex and
-others). Cursor's always-on project memory comes from the generated root `AGENTS.md`, so the root
-overview rule is intentionally not emitted as a `.cursor/rules/*.mdc` (rulesync logs a benign "No
-root rulesync rule file found for target 'cursor'" note).
+others). The always-on **project memory** is generated only to the root `AGENTS.md`, which Cursor
+and Codex read natively. Claude Code does **not** read `AGENTS.md`, so `CLAUDE.md` is a committed
+symlink to `AGENTS.md` (same bytes, no duplication). Because neither Cursor nor Claude needs the
+root re-emitted as a scoped rule, the root overview rule targets only the AGENTS.md family —
+rulesync logs a benign "No root rulesync rule file found for target 'cursor'/'claudecode'" note.
 
 Skills and commands are **not** managed by rulesync: they live under `.cursor/` (single source), and
 `.claude/skills/` + `.claude/commands/` are symlinks to `.cursor/`:

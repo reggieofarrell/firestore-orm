@@ -1,10 +1,12 @@
 # firestore-orm — project instructions
 
-Canonical, always-loaded project memory. Authored once here and generated to each tool's root file
-(`CLAUDE.md`, `AGENTS.md`, and Cursor). `@reggieofarrell/firestore-orm` is a **TypeScript library**
-(published to npm) — a type-safe Firestore ORM for the Firebase Admin SDK. There is no long-running
-application server; "running it" means building the library and exercising it against the local
-**Firestore emulator**. See also `README.md` and `docs/development/testing.md`.
+Canonical, always-loaded project memory. Authored once in `.rulesync/rules/overview.md` and
+generated to the root `AGENTS.md`, which Cursor and Codex read natively. **Claude Code does not read
+`AGENTS.md`**, so `CLAUDE.md` is a symlink to `AGENTS.md` at the repo root — one content file, read by
+every tool. `@reggieofarrell/firestore-orm` is a **TypeScript library** (published to npm) — a
+type-safe Firestore ORM for the Firebase Admin SDK. There is no long-running application server;
+"running it" means building the library and exercising it against the local **Firestore emulator**.
+See also `README.md` and `docs/development/testing.md`.
 
 ## Working mode: be exhaustively thorough (default)
 

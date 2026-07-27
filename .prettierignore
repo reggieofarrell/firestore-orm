@@ -38,3 +38,10 @@ website/**/*.mdx
 .claude/skills/
 /AGENTS.md
 /CLAUDE.md
+
+# Committed implementation plans: `docs/plans/<issue>/` holds a branch-scoped plan, its probes and
+# the implementer's notes, all deleted before merge (docs/plans/README.md). Reformatting throwaway
+# evidence is churn, and a probe written to provoke a compiler diagnostic can carry syntax prettier
+# refuses to parse — a hard gate failure for a file that is about to be deleted. The pattern is
+# scoped to subdirectories so `docs/plans/README.md`, which is permanent, stays formatted.
+docs/plans/*/**

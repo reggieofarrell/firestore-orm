@@ -1,5 +1,6 @@
 <!--
-Skeleton for tmp/plans/issue-NN-<kebab-slug>.md — see SKILL.md for the rules behind each section.
+Skeleton for docs/plans/issue-NN-<kebab-slug>/PLAN.md — see SKILL.md for the rules behind each
+section, and docs/plans/README.md for the directory layout and lifecycle.
 Delete every bracketed prompt and any section that genuinely does not apply (and say why it does
 not, rather than dropping it silently).
 -->
@@ -7,7 +8,8 @@ not, rather than dropping it silently).
 # Issue #NN — [one-line title]
 
 **Implementer:** [agent/person] · **Reviewer:** [agent/person] · **Baseline:** `main` @ `<sha>`
-(`<commit subject>`) · **Branch to cut:** `<type>/issue-NN-<slug>` from `main`
+(`<commit subject>`) · **Branch:** `<type>/issue-NN-<slug>` — already created and pushed with this
+plan on it; check it out, do not cut a new one
 
 **Issue:** [#NN](https://github.com/reggieofarrell/firestore-orm/issues/NN) — labels `…`. [If the
 labels put it in ADR-0017's `#35–#41` parity/`v3.x` deferral set, say so — it changes the §9
@@ -24,11 +26,13 @@ apply.]
 2. §6 blocks are copy-verbatim; they [compiled and gated / are specifications]. §7 is the ordered
    build sequence, §8 the tests, §9 docs/ADR, §10 the gate, §11 done.
 3. Every claim in §3 was produced by an executed probe on this baseline. Probes are in
-   `tmp/probes/issue-NN/` — re-run them if you doubt one. **Do not trust the issue body over §3.**
-4. [If a prototype patch exists: `git apply tmp/probes/issue-NN/prototype-verified.patch`, what it
-   passed, and that every `PROTOTYPE (#NN)` marker must be replaced with real JSDoc.]
-5. Leave notes in `tmp/notes/issue-NN-implementation-notes.md`: deviations and why, anything you
-   could not verify, and your own adversarial self-review.
+   `docs/plans/issue-NN-<slug>/probes/` — re-run them if you doubt one. **Do not trust the issue body
+   over §3.**
+4. [If you prototyped: the patch path, **which gate legs it actually passed**, and that every
+   `PROTOTYPE (#NN)` marker must be replaced with real JSDoc. If you did not prototype, say so here
+   and point at §5 for what that leaves unverified.]
+5. Leave notes in `notes.md` beside this file and **commit them on the branch**: deviations and why,
+   anything you could not verify, and your own adversarial self-review.
 
 ---
 
@@ -97,6 +101,8 @@ Ordered by how badly a reasonable implementer gets them wrong.
 ## §5 Could not verify / scope bounds
 
 - **[Bound]** — [what is verified vs assumed; what CI still owes.]
+- **[If unprototyped]** — [what the blast radius / gate impact was reasoned about rather than
+  observed, so the implementer knows where to expect surprises.]
 - **Carried over, explicitly deferred** — [findings from prior issues that stay deferred.]
 
 ---
@@ -119,12 +125,14 @@ Ordered by how badly a reasonable implementer gets them wrong.
 
 ## §7 Implementation sequence and anti-instructions
 
-1. Cut `<branch>` from `main` (`<sha>`).
+1. Check out `<branch>` — it already exists and carries this plan. If `main` has moved past `<sha>`,
+   rebase onto it and **re-verify the §3 line numbers before editing anything**.
 2. …
 3. [Where order matters, say why — e.g. "step N first, or step N+1 will not compile (T4)".]
 4. Tests (§8) — **verify each new test fails on the unfixed baseline** (`git stash`).
 5. Docs + ADR + bookkeeping (§9).
-6. Full gate (§10), `prettier --write`, notes.
+6. Full gate (§10), `prettier --write`, `notes.md`. Leave the plan directory in place for review —
+   the cleanup commit that removes it comes after.
 
 ### Anti-instructions
 
@@ -227,11 +235,13 @@ type(scope): summary (#NN)
 | 1   |                                                                                                     |
 | …   | Nothing in the §7 anti-instruction list violated                                                    |
 | …   | Full gate green (§10) with real output; suite counts as predicted                                   |
-| …   | `tmp/notes/issue-NN-implementation-notes.md`: deviations, unverified items, adversarial self-review |
+| …   | `notes.md` committed: deviations, unverified items, adversarial self-review                          |
+| …   | Assertion probes promoted to committed tests (§8), not left in `probes/`                            |
+| …   | `git rm -r docs/plans/issue-NN-*/` — this plan directory is removed in this PR                       |
 
 ---
 
-## Appendix — probe inventory (`tmp/probes/issue-NN/`, gitignored)
+## Appendix — probe inventory (`probes/`, beside this file)
 
 | File | What it proves |
 | ---- | -------------- |

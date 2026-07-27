@@ -31,8 +31,9 @@ apply.]
 4. [If you prototyped: the patch path, **which gate legs it actually passed**, and that every
    `PROTOTYPE (#NN)` marker must be replaced with real JSDoc. If you did not prototype, say so here
    and point at §5 for what that leaves unverified.]
-5. Leave notes in `notes.md` beside this file and **commit them on the branch**: deviations and why,
-   anything you could not verify, and your own adversarial self-review.
+5. **Follow the `plan-execution` skill** — it owns the implementer's contract: `notes.md` written as
+   you go, the mutation checks, and the independent refute-first self-review you must pass before
+   declaring this ready for external review.
 
 ---
 

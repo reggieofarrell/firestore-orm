@@ -1,6 +1,6 @@
 ---
 name: implementation-planning
-description: Write a detailed, evidence-backed implementation plan for a firestore-orm issue or change into docs/plans/. Use when asked to plan/scope/spec a change, break down an issue, or hand work off to another agent (including a Cursor Cloud Agent) before any code is written. NOT for writing the code itself, and not for trivial doc-only or config edits.
+description: Write a detailed, evidence-backed implementation plan into docs/plans/ for an implementer who will not share your context — a teammate, a later session, or a Cursor Cloud Agent on a fresh clone. Use when handing off a firestore-orm issue, or via the write-plan command. NOT for planning a change you will implement yourself in the same session (plan mode is enough). NOT for executing an existing plan — see the plan-execution skill. NOT for trivial doc-only or config edits.
 targets:
   - '*'
 ---
@@ -14,6 +14,21 @@ Read [`AGENTS.md`](../../../AGENTS.md) "Working mode" first — the exhaustive s
 plan itself. The plan is exhaustive; the **change it prescribes is minimal**. When you find a second
 defect while investigating, defer it, pin today's behavior with a test, and open a follow-up issue —
 do not fold it in.
+
+## Not for in-session planning
+
+Use this only when the plan must **cross a context boundary** — a different agent, a cloud agent on a
+fresh clone, or a later session. If you are planning a change you will implement yourself in this same
+session, with the user reviewing the plan live, skip this skill: plan mode is enough. The committed
+directory, the preserved probes and `notes.md` exist to survive a handoff, and without one they are
+ceremony.
+
+Three things still apply to in-session work, because they are not handoff-specific: the **docs and ADR
+bookkeeping map** below (this repo's main defect mode), the **§10 gate**, and the rule that **every new
+test must fail on the unfixed baseline**.
+
+The explicit entry point is the `write-plan` command; being invoked through it settles the boundary
+question. Absent that, prefer the lighter path.
 
 ## Where it goes
 

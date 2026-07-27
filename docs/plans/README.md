@@ -29,7 +29,9 @@ cleanup gets partially swept.
 1. The plan is written, committed, and the branch **pushed before the implementer starts** — so a
    cloud agent, which only ever sees committed content, arrives to find the plan and probes already
    there. Its first step is to check the branch out and rebase if `main` moved, never to cut one.
-2. The implementer adds `notes.md` on the same branch, so the handoff works in both directions.
+2. The implementer follows the **`plan-execution`** skill: `notes.md` written as they go, mutation
+   checks, and an independent refute-first self-review, all committed on the same branch — so the
+   handoff works in both directions.
 3. **Review while the directory is still present** — that is when `notes.md` and the plan are
    visible in the PR's Files-changed view.
 4. **A final cleanup commit removes the directory**, then merge. Because the whole directory is

@@ -24,3 +24,6 @@ To change a rule, command, or skill, edit the source under `.rulesync/rules/`, `
 or `.rulesync/skills/` and run `npm run rules:sync`. To add a **skill**, create
 `.rulesync/skills/<skill-name>/SKILL.md` (with any extra files alongside it in that directory) —
 never a tool-specific skills directory like `.cursor/skills` or `.claude/skills`.
+
+For all frontmatter fields and options, see the rulesync docs:
+<https://github.com/dyoshikawa/rulesync> (the "Each File Format" and configuration sections).

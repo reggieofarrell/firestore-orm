@@ -54,6 +54,11 @@ source and run `npm run rules:sync`, then commit the source **and** the regenera
   `SKILL.md` in that same directory**. Do not create skills under `.cursor/skills`, `.claude/skills`,
   or `.agents/skills` — those are generated.
 
+For the complete set of frontmatter fields and generation options (`root`, `targets`, `globs`/`paths`,
+per-tool override blocks like `cursor:`/`claudecode:`, and the rule/command/skill/MCP file formats),
+see the **rulesync docs**: <https://github.com/dyoshikawa/rulesync> — specifically its "Each File
+Format" and configuration sections. The version in use is pinned in `package.json` (`devDependencies`).
+
 Scoped rules currently defined:
 
 - **test-awareness** — always-on
@@ -169,6 +174,9 @@ To change a rule, command, or skill, edit the source under `.rulesync/rules/`, `
 or `.rulesync/skills/` and run `npm run rules:sync`. To add a **skill**, create
 `.rulesync/skills/<skill-name>/SKILL.md` (with any extra files alongside it in that directory) —
 never a tool-specific skills directory like `.cursor/skills` or `.claude/skills`.
+
+For all frontmatter fields and options, see the rulesync docs:
+<https://github.com/dyoshikawa/rulesync> (the "Each File Format" and configuration sections).
 
 # Test Awareness
 

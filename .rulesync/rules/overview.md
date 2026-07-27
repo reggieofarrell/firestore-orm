@@ -66,6 +66,11 @@ source and run `npm run rules:sync`, then commit the source **and** the regenera
   `SKILL.md` in that same directory**. Do not create skills under `.cursor/skills`, `.claude/skills`,
   or `.agents/skills` — those are generated.
 
+For the complete set of frontmatter fields and generation options (`root`, `targets`, `globs`/`paths`,
+per-tool override blocks like `cursor:`/`claudecode:`, and the rule/command/skill/MCP file formats),
+see the **rulesync docs**: <https://github.com/dyoshikawa/rulesync> — specifically its "Each File
+Format" and configuration sections. The version in use is pinned in `package.json` (`devDependencies`).
+
 Scoped rules currently defined:
 
 - **test-awareness** — always-on

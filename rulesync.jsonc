@@ -5,6 +5,9 @@
   // it runs in the pre-push hook and CI. Generated outputs are prettier-ignored and must not be
   // hand-edited.
   //
+  // rulesync docs (frontmatter fields, per-tool overrides, file formats, all options):
+  // https://github.com/dyoshikawa/rulesync — see "Each File Format" and the configuration sections.
+  //
   // Features (all authored under .rulesync/): rules, commands, skills.
   //
   // Generated per target (prettier-ignored, do not hand-edit):

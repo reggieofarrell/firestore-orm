@@ -1,0 +1,15 @@
+{
+  // Single source of truth for AI agent instruction files lives in `.rulesync/rules/*.md`.
+  // Edit those, then run `npm run rules:sync` to regenerate the tool-native files below.
+  // `npm run rules:check` (rulesync generate --check) fails if the generated files are stale;
+  // it runs in the pre-push hook and CI. Generated outputs are prettier-ignored and must not be
+  // hand-edited.
+  //
+  // Targets:
+  //   cursor     -> .cursor/rules/*.mdc
+  //   claudecode -> CLAUDE.md (root) + .claude/rules/*.md
+  //   agentsmd   -> AGENTS.md (root) + .agents/memories/*.md   (cross-tool AGENTS.md standard)
+  //   codexcli   -> AGENTS.md (Codex reads AGENTS.md; same output as agentsmd for `rules`)
+  "targets": ["cursor", "claudecode", "agentsmd", "codexcli"],
+  "features": ["rules"],
+}

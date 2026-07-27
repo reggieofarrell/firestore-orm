@@ -1,3 +1,14 @@
+---
+root: true
+# Cursor reads root project memory from the generated `AGENTS.md` natively, so the root rule is not
+# emitted as a redundant always-on `.cursor/rules/*.mdc`. Scoped rules still target Cursor.
+targets:
+  - claudecode
+  - agentsmd
+  - codexcli
+description: firestore-orm project overview, working mode, project rules, and environment/tooling notes
+---
+
 # firestore-orm — project instructions
 
 Canonical, always-loaded project memory. Authored once here and generated to each tool's root file

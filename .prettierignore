@@ -22,3 +22,15 @@ website/src/content/versions/*.json
 # Code, config, ADRs under docs/, and the repo READMEs are still prettier-formatted.
 website/**/*.md
 website/**/*.mdx
+
+# rulesync: `.rulesync/rules/*.md` is the single hand-authored source; the tool generates the files
+# below verbatim (no `proseWrap`/table alignment). `rulesync generate --check` is the drift gate
+# (pre-push + CI), so prettier must leave both the source and the generated agent-instruction files
+# exactly as emitted — same rationale as the generated Starlight snapshots above. Edit
+# `.rulesync/rules/` and run `npm run rules:sync`, never hand-edit the generated files.
+.rulesync/
+.agents/
+.cursor/rules/
+.claude/rules/
+/AGENTS.md
+/CLAUDE.md

@@ -1,6 +1,15 @@
 ---
-paths:
+root: false
+targets:
+  - '*'
+description: Critical guardrails for firestore-orm test files
+globs:
   - src/tests/**/*.test.ts
+cursor:
+  alwaysApply: false
+  description: Critical guardrails for firestore-orm test files
+  globs:
+    - src/tests/**/*.test.ts
 ---
 # Test Guardrails
 

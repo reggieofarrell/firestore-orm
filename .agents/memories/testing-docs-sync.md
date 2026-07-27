@@ -1,11 +1,3 @@
----
-paths:
-  - jest.config*.js
-  - scripts/check-coverage-gates.mjs
-  - .husky/**
-  - src/tests/shared/**
-  - src/tests/integration/helpers/**
----
 # Testing Documentation Sync
 
 When you add, rename, move, or delete test infrastructure, update:

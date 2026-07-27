@@ -131,6 +131,9 @@ jobs:
         run: npm run check:format
       - name: Lint
         run: npm run lint
+      - name: Rules in sync (rulesync)
+        # Fails if the generated agent-instruction files drift from the .rulesync/ source.
+        run: npm run rules:check
 
   # NOTE: the union of the PR jobs below is kept definitionally equivalent to `npm run release:verify`
   # (which the publish workflow runs as one command) — format, lint, types, manifest, audit, build,

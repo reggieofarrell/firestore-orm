@@ -1,8 +1,19 @@
 ---
-paths:
+root: false
+targets:
+  - '*'
+description: Keep README + user-facing docs in sync when the public API surface changes
+globs:
   - src/index.ts
   - src/core/**/*.ts
   - src/vector/**/*.ts
+cursor:
+  alwaysApply: false
+  description: Keep README + user-facing docs in sync when the public API surface changes
+  globs:
+    - src/index.ts
+    - src/core/**/*.ts
+    - src/vector/**/*.ts
 ---
 # Public API ↔ Docs Sync
 

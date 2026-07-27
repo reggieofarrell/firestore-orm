@@ -177,20 +177,30 @@ write-input types).
 
 ## AI-assisted testing
 
-Cursor rules and skills live under `.cursor/` (the single source of truth):
+Agent **rules** are authored once in `.rulesync/rules/*.md` and generated to every tool with
+[rulesync](https://github.com/dyoshikawa/rulesync) via `npm run rules:sync`. **Edit
+`.rulesync/rules/`, never the generated files.** `npm run rules:check` (`rulesync generate --check`)
+fails if the generated files drift from the source, and runs in the `pre-push` hook and CI (and is
+part of `release:verify`). Generated outputs are prettier-ignored (emitted verbatim). Testing rules:
 
-- `rules/test-awareness.mdc` — suggests tests after code changes
-- `rules/test-guardrails.mdc` — scoped guardrails for `src/tests/**`
+- `test-awareness` — suggests tests after code changes (always-on)
+- `test-guardrails` — scoped guardrails for `src/tests/**`
+- `testing-docs-sync` — scoped to test infrastructure (this file, jest configs, coverage-gate
+  script, husky hooks, shared mocks/factories, integration helpers)
+
+Generated per tool: Cursor (`.cursor/rules/*.mdc`), Claude Code (`.claude/rules/*.md`), and the
+cross-tool `AGENTS.md` standard (root `AGENTS.md` + `.agents/memories/*.md`, read by Codex and
+others). Cursor's always-on project memory comes from the generated root `AGENTS.md`, so the root
+overview rule is intentionally not emitted as a `.cursor/rules/*.mdc` (rulesync logs a benign "No
+root rulesync rule file found for target 'cursor'" note).
+
+Skills and commands are **not** managed by rulesync: they live under `.cursor/` (single source), and
+`.claude/skills/` + `.claude/commands/` are symlinks to `.cursor/`:
+
 - `skills/unit-testing/SKILL.md` — unit test patterns
 - `skills/integration-testing/SKILL.md` — emulator integration patterns
 - `commands/write-unit-tests.md` — diff-based unit test workflow
 - `commands/write-integration-tests.md` — diff-based integration test workflow
-
-Claude Code reads the same content via `.claude/`: `.claude/skills/` and `.claude/commands/` are
-symlinks to `.cursor/` (single source). Rules can't be symlinked or `@import`ed the same way —
-Claude Code does not expand `@import` inside rule files — so `.claude/rules/*.md` carry each rule
-body **inline** with Claude's `paths:` scoping; keep them in sync with the `.cursor/rules/*.mdc`
-bodies when a rule changes.
 
 ## Related docs
 

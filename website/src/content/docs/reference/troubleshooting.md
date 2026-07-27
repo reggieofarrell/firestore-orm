@@ -69,14 +69,22 @@ await userRepo
   .get();
 ```
 
-**Solution:** Chunk your queries into batches of 30 or fewer:
+**For id lookups, prefer `getMany(ids)`** — no 30-value cap, results in input order, and missing ids
+are marked with `null` in position instead of being silently dropped:
 
 ```typescript
-const chunks = chunkArray(ids, 30);
+const rows = await userRepo.getMany(arrayOf50Ids);
+// rows[i] is FirestoreDocument | null — aligned with arrayOf50Ids[i]
+```
+
+**For non-id `in` filters**, chunk into batches of 30 or fewer:
+
+```typescript
+const chunks = chunkArray(statusList, 30);
 const results = [];
 
 for (const chunk of chunks) {
-  const users = await userRepo.query().whereId('in', chunk).get();
+  const users = await userRepo.query().where('status', 'in', chunk).get();
   results.push(...users);
 }
 ```

@@ -4,7 +4,7 @@ import {
   Firestore,
   QueryDocumentSnapshot,
 } from 'firebase-admin/firestore';
-import { FieldPaths, OmitId } from '../utils/pathTypes.js';
+import { DeepPartial, FieldPaths, OmitId } from '../utils/pathTypes.js';
 import {
   collectDeleteSentinelPaths,
   CreateInput,
@@ -62,19 +62,45 @@ export type SafeResult<T extends object> =
  * Type-level surface for read-only / PITR transaction callbacks.
  *
  * Membership rule: a member belongs here iff it is **pure** or **transaction-scoped**. Anything that
- * performs I/O outside the transaction (`getById`, `getAll`, `query`, every write helper) is excluded —
- * on a full {@link FirestoreRepository} those silently bypass both the transaction and any
- * `readTime` snapshot. The narrowed callback type makes that footgun unrepresentable for
+ * performs I/O outside the transaction (`getById`, `getMany`, `getAll`, `query`, every write helper)
+ * is excluded — on a full {@link FirestoreRepository} those silently bypass both the transaction and
+ * any `readTime` snapshot. The narrowed callback type makes that footgun unrepresentable for
  * `{ readOnly: true }` / {@link FirestoreRepository.runReadOnlyAt} callers.
  *
  * At runtime the callback still receives a full cloned repository (write helpers exist and the SDK
  * rejects them client-side); the absence is compile-time only, matching the collection-group
  * "absent from the type" pattern (ADR-0024).
  *
+ * The optional second type parameter `S` is the **stored** model used to type field-mask paths on
+ * {@link getManyInTransaction} (mirroring `select()` / `where()`). It defaults to `T` so existing
+ * single-argument uses of this exported type keep compiling.
+ *
  * @see FirestoreRepository.runInTransaction
  * @see FirestoreRepository.runReadOnlyAt
  */
-export interface ReadOnlyTransactionalRepository<T extends object> {
+export interface ReadOnlyTransactionalRepository<T extends object, S extends object = T> {
+  /**
+   * Batched multi-document read inside a transaction via `tx.getAll`.
+   *
+   * In a **read-write** transaction this takes pessimistic locks on **all** requested ids (one
+   * round trip). In a **read-only** / PITR transaction it is lock-free. Results are positional:
+   * `null` marks a missing document at `ids[i]`. See {@link FirestoreRepository.getMany} for the
+   * full contract (order, duplicates, field mask, empty input).
+   *
+   * The `S = T` default keeps single-argument uses of this interface compiling; when `S !== T`,
+   * `fieldMask` paths are typed against the stored model.
+   */
+  getManyInTransaction(
+    tx: FirebaseFirestore.Transaction,
+    ids: ID[],
+    options: { fieldMask: (FieldPaths<OmitId<S>> | FieldPath)[] },
+  ): Promise<(FirestoreDocument<DeepPartial<T>> | null)[]>;
+  getManyInTransaction(
+    tx: FirebaseFirestore.Transaction,
+    ids: ID[],
+    options?: { fieldMask?: undefined },
+  ): Promise<(FirestoreDocument<T> | null)[]>;
+
   /**
    * Transaction-scoped document read. Takes a pessimistic lock in a read-write transaction; lock-free
    * in a read-only one. Renamed from `getForUpdateInTransaction` — locking is a property of the
@@ -1610,6 +1636,103 @@ export class FirestoreRepository<
   }
 
   /**
+   * Map a `getAll` / `tx.getAll` snapshot array into positional `(doc | null)[]` results.
+   *
+   * WHAT: for each snapshot, either build a `FirestoreDocument<T>` (overlaying `snapshot.id`) or
+   * emit `null` when the document does not exist.
+   * WHY: shared by {@link getMany} and {@link getManyInTransaction} so the existence test and
+   * `.data()` call count stay in one place. Existence is gated on `snapshot.exists` (never on
+   * `data() === undefined`) because an empty field mask yields `{}` for an existing document.
+   * `.data()` is called exactly once per snapshot because a `readConverter`'s `fromFirestore` runs
+   * lazily on every `.data()` invocation and is not memoized.
+   */
+  private mapManySnapshots(
+    snapshots: FirebaseFirestore.DocumentSnapshot[],
+  ): (FirestoreDocument<T> | null)[] {
+    return snapshots.map(snapshot =>
+      snapshot.exists
+        ? asFirestoreDocument<T>({ ...(snapshot.data() as T), id: snapshot.id })
+        : null,
+    );
+  }
+
+  /**
+   * Batched multi-document read by id via a single `BatchGetDocuments` RPC (`db.getAll`).
+   *
+   * Prefer this over `query().whereId('in', ids)` for id lookups:
+   * - No 30-value `in` operator cap (callers reading many thousands should still chunk themselves —
+   *   chunking trades away the single-snapshot guarantee; there is no library-enforced hard limit).
+   * - Results are in **input order** (guaranteed client-side by the Admin SDK's re-sort against the
+   *   request array — not by the backend).
+   * - Missing documents are marked with `null` in position (`ids[i]` is the missing id), instead of
+   *   being silently dropped.
+   * - Empty input returns `[]` without contacting Firestore (`db.getAll()` with zero refs throws).
+   *
+   * Duplicate ids are allowed and return one entry per position (reads are idempotent). Bulk *write*
+   * methods still reject duplicates via {@link assertNoDuplicateIds}.
+   *
+   * Billing: charged per **unique** document read — the SDK dedupes duplicate refs in the outbound
+   * request — while the result still carries one entry per requested position.
+   *
+   * When `fieldMask` is supplied, the result narrows to `FirestoreDocument<DeepPartial<T>>` (mirroring
+   * `select()`). The document `id` always survives the projection. `fieldMask: []` is a legal
+   * ID-only projection (`{ id }` for each found document).
+   *
+   * ⚠ With a configured `readConverter`, `fromFirestore` receives the **masked** document. A converter
+   * that dereferences a field the mask omitted will throw a raw `TypeError` — this cannot be fixed
+   * in the library without knowing which fields the converter touches. Either omit the mask, widen
+   * it to cover every field the converter reads, or make the converter defensive.
+   *
+   * @param ids - Document ids to fetch (order preserved; duplicates allowed)
+   * @param options - Optional `{ fieldMask }` projection (paths typed against the stored model `S`)
+   * @returns Positional `(FirestoreDocument | null)[]` aligned with `ids`
+   * @throws {InvalidDocumentIdError} If any id is not a single valid Firestore path segment
+   *   (validated before any I/O)
+   *
+   * @example
+   * // Positional results with a miss interleaved
+   * const rows = await userRepo.getMany(['a', 'ghost', 'b']);
+   * // rows[0] = doc a, rows[1] = null, rows[2] = doc b
+   *
+   * @example
+   * // Field-mask projection (DeepPartial narrowing)
+   * const projected = await userRepo.getMany(['a', 'b'], {
+   *   fieldMask: ['name', 'address.city'],
+   * });
+   */
+  async getMany(
+    ids: ID[],
+    options: { fieldMask: (FieldPaths<OmitId<S>> | FieldPath)[] },
+  ): Promise<(FirestoreDocument<DeepPartial<T>> | null)[]>;
+  async getMany(
+    ids: ID[],
+    options?: { fieldMask?: undefined },
+  ): Promise<(FirestoreDocument<T> | null)[]>;
+  async getMany(
+    ids: ID[],
+    options?: { fieldMask?: (FieldPaths<OmitId<S>> | FieldPath)[] },
+  ): Promise<(FirestoreDocument<T> | FirestoreDocument<DeepPartial<T>> | null)[]> {
+    // Validate every id first (matches bulk write helpers). forEach over [] is a no-op, so empty
+    // input still short-circuits cleanly below without an SDK round trip.
+    ids.forEach(id => this.validateId(id));
+    // Mandatory: db.getAll() with zero refs throws a plain Error ("requires at least 1 argument").
+    if (ids.length === 0) return [];
+    try {
+      const refs = ids.map(id => this.readCol().doc(id));
+      // The SDK's ReadOptions.fieldMask is `(string | FieldPath)[]`. FieldPaths<OmitId<S>> is a
+      // string-literal union that does not widen through the rest-argument position, so the cast
+      // is required to satisfy the Admin SDK typings without losing our path-literal checking on
+      // the public overloads.
+      const snapshots = options?.fieldMask
+        ? await this.db.getAll(...refs, { fieldMask: options.fieldMask as (string | FieldPath)[] })
+        : await this.db.getAll(...refs);
+      return this.mapManySnapshots(snapshots);
+    } catch (error: any) {
+      throw parseFirestoreError(error);
+    }
+  }
+
+  /**
    * Reconstruct the read-typed document from a raw Firestore snapshot.
    *
    * This is for snapshots the repository did not read itself — most commonly the snapshot delivered
@@ -2306,6 +2429,10 @@ export class FirestoreRepository<
    * already been deleted is skipped rather than raising `PreconditionFailedError`. An empty input (or
    * an input where nothing exists) returns `0` without a commit.
    *
+   * The existence pre-read is a single `db.getAll` (`BatchGetDocuments`) — one point-in-time-consistent
+   * snapshot that the delete hooks observe — not N parallel `get()`s (which can span distinct
+   * `readTime`s). An empty-id guard runs before `getAll` because the SDK rejects a zero-ref call.
+   *
    * @param entries - Array of document IDs, or of `{ id, lastUpdateTime? }` entries
    * @returns Number of documents actually deleted
    * @throws {PreconditionFailedError} If a supplied `lastUpdateTime` no longer matches (at or below
@@ -2357,7 +2484,11 @@ export class FirestoreRepository<
       normalized.map(entry => [entry.id, entry.lastUpdateTime]),
     );
     try {
-      const snapshots = await Promise.all(ids.map(id => this.readCol().doc(id).get()));
+      // One BatchGetDocuments instead of N parallel get()s so the pre-read the delete hooks
+      // observe is a single consistent snapshot (measured: 14 distinct readTimes → 1 for 300 ids).
+      // The empty-input guard is required because db.getAll() with zero refs throws.
+      if (ids.length === 0) return 0;
+      const snapshots = await this.db.getAll(...ids.map(id => this.readCol().doc(id)));
       const existing = snapshots.filter(snapshot => snapshot.exists);
 
       if (existing.length === 0) return 0;
@@ -2812,7 +2943,10 @@ export class FirestoreRepository<
    * );
    */
   async runInTransaction<R>(
-    fn: (tx: FirebaseFirestore.Transaction, repo: ReadOnlyTransactionalRepository<T>) => Promise<R>,
+    fn: (
+      tx: FirebaseFirestore.Transaction,
+      repo: ReadOnlyTransactionalRepository<T, S>,
+    ) => Promise<R>,
     options: FirebaseFirestore.ReadOnlyTransactionOptions,
   ): Promise<R>;
   async runInTransaction<R>(
@@ -2895,7 +3029,10 @@ export class FirestoreRepository<
    */
   async runReadOnlyAt<R>(
     readTime: FirebaseFirestore.Timestamp,
-    fn: (tx: FirebaseFirestore.Transaction, repo: ReadOnlyTransactionalRepository<T>) => Promise<R>,
+    fn: (
+      tx: FirebaseFirestore.Transaction,
+      repo: ReadOnlyTransactionalRepository<T, S>,
+    ) => Promise<R>,
   ): Promise<R> {
     // Delegate entirely to the overloaded runInTransaction so hook cloning / error parsing stay
     // in one place. The `readOnly: true` literal selects the read-only overload at the type level.
@@ -2933,6 +3070,63 @@ export class FirestoreRepository<
 
     if (!snapshot.exists) return null;
     return asFirestoreDocument<T>({ ...(snapshot.data() as T), id: snapshot.id });
+  }
+
+  /**
+   * Batched multi-document read inside a transaction via `tx.getAll`.
+   *
+   * Same positional / null-for-miss / field-mask / empty-input / duplicate-id contract as
+   * {@link getMany}, but scoped to the transaction. In a **read-write** transaction this takes
+   * pessimistic locks on **all** requested ids in one round trip; in a **read-only** / PITR
+   * transaction it is lock-free.
+   *
+   * No `try/catch` here — matching {@link getInTransaction}. Transaction errors are parsed once by
+   * {@link runInTransaction}'s own catch.
+   *
+   * ⚠ With a configured `readConverter`, `fromFirestore` receives the **masked** document when
+   * `fieldMask` is supplied. A converter that dereferences an omitted field throws a raw
+   * `TypeError` — see {@link getMany}.
+   *
+   * @param tx - Firestore transaction object
+   * @param ids - Document ids to fetch (order preserved; duplicates allowed)
+   * @param options - Optional `{ fieldMask }` projection (paths typed against the stored model `S`)
+   * @returns Positional `(FirestoreDocument | null)[]` aligned with `ids`
+   * @throws {InvalidDocumentIdError} If any id is not a single valid Firestore path segment
+   *   (validated before any I/O)
+   *
+   * @example
+   * await userRepo.runInTransaction(async (tx, repo) => {
+   *   const [a, b] = await repo.getManyInTransaction(tx, ['a', 'b']);
+   *   if (a && b) {
+   *     await repo.updateInTransaction(tx, a.id, { linkedTo: b.id });
+   *   }
+   * });
+   */
+  async getManyInTransaction(
+    tx: FirebaseFirestore.Transaction,
+    ids: ID[],
+    options: { fieldMask: (FieldPaths<OmitId<S>> | FieldPath)[] },
+  ): Promise<(FirestoreDocument<DeepPartial<T>> | null)[]>;
+  async getManyInTransaction(
+    tx: FirebaseFirestore.Transaction,
+    ids: ID[],
+    options?: { fieldMask?: undefined },
+  ): Promise<(FirestoreDocument<T> | null)[]>;
+  async getManyInTransaction(
+    tx: FirebaseFirestore.Transaction,
+    ids: ID[],
+    options?: { fieldMask?: (FieldPaths<OmitId<S>> | FieldPath)[] },
+  ): Promise<(FirestoreDocument<T> | FirestoreDocument<DeepPartial<T>> | null)[]> {
+    // Validate first (matches getMany / bulk helpers); empty arrays short-circuit below.
+    ids.forEach(id => this.validateId(id));
+    // Mandatory: tx.getAll() with zero refs throws the same way as db.getAll().
+    if (ids.length === 0) return [];
+    const refs = ids.map(id => this.readCol().doc(id));
+    // Same FieldPaths→(string|FieldPath)[] cast as getMany — see comment there.
+    const snapshots = options?.fieldMask
+      ? await tx.getAll(...refs, { fieldMask: options.fieldMask as (string | FieldPath)[] })
+      : await tx.getAll(...refs);
+    return this.mapManySnapshots(snapshots);
   }
 
   /**

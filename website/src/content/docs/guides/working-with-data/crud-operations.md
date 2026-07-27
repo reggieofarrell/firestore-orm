@@ -69,10 +69,22 @@ await userRepo.delete('user-123'); // Hard delete; throws NotFoundError if the d
 | ---------------------------------- | ----------------------------------------------------------------------------- |
 | `getById(id)`                      | `FirestoreDocument<T> \| null`                                                |
 | `getByIdOrThrow(id)`               | `FirestoreDocument<T>` — throws `NotFoundError` when the doc is missing       |
+| `getMany(ids, options?)`           | `(FirestoreDocument<T> \| null)[]` — input order; `null` marks missing; optional `fieldMask` |
 | `getAll()`                         | All documents in the collection                                               |
 | `findByField(field, value)`        | Array of all matching documents                                               |
 | `getOneByField(field, value)`      | First match, or `null` when there are none                                    |
 | `getOneByFieldOrThrow(field, val)` | Single match — throws `NotFoundError` on zero, `ConflictError` on two or more |
+
+```typescript
+// Batched id lookup — prefer over whereId('in', …) for id lists
+const [alice, missing, bob] = await userRepo.getMany(['alice', 'ghost', 'bob']);
+// alice / bob are documents (or null); missing is null; order matches the input
+
+// Field-mask projection (DeepPartial narrowing); id always survives
+const projected = await userRepo.getMany(['alice', 'bob'], {
+  fieldMask: ['name', 'address.city'],
+});
+```
 
 ### Update vs. patch
 

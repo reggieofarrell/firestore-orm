@@ -97,6 +97,24 @@ configured `readConverter` applies to `doc`. **Not** on `ReadOnlyTransactionalRe
 performs non-transactional I/O. See
 [Conditional writes](/firestore-orm/guides/working-with-data/crud-operations/#conditional-writes).
 
+**`getMany(ids: ID[]): Promise<(FirestoreDocument<T> | null)[]>`** /
+**`getMany(ids: ID[], options: { fieldMask: … }): Promise<(FirestoreDocument<DeepPartial<T>> | null)[]>`**
+
+Batched multi-document read via one `BatchGetDocuments` RPC (`db.getAll`). Results are in **input
+order** (SDK client-side re-sort). Missing documents are `null` in position (`ids[i]` is the missing
+id). Empty input returns `[]` without contacting Firestore. Duplicate ids are allowed (one entry per
+position). Prefer this over `query().whereId('in', ids)` for id lookups — no 30-value cap, input
+order, and misses are marked rather than silently dropped. When `fieldMask` is supplied, the result
+narrows to `FirestoreDocument<DeepPartial<T>>` (mirroring `select()`); `id` always survives;
+`fieldMask: []` is a legal ID-only projection.
+
+:::caution
+With a configured `readConverter`, `fromFirestore` receives the **masked** document. A converter that
+dereferences a field the mask omitted will throw a raw `TypeError`. Either omit the mask, widen it
+to cover every field the converter reads, or make the converter defensive — see
+[Read converters](/firestore-orm/guides/concepts/read-converters/).
+:::
+
 **`fromSnapshot(snapshot: DocumentSnapshot): FirestoreDocument<T> | null`**
 
 Map a raw Firestore snapshot — e.g. the one delivered to a trigger cloud function — to
@@ -328,6 +346,21 @@ Convenience for a read-only transaction at `readTime`. Equivalent to
 Read a document inside a transaction. Takes a pessimistic lock in a read-write transaction;
 lock-free when `readOnly: true`. Available on both the full repo and
 `ReadOnlyTransactionalRepository`.
+
+**`getManyInTransaction(tx: Transaction, ids: ID[]): Promise<(FirestoreDocument<T> | null)[]>`** /
+**`getManyInTransaction(tx: Transaction, ids: ID[], options: { fieldMask: … }): Promise<(FirestoreDocument<DeepPartial<T>> | null)[]>`**
+
+Batched multi-document read inside a transaction via `tx.getAll`. Same positional / null-for-miss /
+field-mask / empty-input / duplicate-id contract as `getMany`. In a read-write transaction this
+takes pessimistic locks on **all** requested ids in one round trip; in a read-only / PITR
+transaction it is lock-free. **Is** on `ReadOnlyTransactionalRepository` (unlike plain `getMany`,
+which performs non-transactional I/O and is deliberately absent).
+
+:::caution
+With a configured `readConverter`, `fromFirestore` receives the **masked** document when `fieldMask`
+is supplied. A converter that dereferences an omitted field throws a raw `TypeError` — see
+[Read converters](/firestore-orm/guides/concepts/read-converters/).
+:::
 
 **`updateInTransaction(tx: Transaction, id: ID, data: UpdateInput<W>, options?: { merge?: boolean; lastUpdateTime?: Timestamp }): Promise<void>`**
 

@@ -68,12 +68,15 @@ these types describe, see [FirestoreRepository](/firestore-orm/reference/reposit
   document-name helper is `wherePath(op, fullPathOrRef)` rather than `whereId(op, id)`, because a
   collection-group query matches `documentId()` against the **full document path**. Same invariance
   rules.
-- **`ReadOnlyTransactionalRepository<T>`** — type-level surface for `{ readOnly: true }` /
+- **`ReadOnlyTransactionalRepository<T, S = T>`** — type-level surface for `{ readOnly: true }` /
   `runReadOnlyAt` transaction callbacks. Membership is **pure or transaction-scoped only**:
-  `getInTransaction`, `fromSnapshot`, `validate`, `id` / `newId`, `getCollectionPath`, and the
-  `readSchema` / `schemas` accessors. Write helpers and non-transactional reads (`getById`,
-  `getAll`, `query`) are absent from the type so they cannot bypass the transaction or `readTime`.
-  See [Transactions](/firestore-orm/guides/working-with-data/transactions/).
+  `getInTransaction`, `getManyInTransaction`, `fromSnapshot`, `validate`, `id` / `newId`,
+  `getCollectionPath`, and the `readSchema` / `schemas` accessors. Write helpers and
+  non-transactional reads (`getById`, `getMany`, `getAll`, `query`) are absent from the type so they
+  cannot bypass the transaction or `readTime`. The optional second type parameter `S` is the
+  **stored** model used to type `fieldMask` paths on `getManyInTransaction` (mirroring `select()` /
+  `where()`); it defaults to `T` so existing one-argument uses keep compiling. See
+  [Transactions](/firestore-orm/guides/working-with-data/transactions/).
 - **`UpdateInput<T>`** — update payload type; for a concrete `T`, `UpdateData<Omit<T, 'id'>>` (typed
   dot-notation paths). Distributes over union write models (ADR-0028).
 - **`CreateInput<T>`** — create payload type; for a concrete `T`, `WithFieldValue<Omit<T, 'id'>>`;

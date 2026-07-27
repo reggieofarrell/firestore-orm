@@ -23,6 +23,7 @@ Firestore charges for:
 | Operation                  | Cost                                         | Notes                                     |
 | -------------------------- | -------------------------------------------- | ----------------------------------------- |
 | `getById()`                | 1 read                                       | Single document lookup                    |
+| `getMany(N ids)`           | N reads, **one** round trip                  | Input order; `null` marks missing         |
 | `query().limit(100).get()` | 100 reads                                    | Reads up to 100 documents                 |
 | `query().get()`            | 1 read per result                            | Charges for every matched document        |
 | `query().whereFilter(…)`   | 1 read per matched document                  | OR fans out into a scan per disjunct      |
@@ -135,7 +136,23 @@ await accountRepo.runInTransaction(async (tx, repo) => {
 
 ### Cost Optimization Tips
 
-1. **Use `count()` / `aggregate()` instead of fetching when you only need aggregates**
+1. **Prefer `getMany(ids)` over N × `getById` or `whereId('in', …)` for id lookups**
+
+   ```typescript
+   // ✅ One BatchGetDocuments RPC — input order, null marks missing, no 30-value cap
+   const rows = await userRepo.getMany(ids);
+
+   // ❌ N round trips
+   const rows = await Promise.all(ids.map(id => userRepo.getById(id)));
+
+   // ❌ whereId('in') caps at 30, returns document-name order, silently drops missing ids
+   const rows = await userRepo.query().whereId('in', ids).get();
+   ```
+
+   Callers reading many thousands should still chunk themselves — chunking trades away the
+   single-snapshot guarantee. There is no library-enforced hard limit.
+
+2. **Use `count()` / `aggregate()` instead of fetching when you only need aggregates**
 
    ```typescript
    // ✅ Efficient — one aggregation request
@@ -156,14 +173,14 @@ await accountRepo.runInTransaction(async (tx, repo) => {
    const total = users.length;
    ```
 
-2. **Limit query results**
+3. **Limit query results**
 
    ```typescript
    // Always add reasonable limits
    await userRepo.query().limit(100).get();
    ```
 
-3. **Use `exists()` for presence checks**
+4. **Use `exists()` for presence checks**
 
    ```typescript
    // ✅ Reads at most 1 document
@@ -174,14 +191,14 @@ await accountRepo.runInTransaction(async (tx, repo) => {
    const hasOrders = orders.length > 0;
    ```
 
-4. **Select specific fields to reduce bandwidth**
+5. **Select specific fields to reduce bandwidth**
 
    ```typescript
    // Reduces network transfer (still charges for full document read)
    const emails = await userRepo.query().select('email').get();
    ```
 
-5. **Be cautious with real-time listeners**
+6. **Be cautious with real-time listeners**
 
    ```typescript
    // Charges for every document on initial load + every change

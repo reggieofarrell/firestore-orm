@@ -88,6 +88,14 @@ server-side Firestore parity. Concretely:
    > deferrals (#35–#41) are unchanged, as is the decision not to pursue full server-side or
    > Enterprise Pipeline parity. Rationale and contract: ADR-0027.
 
+   > Amendment (3.0.0, issue #35): multi-document reads are **no longer deferred** — they ship in
+   > 3.0.0 as `FirestoreRepository.getMany(ids, options?)` /
+   > `getManyInTransaction(tx, ids, options?)` (positional `(FirestoreDocument | null)[]`, optional
+   > field mask, empty-input short-circuit) plus a `bulkDelete` pre-read rewire onto `db.getAll` for
+   > a single consistent snapshot. So #35 leaves this list. The remaining deferrals (#36–#41) are
+   > unchanged, as is the decision not to pursue full server-side or Enterprise Pipeline parity.
+   > Rationale and contract: ADR-0029.
+
 We explicitly do **not** block v3 on any of the deferred items.
 
 ## Consequences
@@ -115,8 +123,8 @@ capability matrix is the honest middle ground.
 
 - The v3 release review and its round-2 response — "Server-side Firestore feature parity follow-up"
   (maintainer-local review records under `reviews/`, not committed to the repo).
-- GitHub issues #35–#41 (labels `parity`, `v3.x`); #30 is closed by the 3.0.0 `whereFilter` API
+- GitHub issues #36–#41 (labels `parity`, `v3.x`); #30 is closed by the 3.0.0 `whereFilter` API
   (ADR-0023), #31 by the 3.0.0 `collectionGroup()` API (ADR-0024), #32 by the 3.0.0 transaction
   options / `runReadOnlyAt` / `getInTransaction` rename (ADR-0025), #33 by the 3.0.0 conditional
-  writes / `lastUpdateTime` preconditions API (ADR-0026), and #34 by the 3.0.0 `aggregate(spec)` API
-  (ADR-0027).
+  writes / `lastUpdateTime` preconditions API (ADR-0026), #34 by the 3.0.0 `aggregate(spec)` API
+  (ADR-0027), and #35 by the 3.0.0 `getMany(ids)` / `getManyInTransaction` API (ADR-0029).

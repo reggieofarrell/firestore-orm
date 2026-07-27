@@ -76,6 +76,27 @@ Converter behavior is instance-local by design:
   that needs converter behavior — see
   [Subcollections](/firestore-orm/guides/working-with-data/subcollections/).
 
+## Field masks and converters
+
+`getMany(ids, { fieldMask })` (and `getManyInTransaction`) apply the mask **before**
+`fromFirestore` runs. The converter therefore receives the **projected** document — not the full
+stored shape. A converter that dereferences a field the mask omitted throws a raw `TypeError`:
+
+```typescript
+// Converter assumes address is always present
+const readConverter: ReadConverter<User> = snapshot => {
+  const data = snapshot.data();
+  return { ...data, label: `${data.name} (${data.address.city})` } as User;
+};
+
+// Mask omits address → data.address is undefined → TypeError at data.address.city
+await userRepo.getMany(['u1'], { fieldMask: ['name'] });
+```
+
+**Guard:** omit the mask, widen it to cover every field the converter reads, or make the converter
+defensive (`data.address?.city`). The library cannot know which fields a user converter touches, so
+this is documented rather than suppressed.
+
 ## Normalizing across schema changes
 
 Because a `readConverter` runs on every read, it is also the seam for coercing documents written

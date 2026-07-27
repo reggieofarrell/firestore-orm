@@ -177,20 +177,35 @@ write-input types).
 
 ## AI-assisted testing
 
-Cursor rules and skills live under `.cursor/` (the single source of truth):
+Agent **rules, commands, and skills** are authored once under `.rulesync/` and generated to every
+tool with [rulesync](https://github.com/dyoshikawa/rulesync) via `npm run rules:sync`. **Edit
+`.rulesync/`, never the generated files.** `npm run rules:check` (`rulesync generate --check`) fails
+if the generated files drift from the source, and runs in the `pre-push` hook and CI (and is part of
+`release:verify`). Generated outputs are prettier-ignored (emitted verbatim). Testing rules:
 
-- `rules/test-awareness.mdc` — suggests tests after code changes
-- `rules/test-guardrails.mdc` — scoped guardrails for `src/tests/**`
+- `test-awareness` — suggests tests after code changes (always-on)
+- `test-guardrails` — scoped guardrails for `src/tests/**`
+- `testing-docs-sync` — scoped to test infrastructure (this file, jest configs, coverage-gate
+  script, husky hooks, shared mocks/factories, integration helpers)
+
+Generated per tool: Cursor (`.cursor/rules/*.mdc`), Claude Code (`.claude/rules/*.md`), and the
+cross-tool `AGENTS.md` standard (root `AGENTS.md` + `.agents/memories/*.md`, read by Codex and
+others). The always-on **project memory** is generated only to the root `AGENTS.md`, which Cursor
+and Codex read natively. Claude Code does **not** read `AGENTS.md`, so `CLAUDE.md` is a committed
+symlink to `AGENTS.md` (same bytes, no duplication). Because neither Cursor nor Claude needs the
+root re-emitted as a scoped rule, the root overview rule targets only the AGENTS.md family —
+rulesync logs a benign "No root rulesync rule file found for target 'cursor'/'claudecode'" note.
+
+Skills and commands are also rulesync-managed (authored in `.rulesync/skills/*/SKILL.md` and
+`.rulesync/commands/*.md`), so they propagate to every agent — Cursor (`.cursor/skills`,
+`.cursor/commands`), Claude Code (`.claude/skills`, `.claude/commands`), and the AGENTS.md family
+(`.agents/skills`). The former `.claude/skills` / `.claude/commands` symlinks into `.cursor/` are
+gone. Testing-related entries:
+
 - `skills/unit-testing/SKILL.md` — unit test patterns
 - `skills/integration-testing/SKILL.md` — emulator integration patterns
 - `commands/write-unit-tests.md` — diff-based unit test workflow
 - `commands/write-integration-tests.md` — diff-based integration test workflow
-
-Claude Code reads the same content via `.claude/`: `.claude/skills/` and `.claude/commands/` are
-symlinks to `.cursor/` (single source). Rules can't be symlinked or `@import`ed the same way —
-Claude Code does not expand `@import` inside rule files — so `.claude/rules/*.md` carry each rule
-body **inline** with Claude's `paths:` scoping; keep them in sync with the `.cursor/rules/*.mdc`
-bodies when a rule changes.
 
 ## Related docs
 

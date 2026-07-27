@@ -1,3 +1,7 @@
+---
+targets:
+  - '*'
+---
 # Write Integration Tests
 
 Analyze changed files on the current branch and write or update Jest integration tests against the

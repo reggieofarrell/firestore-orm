@@ -1,6 +1,7 @@
 ---
-description: Remind agent to suggest writing or updating tests after code changes
 alwaysApply: true
+description: Remind agent to suggest writing or updating tests after code changes
+globs: **/*
 ---
 
 # Test Awareness

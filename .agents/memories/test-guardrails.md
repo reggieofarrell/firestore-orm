@@ -1,7 +1,3 @@
----
-paths:
-  - src/tests/**/*.test.ts
----
 # Test Guardrails
 
 - Mock at the **Firestore boundary** — use `createMockFirestoreDb()` from

@@ -1,10 +1,23 @@
 ---
-paths:
+root: false
+targets:
+  - '*'
+description: Keep testing documentation in sync when test infrastructure changes
+globs:
   - jest.config*.js
   - scripts/check-coverage-gates.mjs
   - .husky/**
   - src/tests/shared/**
   - src/tests/integration/helpers/**
+cursor:
+  alwaysApply: false
+  description: Keep testing documentation in sync when test infrastructure changes
+  globs:
+    - jest.config*.js
+    - scripts/check-coverage-gates.mjs
+    - .husky/**
+    - src/tests/shared/**
+    - src/tests/integration/helpers/**
 ---
 # Testing Documentation Sync
 

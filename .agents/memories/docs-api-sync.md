@@ -1,9 +1,3 @@
----
-paths:
-  - src/index.ts
-  - src/core/**/*.ts
-  - src/vector/**/*.ts
----
 # Public API ↔ Docs Sync
 
 When a change alters the **public API surface**, update the user-facing docs in the same PR. This

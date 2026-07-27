@@ -1,0 +1,28 @@
+{
+  // Single source of truth for AI agent instruction files lives in `.rulesync/rules/*.md`.
+  // Edit those, then run `npm run rules:sync` to regenerate the tool-native files below.
+  // `npm run rules:check` (rulesync generate --check) fails if the generated files are stale;
+  // it runs in the pre-push hook and CI. Generated outputs are prettier-ignored and must not be
+  // hand-edited.
+  //
+  // rulesync docs (frontmatter fields, per-tool overrides, file formats, all options):
+  // https://github.com/dyoshikawa/rulesync — see "Each File Format" and the configuration sections.
+  //
+  // Features (all authored under .rulesync/): rules, commands, skills.
+  //
+  // Generated per target (prettier-ignored, do not hand-edit):
+  //   cursor     -> .cursor/rules/*.mdc, .cursor/commands/*.md, .cursor/skills/*/SKILL.md
+  //   claudecode -> .claude/rules/*.md,  .claude/commands/*.md, .claude/skills/*/SKILL.md
+  //   agentsmd   -> AGENTS.md (root) + .agents/memories/*.md + .agents/skills/*/SKILL.md
+  //   codexcli   -> AGENTS.md family (Codex reads AGENTS.md/.agents/*; same output as agentsmd here)
+  //
+  // Notes:
+  // - Root project memory is generated ONLY to AGENTS.md (the root rule targets agentsmd/codexcli).
+  //   Claude Code does not read AGENTS.md, so `CLAUDE.md` is a committed symlink to `AGENTS.md`; it
+  //   is intentionally NOT generated. rulesync logs a benign "No root rulesync rule file found for
+  //   target 'cursor'/'claudecode'" note because neither gets a generated root rule file.
+  // - Commands are emitted for Cursor + Claude; the AGENTS.md/Codex family does not get project-mode
+  //   commands (Codex commands are global-mode only), so they are intentionally absent there.
+  "targets": ["cursor", "claudecode", "agentsmd", "codexcli"],
+  "features": ["rules", "commands", "skills"],
+}

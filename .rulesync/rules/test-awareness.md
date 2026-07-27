@@ -1,6 +1,15 @@
 ---
-paths:
+root: false
+targets:
+  - '*'
+description: Remind agent to suggest writing or updating tests after code changes
+globs:
   - '**/*'
+cursor:
+  alwaysApply: true
+  description: Remind agent to suggest writing or updating tests after code changes
+  globs:
+    - '**/*'
 ---
 # Test Awareness
 

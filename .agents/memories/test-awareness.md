@@ -1,7 +1,3 @@
----
-paths:
-  - '**/*'
----
 # Test Awareness
 
 After completing implementation changes in Agent mode, remind the user that tests should be written

@@ -208,6 +208,15 @@ input, stored, and parsed write output — see Decision §2).
 - **Typesaurus `{ data, ref }` document wrapper.** Rejected: the flat result is a deliberate
   strength.
 
+> Amendment (3.0.0, issue #54): the data-model identity types now **distribute over union members**
+> via `OmitId`, `KeysOf`, and `ValueAtKey` ([ADR-0028](0028-distributive-omit-id.md)).
+> `FirestoreDocument`, `DataOf`, `StoredDataOf`, `CreateInput`, `CreateOutput`, and `UpdateInput`
+> are conditional types in the public `.d.ts` when generics are unresolved — internal construction
+> uses `ConstructedDocument` and `asFirestoreDocument`. The `id` overlay, virtual-identity
+> invariant, and read/write/stored split are unchanged; union read models now narrow correctly and
+> union stored models accept branch-specific write payloads while cross-branch payloads stay
+> rejected.
+
 ## References
 
 - The v3 pre-release codebase review and the document-id / query-typing recommendation
@@ -216,3 +225,5 @@ input, stored, and parsed write output — see Decision §2).
   [`src/core/QueryBuilder.ts`](../../src/core/QueryBuilder.ts),
   [`src/core/Validation.ts`](../../src/core/Validation.ts),
   [`src/utils/pathTypes.ts`](../../src/utils/pathTypes.ts), a new `src/core/DocumentId.ts`.
+- [ADR-0028](0028-distributive-omit-id.md) (distributive `Omit<_, 'id'>` for union models, issue
+  #54)

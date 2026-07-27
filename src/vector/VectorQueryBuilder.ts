@@ -2,7 +2,7 @@ import { parseFirestoreError } from '../core/ErrorParser.js';
 import { FirestoreQueryBuilder, getQueryRef } from '../core/QueryBuilder.js';
 import type { QueryFilterFactory } from '../core/QueryBuilder.js';
 import { FirestoreDocument } from '../core/DocumentId.js';
-import { DeepPartial, FieldPaths } from '../utils/pathTypes.js';
+import { DeepPartial, FieldPaths, OmitId, KeysOf } from '../utils/pathTypes.js';
 import { FieldPath, Filter, QueryDocumentSnapshot, WhereFilterOp } from 'firebase-admin/firestore';
 import {
   assertVectorSearchSupported,
@@ -32,7 +32,7 @@ export class VectorQueryBuilder<T extends object, S extends object = T, R = Fire
   private projectionActive = false;
   // Fields passed to select(), retained so findNearest() can re-apply the mask including the
   // computed distanceResultField (a field mask otherwise drops the computed distance).
-  private selectedFields: (FieldPaths<Omit<S, 'id'>> | FieldPath)[] = [];
+  private selectedFields: (FieldPaths<OmitId<S>> | FieldPath)[] = [];
 
   // Accepts a core builder with any write model `W` / result shape `R`; vector queries do not expose
   // update(). Non-readonly because select() reassigns it (core select() is immutable — see select()).
@@ -63,7 +63,7 @@ export class VectorQueryBuilder<T extends object, S extends object = T, R = Fire
   /**
    * Add a where clause before executing a vector search pre-filter.
    */
-  where(field: FieldPaths<Omit<S, 'id'>> | FieldPath, op: WhereFilterOp, value: unknown): this {
+  where(field: FieldPaths<OmitId<S>> | FieldPath, op: WhereFilterOp, value: unknown): this {
     this.assertNotVectorMode('where');
     this.coreBuilder.where(field, op, value);
     return this;
@@ -89,7 +89,7 @@ export class VectorQueryBuilder<T extends object, S extends object = T, R = Fire
    *     distanceMeasure: 'EUCLIDEAN' })
    *   .get();
    */
-  whereFilter(build: (f: QueryFilterFactory<Omit<S, 'id'>>) => Filter): this {
+  whereFilter(build: (f: QueryFilterFactory<OmitId<S>>) => Filter): this {
     this.assertNotVectorMode('whereFilter');
     this.coreBuilder.whereFilter(build);
     return this;
@@ -104,7 +104,7 @@ export class VectorQueryBuilder<T extends object, S extends object = T, R = Fire
    * when you configure it on findNearest().
    */
   select(
-    ...fields: (FieldPaths<Omit<S, 'id'>> | FieldPath)[]
+    ...fields: (FieldPaths<OmitId<S>> | FieldPath)[]
   ): VectorQueryBuilder<T, S, FirestoreDocument<DeepPartial<T>>> {
     if (this.vectorQuery) {
       throw new Error('select() cannot be called after findNearest().');
@@ -127,10 +127,10 @@ export class VectorQueryBuilder<T extends object, S extends object = T, R = Fire
    * Configure a Firestore nearest-neighbor vector search.
    */
   findNearest<
-    K extends Extract<keyof Omit<S, 'id'>, string>,
+    K extends Extract<KeysOf<OmitId<S>>, string>,
     DF extends string | undefined = undefined,
   >(
-    options: FindNearestOptions<Omit<S, 'id'>, K> & { distanceResultField?: DF },
+    options: FindNearestOptions<OmitId<S>, K> & { distanceResultField?: DF },
   ): VectorQueryBuilder<T, S, DF extends string ? DistanceFieldResult<R, DF> : R> {
     if (this.vectorQuery) {
       throw new Error('findNearest() can only be called once per query.');
@@ -150,7 +150,7 @@ export class VectorQueryBuilder<T extends object, S extends object = T, R = Fire
     if (options.distanceResultField !== undefined && this.projectionActive) {
       this.coreBuilder = this.coreBuilder.select(
         ...this.selectedFields,
-        options.distanceResultField as unknown as FieldPaths<Omit<S, 'id'>>,
+        options.distanceResultField as unknown as FieldPaths<OmitId<S>>,
       );
     }
 

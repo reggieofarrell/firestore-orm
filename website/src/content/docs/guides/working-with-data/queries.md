@@ -171,7 +171,9 @@ the whole collection). Build groups with `f.and()` / `f.or()` and the arity guar
 assemble raw SDK filters, check for empty groups yourself before passing them in.
 
 To reuse a filter group across call sites, extract it as a predicate and annotate the factory with
-`StoredDataOf<typeof repo>` — which is already the stored shape without the synthetic `id`:
+`StoredDataOf<typeof repo>` — which is already the stored shape without the synthetic `id`. Union
+stored models are supported on the directly-typed constructor path (ADR-0028); `withSchema` still
+requires a `ZodObject` and cannot express a union schema.
 
 ```typescript
 import type { QueryFilterFactory, StoredDataOf } from '@reggieofarrell/firestore-orm';

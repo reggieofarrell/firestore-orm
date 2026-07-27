@@ -7,18 +7,43 @@ import type { ID } from './FirestoreRepository.js';
  * `id` is repository-owned metadata sourced from the Firestore document name (`snapshot.id`) on every
  * read — never from the document's own fields. Schemas therefore describe the document's own data
  * (read/write/stored models) and must not declare a top-level `id` (see
- * {@link FirestoreRepository.withSchema}). `Omit<ReadData, 'id'>` defends the invariant even for a
- * directly-typed (unvalidated) repository whose `ReadData` happens to carry an `id`: the
- * authoritative id always wins.
+ * {@link FirestoreRepository.withSchema}). The distributive `Omit` defends the invariant even for a
+ * directly-typed (unvalidated) repository whose `ReadData` happens to carry an `id`: the authoritative
+ * id always wins, and branch-specific keys survive on union read models (ADR-0028).
  *
  * The result is intentionally **flat** (`doc.id`, `doc.name`) rather than a `{ data, ref }` wrapper,
  * preserving the library's ergonomics.
  *
  * @template ReadData - the read (application) data shape (without `id`)
  */
-export type FirestoreDocument<ReadData extends object> = Omit<ReadData, 'id'> & {
+export type FirestoreDocument<ReadData extends object> = ReadData extends unknown
+  ? Omit<ReadData, 'id'> & { readonly id: ID }
+  : never;
+
+/**
+ * The concrete object shape internal read paths build before narrowing to {@link FirestoreDocument}.
+ *
+ * Unlike {@link FirestoreDocument}, this is a plain intersection — not a deferred conditional — so
+ * `{ ...(data as T), id: snapshot.id }` is assignable when `T` is still an unresolved generic. Every
+ * concrete instantiation of {@link FirestoreDocument} matches this shape at runtime; the public type
+ * is distributive so union read models narrow correctly in consumer code.
+ */
+export type ConstructedDocument<ReadData extends object> = Omit<ReadData, 'id'> & {
   readonly id: ID;
 };
+
+/**
+ * Single documented cast from the constructed read shape to the public {@link FirestoreDocument}
+ * type.
+ *
+ * {@link FirestoreDocument} is a deferred conditional (`ReadData extends unknown ? … : never`) for
+ * unresolved generic `ReadData`, so the constructed `{ …data, id }` object is not directly assignable
+ * even though every concrete instantiation is. Repository and query-builder read paths build
+ * {@link ConstructedDocument} and call this helper once rather than scattering ad-hoc assertions.
+ */
+export const asFirestoreDocument = <ReadData extends object>(
+  built: ConstructedDocument<ReadData>,
+): FirestoreDocument<ReadData> => built as FirestoreDocument<ReadData>;
 
 /**
  * A **collection-group** read result: the application/read data plus full-path identity.
@@ -39,9 +64,8 @@ export type FirestoreDocument<ReadData extends object> = Omit<ReadData, 'id'> & 
  * field paths derive from it.
  *
  * Distribution: `ReadData extends unknown` makes the `Omit` distribute over a union read model, so a
- * branch-specific field survives instead of collapsing to the members' common keys. See
- * https://github.com/reggieofarrell/firestore-orm/issues/54 — {@link FirestoreDocument} has the same
- * defect and is fixed there; this type is written correctly from the start rather than adding to it.
+ * branch-specific field survives instead of collapsing to the members' common keys. The same
+ * distributivity now applies to {@link FirestoreDocument} (ADR-0028).
  *
  * @template ReadData - the read (application) data shape (without `id`)
  */

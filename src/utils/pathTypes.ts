@@ -171,3 +171,58 @@ export type DeepPartial<T> = T extends Leaf
   : T extends object
     ? { [K in keyof T]?: DeepPartial<T[K]> }
     : T;
+
+/**
+ * Distributive `Omit<_, 'id'>` — strips the synthetic repository `id` from each member of a union
+ * stored/read model without collapsing branch-specific keys to their intersection.
+ *
+ * Plain `Omit<Union, 'id'>` is defined via `keyof`, and `keyof (A | B)` is the key **intersection**,
+ * so a discriminated union like `{ kind: 'a'; onlyOnA: string } | { kind: 'b'; onlyOnB: number }`
+ * incorrectly yields only `'kind'` as a queryable path. The `S extends unknown` wrapper makes the
+ * conditional **distributive**: each union member is processed independently, then re-unioned, so
+ * `FieldPaths<OmitId<S>>` agrees with {@link PathValue}'s own distributivity contract.
+ *
+ * **Inlining does not work** — `FieldPaths<Union extends unknown ? Omit<Union, 'id'> : never>` still
+ * resolves to the collapsed key set because distribution requires a naked type parameter at the use
+ * site, not inside another type's argument list. Always apply this alias rather than spelling the
+ * conditional inline.
+ *
+ * For a `keyof` position, {@link KeysOf} is required: `keyof OmitId<S>` re-collapses for the same
+ * reason plain `keyof (A | B)` does. Compose as `KeysOf<OmitId<S>>`.
+ *
+ * Non-union models are a no-op — `OmitId<Plain>` is byte-identical to `Omit<Plain, 'id'>`.
+ *
+ * @see ADR-0028
+ */
+export type OmitId<S> = S extends unknown ? Omit<S, 'id'> : never;
+
+/**
+ * Distributive `keyof` — the union of each member's keys rather than their intersection.
+ *
+ * `keyof (A | B)` yields only keys common to **every** member (`keyof A & keyof B`). For union read
+ * models that is too narrow — branch-specific fields disappear from `distinctValues` constraints and
+ * any other `keyof` site. This helper distributes over `T` first, then unions the per-member key sets.
+ *
+ * Typical composition for field-path surfaces that need top-level keys (not dotted paths):
+ * `KeysOf<OmitId<S>>`.
+ *
+ * @see ADR-0028
+ */
+export type KeysOf<T> = T extends unknown ? keyof T : never;
+
+/**
+ * Distributive indexed access — resolves `T[K]` against the union member that actually carries `K`.
+ *
+ * Once a method widens its key constraint to admit branch-specific keys (via {@link KeysOf} and
+ * {@link OmitId}), plain `T[K]` silently degrades to `unknown` because `K` may not exist on every
+ * member. That produces **zero compile errors** while returning `unknown[]` from `distinctValues` —
+ * the constraint and the return type must move together. This helper mirrors {@link PathValue}'s
+ * distributive resolution for top-level keys.
+ *
+ * @see ADR-0028
+ */
+export type ValueAtKey<T, K extends PropertyKey> = T extends unknown
+  ? K extends keyof T
+    ? T[K]
+    : never
+  : never;

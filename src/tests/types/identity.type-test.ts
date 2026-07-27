@@ -280,3 +280,55 @@ export function bulkUpdateDataReplacementRejected() {
     entries[0] = { id: 'z', data: {} };
   });
 }
+
+// ── I-1 / I-2 / I-3 (#54): FirestoreDocument and extractors distribute over union read models ─
+type UnionReadModel = { kind: 'a'; onlyOnA: string } | { kind: 'b'; onlyOnB: number };
+type UnionDoc = DocumentOf<
+  FirestoreRepository<UnionReadModel, UnionReadModel, UnionReadModel, UnionReadModel>
+>;
+
+/** I-1: narrowing works — assert branch-specific access, not `keyof` (P10). */
+export function firestoreDocumentNarrowsOnUnion() {
+  const doc = {} as UnionDoc;
+  if (doc.kind === 'a') {
+    const a: string = doc.onlyOnA;
+    // @ts-expect-error `onlyOnB` is not on the `'a'` branch
+    const _wrong: number = doc.onlyOnB;
+    return a;
+  }
+  const b: number = doc.onlyOnB;
+  return b;
+}
+
+/** I-2: `doc.id` is still `ID` and overlays a same-named model field (T7). */
+type UnionWithIdField = { kind: 'a'; id: number; onlyOnA: string } | { kind: 'b'; onlyOnB: number };
+type UnionDocWithId = DocumentOf<
+  FirestoreRepository<UnionWithIdField, UnionWithIdField, UnionWithIdField, UnionWithIdField>
+>;
+export function firestoreDocumentIdOverlayOnUnion() {
+  const doc = {} as UnionDocWithId;
+  if (doc.kind === 'a') {
+    const authoritativeId: string = doc.id;
+    // @ts-expect-error the model's `id: number` is shadowed by the authoritative `ID` string overlay
+    const asNumber: number = doc.id;
+    return [authoritativeId, asNumber];
+  }
+  return doc.onlyOnB;
+}
+
+/** I-3: DataOf / StoredDataOf expose branch-specific keys on union repos. */
+const _unionRepo = new FirestoreRepository<
+  UnionReadModel,
+  UnionReadModel,
+  UnionReadModel,
+  UnionReadModel
+>(db, 'union-identity');
+type UnionData = DataOf<typeof _unionRepo>;
+type UnionStored = StoredDataOf<typeof _unionRepo>;
+export function unionExtractorsExposeBranchKeys() {
+  const onA: UnionData = { kind: 'a', onlyOnA: 'x' };
+  const onB: UnionStored = { kind: 'b', onlyOnB: 1 };
+  // @ts-expect-error cross-branch payload is not assignable to either extractor
+  const bad: UnionData = { kind: 'a', onlyOnA: 'x', onlyOnB: 1 };
+  return [onA, onB, bad];
+}

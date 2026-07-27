@@ -162,3 +162,56 @@ export async function transactionUpdateOptions() {
   // @ts-expect-error updateInTransaction options do not include returnDoc (a tx cannot read back)
   await repo.updateInTransaction(tx, 'e1', { name: 'x' }, { returnDoc: true });
 }
+
+// ── H (#54 / D1): union stored models accept branch-specific write payloads ─────────────────────
+type UnionWriteModel = { kind: 'a'; onlyOnA: string; nA: number } | { kind: 'b'; onlyOnB: number };
+
+const unionRepo = new FirestoreRepository<
+  UnionWriteModel,
+  UnionWriteModel,
+  UnionWriteModel,
+  UnionWriteModel
+>(db, 'union-writes');
+
+/** W-1: create / createWithId / update accept branch-specific payloads (P-W1). */
+export async function unionWriteBranchSpecific() {
+  await unionRepo.create({ kind: 'a', onlyOnA: 'x', nA: 1 });
+  await unionRepo.create({ kind: 'b', onlyOnB: 2 });
+  await unionRepo.createWithId('id1', { kind: 'a', onlyOnA: 'x', nA: 1 });
+  await unionRepo.update('id1', { onlyOnA: 'y' });
+  await unionRepo.update('id2', { onlyOnB: 3 });
+}
+
+/** W-2: cross-branch payloads stay rejected (P-W2). */
+export async function unionWriteCrossBranchRejected() {
+  // @ts-expect-error mixing fields from both branches is not a valid document
+  await unionRepo.create({ kind: 'a', onlyOnA: 'x', nA: 1, onlyOnB: 9 });
+  // @ts-expect-error a field on no branch is still a typo
+  await unionRepo.create({ kind: 'a', onlyOnA: 'x', nA: 1, nope: 1 });
+}
+
+/** W-3: sentinels on branch-only fields still work (P-W3 / ADR-0002 / ADR-0004 / ADR-0019). */
+type UnionSentinelModel =
+  | { kind: 'a'; onlyOnA: string; hits: number; updatedAt: FirebaseFirestore.Timestamp }
+  | { kind: 'b'; onlyOnB: number; updatedAt: FirebaseFirestore.Timestamp };
+
+const unionSentinelRepo = new FirestoreRepository<
+  UnionSentinelModel,
+  UnionSentinelModel,
+  UnionSentinelModel,
+  UnionSentinelModel
+>(db, 'union-sentinels');
+
+export async function unionWriteSentinels() {
+  await unionSentinelRepo.update('id1', { updatedAt: FieldValue.serverTimestamp() });
+  await unionSentinelRepo.update('id1', { hits: FieldValue.increment(1) });
+  await unionSentinelRepo.update('id1', { onlyOnA: FieldValue.delete() });
+  await unionSentinelRepo.create({
+    kind: 'a',
+    onlyOnA: 'x',
+    hits: 0,
+    updatedAt: FieldValue.serverTimestamp(),
+    // @ts-expect-error still cannot mix branches even with sentinels
+    onlyOnB: 1,
+  });
+}

@@ -43,10 +43,11 @@ export type Validator<Input, Output = Input> = {
  * Input accepted by create-family operations (`create`, `bulkCreate`, `upsert`,
  * `createInTransaction`). `id` is not a member: the repository sources the document id itself
  * (auto-generated on create, or the explicit `id` argument on `upsert`) and returns it as the
- * read-only `id` on the resulting {@link FirestoreDocument}. `Omit<T, 'id'>` defends the contract
- * even for a directly-typed (unvalidated) repository whose `T` happens to carry an `id`.
+ * read-only `id` on the resulting {@link FirestoreDocument}. The distributive `Omit` defends the
+ * contract even for a directly-typed (unvalidated) repository whose `T` happens to carry an `id`,
+ * and keeps each branch of a union write model independently writable (ADR-0028).
  */
-export type CreateInput<T> = WithFieldValue<Omit<T, 'id'>>;
+export type CreateInput<T> = T extends unknown ? WithFieldValue<Omit<T, 'id'>> : never;
 
 /**
  * The parsed output of a create write — what the SDK persists and what after-create hooks observe.
@@ -55,7 +56,7 @@ export type CreateInput<T> = WithFieldValue<Omit<T, 'id'>>;
  * schema output type is (e.g. a `zSentinel`-annotated field). `id` is omitted; the repository
  * overlays the authoritative read-only `id` on the after-create payload. (review R4)
  */
-export type CreateOutput<T> = Omit<T, 'id'>;
+export type CreateOutput<T> = T extends unknown ? Omit<T, 'id'> : never;
 
 /**
  * Input accepted by update-family operations (`update`, `patch`, `bulkUpdate`, `bulkPatch`,
@@ -67,7 +68,7 @@ export type CreateOutput<T> = Omit<T, 'id'>;
  * omitted so it is never a writable top-level key (the repository sources the id from the document
  * ref / method argument and strips any `id` at runtime).
  */
-export type UpdateInput<T> = UpdateData<Omit<T, 'id'>>;
+export type UpdateInput<T> = T extends unknown ? UpdateData<Omit<T, 'id'>> : never;
 
 /**
  * Controls how FieldValue sentinels are validated against a schema on write.
@@ -639,6 +640,6 @@ export function makeValidator<T extends z.ZodObject<any>, U extends z.ZodObject<
   return {
     schemas,
     parseCreate: input => runParse<CreateOutput<z.output<T>>>(createWriteSchema, input),
-    parseUpdate,
+    parseUpdate: parseUpdate as (input: UpdateInput<z.input<T>>) => UpdateInput<z.output<T>>,
   };
 }

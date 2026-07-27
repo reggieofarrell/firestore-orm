@@ -78,8 +78,8 @@ export function groupIdentityShadowsSameNamedModelFields() {
   return [path, parentPath, id, keep, asNumber];
 }
 
-// The `Omit` distributes over a union read model, so a branch-only field survives (issue #54 fixes
-// the same defect on `FirestoreDocument`; this type is written correctly from the start).
+// The `Omit` distributes over a union read model, so a branch-only field survives. The same
+// distributivity now applies to {@link FirestoreDocument} (ADR-0028).
 type UnionModel = { kind: 'a'; onlyOnA: string } | { kind: 'b'; onlyOnB: number };
 declare const unionRow: CollectionGroupDocument<UnionModel>;
 export function groupDocumentOmitDistributesOverUnions() {

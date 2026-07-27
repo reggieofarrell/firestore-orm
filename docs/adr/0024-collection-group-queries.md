@@ -97,6 +97,10 @@ from an existing repository.
    unlike `FirestoreDocument`. That non-distributive defect is tracked as #54 across every existing
    site; the new type is written correctly rather than adding to the debt.
 
+   > Amendment (3.0.0, issue #54): `FirestoreDocument` now distributes the same way
+   > ([ADR-0028](0028-distributive-omit-id.md)). The original note above describes the pre-fix state
+   > of `FirestoreDocument`; `CollectionGroupDocument` was written distributively from the start.
+
 5. **No `update()` / `delete()` — absent from the type, not present and throwing.** The bulk hooks
    those terminals run carry `{ ids }` / `{ ids, documents }` payloads, and an `id` is ambiguous
    across a group, so every registered hook would observe identity it cannot resolve. Path-keyed
@@ -214,4 +218,4 @@ would be harder to explain than the documented "a non-member path matches nothin
 - Tests: `src/tests/integration/repository-collection-group.integration.test.ts`,
   `src/tests/types/collection-group.type-test.ts`, `src/tests/unit/documentId.unit.test.ts`, and the
   group negatives in `scripts/check-packed-consumer.mjs`.
-- Issue #54 (non-distributive `Omit` on the existing identity helpers).
+- [ADR-0028](0028-distributive-omit-id.md) (issue #54 — `FirestoreDocument` distribution landed)

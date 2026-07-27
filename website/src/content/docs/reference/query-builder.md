@@ -18,7 +18,7 @@ Chainable clause methods (`where`, `whereFilter`, `whereId`, `orderBy`, `orderBy
 
 ## Clauses
 
-**`where(field: FieldPaths<Omit<S, 'id'>> | FieldPath, op: WhereFilterOp, value: unknown): this`**
+**`where(field: FieldPaths<OmitId<S>> | FieldPath, op: WhereFilterOp, value: unknown): this`**
 
 Add a where clause. `field` is a typed stored field path — a top-level key or a nested dot-notation
 path (`'address.city'`) derived from `S` — or a `FieldPath` for dynamic names. Operators: `==`,
@@ -33,14 +33,14 @@ Filter by the document id (a native document-name query via `FieldPath.documentI
 operators take a `string`; `in` / `not-in` take a `readonly string[]`. This is the correct way to
 query by id.
 
-**`whereFilter(build: (f: QueryFilterFactory<Omit<S, 'id'>>) => Filter): this`**
+**`whereFilter(build: (f: QueryFilterFactory<OmitId<S>>) => Filter): this`**
 
 Add a **composite** filter — nested `AND` / `OR` expressions, which chained `where()` calls (an
 implicit top-level AND) cannot express. The callback receives a schema-aware
 [`QueryFilterFactory`](/firestore-orm/reference/types/):
 
 - `f.where(field, op, value)` — same typing as `where(...)` above
-  (`FieldPaths<Omit<S, 'id'>> | FieldPath`, `value: unknown`) at every nesting depth, so a typo
+  (`FieldPaths<OmitId<S>> | FieldPath`, `value: unknown`) at every nesting depth, so a typo
   inside a nested group is still a compile error.
 - `f.whereId(op, value)` — same two overloads and the same `validateDocumentId()` boundary as
   `whereId(...)`, honoring the repository's `allowLegacyDatastoreIds` setting.
@@ -83,7 +83,7 @@ bare descending document-name scan with
 `FAILED_PRECONDITION: Firestore does not support descending key scans`. Add any equality
 `where(...)` clause or a preceding `orderBy(...)` and it works; ascending is unrestricted.
 
-**`select(...fields: (FieldPaths<Omit<S, 'id'>> | FieldPath)[]): FirestoreQueryBuilder<T, W, S, FirestoreDocument<DeepPartial<T>>>`**
+**`select(...fields: (FieldPaths<OmitId<S>> | FieldPath)[]): FirestoreQueryBuilder<T, W, S, FirestoreDocument<DeepPartial<T>>>`**
 
 Project only the given fields. Accepts typed stored nested paths and `FieldPath`. Returns a **new**
 builder (it does not mutate the original) whose terminal reads are typed
@@ -93,7 +93,7 @@ A `readConverter` written for full documents may throw on a projected result. `s
 combined with `onSnapshot()` — Firestore does not allow a real-time listener on a field-masked
 query, so the builder rejects it locally.
 
-**`orderBy(field: FieldPaths<Omit<S, 'id'>> | FieldPath, direction?: 'asc' | 'desc'): this`**
+**`orderBy(field: FieldPaths<OmitId<S>> | FieldPath, direction?: 'asc' | 'desc'): this`**
 
 Order results by a stored field (top-level or nested dot-notation path). `direction` defaults to
 `'asc'`. To order by the document id, use `orderById(...)`.
@@ -129,20 +129,20 @@ Count matching documents via a Firestore aggregation query.
 Count all documents in the base collection. Ignores any accumulated `where(...)` clauses on the
 query builder instance (use `count()` for the query-aware count).
 
-**`sum(field: NumericFieldPaths<Omit<S, 'id'>> | FieldPath): Promise<number>`**
+**`sum(field: NumericFieldPaths<OmitId<S>> | FieldPath): Promise<number>`**
 
 Firestore-native sum aggregation over a numeric stored field path (top-level or nested/dotted
 numeric fields only) or a `FieldPath`. Returns `0` when no documents match. Not combinable with a
 prior `select()` (local guard).
 
-**`average(field: NumericFieldPaths<Omit<S, 'id'>> | FieldPath): Promise<number | null>`**
+**`average(field: NumericFieldPaths<OmitId<S>> | FieldPath): Promise<number | null>`**
 
 Firestore-native average aggregation over a numeric stored field path (top-level or nested/dotted
 numeric fields only) or a `FieldPath`. Returns **`null`** when there are no numeric values to
 average — distinct from an average that genuinely computes to `0`. Not combinable with a prior
 `select()` (local guard).
 
-**`aggregate<Spec extends AggregationSpec<Omit<S, 'id'>>>(spec: Spec): Promise<AggregationResult<Spec>>`**
+**`aggregate<Spec extends AggregationSpec<OmitId<S>>>(spec: Spec): Promise<AggregationResult<Spec>>`**
 
 Run multiple aliased aggregations in **one** Firestore aggregate request. Spec keys are result
 aliases; values are `{ kind: 'count' }` or `{ kind: 'sum' | 'average', field }` with the same
@@ -153,7 +153,11 @@ allowed; `select()` + any `sum`/`average` throws locally. Prefer required schema
 sparse-field `sum`/`average` can collapse the document set for the whole request (see the queries
 guide). Also available on collection-group builders (inherited from the shared read base).
 
-**`distinctValues<K extends keyof Omit<T, 'id'>>(field: K): Promise<T[K][]>`**
+**`distinctValues<K extends Extract<KeysOf<OmitId<T>>, string>>(field: K): Promise<ValueAtKey<T, K>[]>`**
+
+(`KeysOf` / `ValueAtKey` are internal; `OmitId` is exported — see
+[Exported Types](/firestore-orm/reference/types/). The constraint widens to branch-specific keys on
+union read models while preserving the element type — ADR-0028.)
 
 Return the distinct values observed for a field. Drops `undefined`, but preserves a stored `null` as
 a distinct value. Reads the document's own field directly rather than a materialized row, so on a
@@ -236,7 +240,7 @@ restriction as `orderById` applies.
 Count every document in the group, ignoring the builder's `where` clauses. Use `count()` for the
 query-aware count.
 
-**`whereFilter(build: (f: CollectionGroupFilterFactory<Omit<S, 'id'>>) => Filter): this`**
+**`whereFilter(build: (f: CollectionGroupFilterFactory<OmitId<S>>) => Filter): this`**
 
 Identical to the collection form, except the factory exposes `f.wherePath(...)` instead of
 `f.whereId(...)`. All the composite-filter caveats above — the inequality-in-`or()` exclusion, the

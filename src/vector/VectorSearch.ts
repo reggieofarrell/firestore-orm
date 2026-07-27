@@ -1,6 +1,7 @@
 import { FieldValue, Query } from 'firebase-admin/firestore';
 import { FirestoreDocument } from '../core/DocumentId.js';
 import { areFiniteVectorComponents, genuineVectorComponents } from '../utils/vectorValue.js';
+import type { KeysOf } from '../utils/pathTypes.js';
 
 /**
  * Supported Firestore vector distance measures for KNN similarity search.
@@ -25,7 +26,7 @@ export const VECTOR_MAX_LIMIT = 1000;
  */
 export type FindNearestOptions<
   T,
-  K extends Extract<keyof T, string> = Extract<keyof T, string>,
+  K extends Extract<KeysOf<T>, string> = Extract<KeysOf<T>, string>,
 > = Readonly<{
   /**
    * Top-level document field containing the stored vector embedding. Firestore vector indexes are

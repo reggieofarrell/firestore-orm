@@ -124,15 +124,15 @@ plain `Error` when no schema is configured.
 
 Get all documents in the collection.
 
-**`findByField(field: FieldPaths<Omit<S, 'id'>> | FieldPath, value: unknown): Promise<FirestoreDocument<T>[]>`**
+**`findByField(field: FieldPaths<OmitId<S>> | FieldPath, value: unknown): Promise<FirestoreDocument<T>[]>`**
 
 Find all documents whose `field` (a stored field path) equals `value`.
 
-**`getOneByField(field: FieldPaths<Omit<S, 'id'>> | FieldPath, value: unknown): Promise<FirestoreDocument<T> | null>`**
+**`getOneByField(field: FieldPaths<OmitId<S>> | FieldPath, value: unknown): Promise<FirestoreDocument<T> | null>`**
 
 Find the first document by field value. Returns `null` when no document matches.
 
-**`getOneByFieldOrThrow(field: FieldPaths<Omit<S, 'id'>> | FieldPath, value: unknown): Promise<FirestoreDocument<T>>`**
+**`getOneByFieldOrThrow(field: FieldPaths<OmitId<S>> | FieldPath, value: unknown): Promise<FirestoreDocument<T>>`**
 
 Find exactly one document by field value. Throws `NotFoundError` when none match and `ConflictError`
 when multiple documents match.

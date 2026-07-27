@@ -12,11 +12,13 @@ these types describe, see [FirestoreRepository](/firestore-orm/reference/reposit
 [Helpers & Utilities](/firestore-orm/reference/helpers/).
 
 - **`ID`** — `string` document-identifier alias.
-- **`FirestoreDocument<T>`** — the flat read-result shape: `Omit<T, 'id'> & { readonly id: ID }`.
-  Returned by every read (`getById`, `getAll`, query terminals, hook payloads, …).
-- **`DataOf<R>`** — extracts a repository's read-data type (`Omit<T, 'id'>`) without spelling the
+- **`FirestoreDocument<T>`** — the flat read-result shape. For a concrete `T`, equivalent to
+  `Omit<T, 'id'> & { readonly id: ID }`; for unresolved generics it is a **distributive
+  conditional** so union read models narrow correctly (ADR-0028). Returned by every read (`getById`,
+  `getAll`, query terminals, hook payloads, …).
+- **`DataOf<R>`** — extracts a repository's read-data type (`OmitId<T>`) without spelling the
   generics.
-- **`StoredDataOf<R>`** — extracts a repository's stored-data type (`Omit<S, 'id'>`).
+- **`StoredDataOf<R>`** — extracts a repository's stored-data type (`OmitId<S>`).
 - **`DocumentOf<R>`** — extracts a repository's document result type
   (`FirestoreDocument<DataOf<R>>`); name a returned document type without spelling the generics.
 - **`CollectionGroupDocument<T>`** — the read-result shape of a
@@ -25,9 +27,9 @@ these types describe, see [FirestoreRepository](/firestore-orm/reference/reposit
   (`'users/u1/posts/p1'`), and the containing collection's `parentPath` (`'users/u1/posts'`). All
   plain strings, so a result stays JSON-serializable — rebuild a reference with `db.doc(row.path)`.
   Ids are not unique across a group, so `path` is the identity that distinguishes two rows. Compose
-  it with the extractors to name a row: `CollectionGroupDocument<DataOf<typeof postRepo>>`. Unlike
-  `FirestoreDocument`, its `Omit` distributes over a union read model
-  ([#54](https://github.com/reggieofarrell/firestore-orm/issues/54) fixes the same defect there).
+  it with the extractors to name a row: `CollectionGroupDocument<DataOf<typeof postRepo>>`. Both
+  `FirestoreDocument` and `CollectionGroupDocument` distribute `Omit` over union read models
+  (ADR-0028).
 - **`InvalidDocumentIdReason`** — machine-readable cause carried by `InvalidDocumentIdError` (the
   error class is documented in [Error Handling](/firestore-orm/reference/errors/)).
 - **`HookEvent`** — union of supported lifecycle hook names.
@@ -49,6 +51,9 @@ these types describe, see [FirestoreRepository](/firestore-orm/reference/reposit
   guard the method as well (`row.value?.method?.()`) or assert the field back to its class type
   after a null check (`(row.value as ClassType).method()`).
 - **`FieldPaths<T>` / `PathValue<T, P>`** — typed field-path union and the value type at a path.
+- **`OmitId<S>`** — distributive `Omit<S, 'id'>` for union stored/read models. Use when annotating a
+  reusable `QueryFilterFactory` predicate over a union model:
+  `(f: QueryFilterFactory<OmitId<UnionStored>>) => …`. Non-union models are unchanged. See ADR-0028.
 - **`QueryFilterFactory<S>`** — the callback argument of
   [`whereFilter(...)`](/firestore-orm/reference/query-builder/): schema-aware `where` / `whereId` /
   `and` / `or` builders that return an SDK `Filter`. `and()` and `or()` throw when called with no
@@ -69,10 +74,13 @@ these types describe, see [FirestoreRepository](/firestore-orm/reference/reposit
   `readSchema` / `schemas` accessors. Write helpers and non-transactional reads (`getById`,
   `getAll`, `query`) are absent from the type so they cannot bypass the transaction or `readTime`.
   See [Transactions](/firestore-orm/guides/working-with-data/transactions/).
-- **`UpdateInput<T>`** — update payload type, `UpdateData<Omit<T, 'id'>>` (typed dot-notation
-  paths).
-- **`CreateInput<T>`** — create payload type, `WithFieldValue<Omit<T, 'id'>>`; `id` is not a member.
-- **`CreateOutput<T>`** — parsed create output (`Omit<T, 'id'>`) that after-create hooks observe.
+- **`UpdateInput<T>`** — update payload type; for a concrete `T`, `UpdateData<Omit<T, 'id'>>` (typed
+  dot-notation paths). Distributes over union write models (ADR-0028).
+- **`CreateInput<T>`** — create payload type; for a concrete `T`, `WithFieldValue<Omit<T, 'id'>>`;
+  `id` is not a member. Distributes over union write models, so each branch is writable and
+  cross-branch payloads stay rejected (ADR-0028).
+- **`CreateOutput<T>`** — parsed create output (`Omit<T, 'id'>` for a concrete `T`) that
+  after-create hooks observe. Distributes over unions (ADR-0028).
 - **`Validator<Input, Output = Input>`** — validation contract produced by `makeValidator(...)`.
 - **`RepositorySchemaSet`** — bundle of schemas attached to a repository: `read` / `create` /
   `update`, plus an optional `stored` carrying the effective at-rest shape (the supplied

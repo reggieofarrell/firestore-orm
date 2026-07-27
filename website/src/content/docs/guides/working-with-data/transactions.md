@@ -88,6 +88,7 @@ Pass `{ readOnly: true }` when you need a consistent snapshot without taking loc
 retries). The callback `repo` is `ReadOnlyTransactionalRepository` — only the read-safe member set:
 
 - `getInTransaction(tx, id)` — transaction-scoped read (lock-free in this mode)
+- `getManyInTransaction(tx, ids, options?)` — batched transaction-scoped read (lock-free in this mode)
 - `fromSnapshot(snapshot)` — map a `tx.get(query)` / trigger snapshot into the read model
 - `validate` / `id` / `newId` / `getCollectionPath` — pure helpers
 - `readSchema` / `schemas` — schema accessors
@@ -173,7 +174,8 @@ Notes:
   [Conditional writes](/firestore-orm/guides/working-with-data/crud-operations/#conditional-writes).
 - `getByIdWithUpdateTime` is deliberately **absent** from the transaction helpers (and from
   `ReadOnlyTransactionalRepository`): it performs non-transactional I/O and would bypass both the
-  transaction and any `readTime`.
+  transaction and any `readTime`. Plain `getMany` is absent for the same reason — use
+  `getManyInTransaction` inside the callback instead.
 - Write helpers are unavailable on the typed surface of a read-only / `runReadOnlyAt` callback.
 
 ## Hooks inside transactions

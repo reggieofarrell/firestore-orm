@@ -86,6 +86,13 @@ function createConditionalWriteHarness() {
   };
   (db as { batch: () => typeof batch }).batch = jest.fn(() => batch);
 
+  // bulkDelete now uses db.getAll (issue #35 D3). Resolve each ref.get() promise; trailing
+  // ReadOptions objects (plain objects without .get) are filtered out the same way the SDK
+  // detects ReadOptions positionally via isPlainObject on the final argument.
+  (db as { getAll: (...refs: any[]) => Promise<any[]> }).getAll = jest.fn(async (...refs: any[]) =>
+    Promise.all(refs.filter(ref => typeof ref?.get === 'function').map(ref => ref.get())),
+  );
+
   const stubTx = {
     get: jest.fn().mockResolvedValue({
       exists: true,

@@ -36,6 +36,7 @@ reach the raw Admin SDK for anything not yet wrapped.
 | Transactions (read-write + read-only / PITR)     | `runInTransaction(fn, options?)`, `runReadOnlyAt(readTime, fn)`; `maxAttempts` on RW; RO callback is `ReadOnlyTransactionalRepository`                                                                                                    |
 | Fixed batch writes (`bulkCreate/Update/Delete`)  | 500-op chunks, non-atomic above 500 (documented)                                                                                                                                                                                          |
 | Conditional writes (create-only + preconditions) | `createWithId` / `bulkCreateWithIds` / `createWithIdInTransaction`; `lastUpdateTime` on update/delete; `getByIdWithUpdateTime`. General snapshot/write metadata remains [#39](https://github.com/reggieofarrell/firestore-orm/issues/39). |
+| `getMany(ids)` multi-document reads              | One batched `BatchGetDocuments` read; results in **input order**; `null` marks missing ids in position; optional `fieldMask`; transaction variant `getManyInTransaction`. Prefer over `whereId('in', …)` for id lookups.                    |
 | Field transforms / sentinels                     | Strict per-field approval by default                                                                                                                                                                                                      |
 | Vector search (`vectorQuery().findNearest()`)    | Distance measures, result field, threshold, prefilters (incl. AND/OR)                                                                                                                                                                     |
 
@@ -46,7 +47,6 @@ issue labeled `parity` / `v3.x`. Until then, use the [raw-SDK escape hatch](#raw
 
 | Capability                                         | Issue                                                            |
 | -------------------------------------------------- | ---------------------------------------------------------------- |
-| `getMany(ids)` multi-document reads                | [#35](https://github.com/reggieofarrell/firestore-orm/issues/35) |
 | Typed lower-level bounds + `limitToLast()`         | [#36](https://github.com/reggieofarrell/firestore-orm/issues/36) |
 | Query Explain / `explainStream`                    | [#37](https://github.com/reggieofarrell/firestore-orm/issues/37) |
 | BulkWriter high-throughput API + recursive delete  | [#38](https://github.com/reggieofarrell/firestore-orm/issues/38) |

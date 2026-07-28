@@ -307,6 +307,8 @@ export class FirestoreCollectionGroupQueryBuilder<
     >(this.baseQuery, this.collectionIdValue, this.db, this.allowLegacyDatastoreIds);
     next.query = this.query.select(...(fields as (string | FieldPath)[]));
     next.hasOrderBy = this.hasOrderBy;
+    // Carry limitToLast across the projection — same silent-drop hazard as the collection builder.
+    next.hasLimitToLast = this.hasLimitToLast;
     next.hasSelect = true;
     return next;
   }

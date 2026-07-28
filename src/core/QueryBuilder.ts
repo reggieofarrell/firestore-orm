@@ -17,6 +17,7 @@ import {
   AggregateField,
   CollectionReference,
   DocumentReference,
+  DocumentSnapshot,
   FieldPath,
   Filter,
   Firestore,
@@ -320,6 +321,15 @@ function createQueryFilterFactory<S extends object>(
 export abstract class FirestoreQueryBuilderBase<T extends object, S extends object, R> {
   protected query: Query<any>;
   protected hasOrderBy = false;
+  /**
+   * True once `limitToLast()` has been applied more recently than `limit()`.
+   *
+   * The Admin SDK treats `limit` / `limitToLast` as last-wins: a later `limit()` replaces an earlier
+   * `limitToLast()` on the underlying query (and vice versa). This flag tracks that so
+   * `stream()` / `paginate()` / `offsetPaginate()` reject only while the builder is actually in a
+   * `limitToLast` state — not after a subsequent `limit()` cleared it.
+   */
+  protected hasLimitToLast = false;
   // True once select() has applied a field mask. A projected query cannot be used with onSnapshot()
   // (Firestore rejects field-masked listeners), so this is used to guard that combination locally.
   protected hasSelect = false;
@@ -475,6 +485,31 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
   }
 
   /**
+   * Validates a non-negative finite integer (including 0). Used by `offset()` and `limitToLast()`
+   * where zero is a legal SDK input (no skip / empty last-page) but negatives and non-integers are
+   * not — those would otherwise surface as opaque gRPC `INVALID_ARGUMENT` failures.
+   */
+  private assertNonNegativeInt(name: string, value: number): void {
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+      throw new Error(`${name} must be a non-negative integer (received ${String(value)}).`);
+    }
+  }
+
+  /**
+   * Rejects a zero-argument cursor bound call before it reaches the Admin SDK.
+   *
+   * The SDK throws for empty args too; we fail locally with a method-specific message so callers
+   * see which bound was misused without reading an opaque SDK stack.
+   */
+  private assertBoundArgs(method: string, args: unknown[]): void {
+    if (args.length === 0) {
+      throw new Error(
+        `${method}() requires a DocumentSnapshot or at least one field value matching the orderBy() clauses.`,
+      );
+    }
+  }
+
+  /**
    * Add a where clause to filter documents.
    * Supports various operators based on field type.
    *
@@ -561,6 +596,9 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
    * Limit the number of documents returned.
    * Useful for pagination and performance optimization.
    *
+   * When chained after `limitToLast()`, this call **replaces** `limitToLast` (Admin SDK last-wins):
+   * the builder is no longer treated as a `limitToLast` query for `stream()` / `paginate()` guards.
+   *
    * @param n - Maximum number of documents to return
    *
    * @example
@@ -581,6 +619,108 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
    */
   limit(n: number): this {
     this.query = this.query.limit(n);
+    // SDK last-wins with limitToLast: a subsequent limit() replaces limitToLast on the query,
+    // so stream()/paginate() guards must stop treating this builder as limitToLast.
+    this.hasLimitToLast = false;
+    return this;
+  }
+
+  /**
+   * Start the result set at the given cursor position (**inclusive**).
+   *
+   * Overloads match the Admin SDK: pass a `DocumentSnapshot` whose data includes every `orderBy` /
+   * inequality field, **or** pass field values in the same order as the query's `orderBy` clauses.
+   * Field values are typed `unknown` (stored-shape rule — same as `where`).
+   *
+   * A snapshot bound without a prior `orderBy()` is legal in the SDK and implies document-id order;
+   * field-value bounds require `orderBy()`. Prefer an explicit `orderBy` / `orderById` either way.
+   *
+   * Pass a `DocumentReference` only if you intend it as a *field value* (almost never correct for a
+   * field `orderBy` — it can yield an empty result with no throw). Prefer snapshots or scalar values.
+   *
+   * @example
+   * await repo.query().orderBy('score').startAt(20).endAt(40).get();
+   * await repo.query().orderBy('score').startAt(await db.doc('…').get()).get();
+   */
+  startAt(snapshot: DocumentSnapshot): this;
+  startAt(...fieldValues: unknown[]): this;
+  startAt(...args: unknown[]): this {
+    this.assertBoundArgs('startAt', args);
+    // Forward to the Admin SDK overloads. Narrow cast: public signatures are the overloads above;
+    // the rest parameter is the union of both forms at the call site.
+    this.query = this.query.startAt(...(args as [DocumentSnapshot]));
+    return this;
+  }
+
+  /**
+   * Start after the cursor (**exclusive**). See {@link startAt} for overload and typing rules.
+   */
+  startAfter(snapshot: DocumentSnapshot): this;
+  startAfter(...fieldValues: unknown[]): this;
+  startAfter(...args: unknown[]): this {
+    this.assertBoundArgs('startAfter', args);
+    this.query = this.query.startAfter(...(args as [DocumentSnapshot]));
+    return this;
+  }
+
+  /**
+   * End at the cursor (**inclusive**). See {@link startAt} for overload and typing rules.
+   */
+  endAt(snapshot: DocumentSnapshot): this;
+  endAt(...fieldValues: unknown[]): this;
+  endAt(...args: unknown[]): this {
+    this.assertBoundArgs('endAt', args);
+    this.query = this.query.endAt(...(args as [DocumentSnapshot]));
+    return this;
+  }
+
+  /**
+   * End before the cursor (**exclusive**). See {@link startAt} for overload and typing rules.
+   */
+  endBefore(snapshot: DocumentSnapshot): this;
+  endBefore(...fieldValues: unknown[]): this;
+  endBefore(...args: unknown[]): this {
+    this.assertBoundArgs('endBefore', args);
+    this.query = this.query.endBefore(...(args as [DocumentSnapshot]));
+    return this;
+  }
+
+  /**
+   * Skip the first `n` matching documents. `n` must be a non-negative integer (`0` is allowed).
+   *
+   * Prefer cursor bounds or opaque `paginate()` for large offsets — Firestore still scans skipped
+   * documents, so large offsets are costly.
+   *
+   * @param n - Number of matching documents to skip (including `0`)
+   * @returns The query builder instance
+   */
+  offset(n: number): this {
+    this.assertNonNegativeInt('offset', n);
+    this.query = this.query.offset(n);
+    return this;
+  }
+
+  /**
+   * Return the last `n` documents of the ordered result set (results still in `orderBy` order).
+   *
+   * Requires at least one prior `orderBy()` / `orderById()` / `orderByPath()` (local guard).
+   * Cannot be combined with native `stream()` — call `get()` instead. Real-time `onSnapshot()`
+   * **is** supported. If both `limit` and `limitToLast` are chained, the **last** call wins (SDK).
+   *
+   * Reverse pagination pattern: `orderBy(...).endAt(cursor).limitToLast(pageSize).get()`.
+   * Do not use opaque `paginate()` for reverse pages — it is forward-only and rejects
+   * `limitToLast`.
+   *
+   * @param n - Number of trailing documents to return (`0` yields an empty page)
+   * @returns The query builder instance
+   */
+  limitToLast(n: number): this {
+    this.assertNonNegativeInt('limitToLast', n);
+    if (!this.hasOrderBy) {
+      throw new Error('limitToLast() requires at least one orderBy() call.');
+    }
+    this.query = this.query.limitToLast(n);
+    this.hasLimitToLast = true;
     return this;
   }
 
@@ -647,6 +787,16 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
         );
       }
 
+      // paginate() applies .limit(pageSize+1), which would silently override limitToLast (SDK
+      // last-wins) and return a forward page. Reject the combination so reverse pages stay
+      // orderBy + bounds + limitToLast + get().
+      if (this.hasLimitToLast) {
+        throw new Error(
+          'paginate() cannot be used after limitToLast(): reverse pages use orderBy + bounds + ' +
+            'limitToLast + get(); opaque paginate() is forward-only.',
+        );
+      }
+
       let finalQuery = this.query;
 
       if (cursor) {
@@ -702,6 +852,15 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
     try {
       this.assertPositiveInt('page', page);
       this.assertPositiveInt('pageSize', pageSize);
+
+      // Same silent-override hazard as paginate(): offsetPaginate ends with .limit(pageSize),
+      // which would replace an earlier limitToLast and produce a forward page.
+      if (this.hasLimitToLast) {
+        throw new Error(
+          'offsetPaginate() cannot be used after limitToLast(): reverse pages use orderBy + bounds + ' +
+            'limitToLast + get(); opaque offsetPaginate() is forward-only.',
+        );
+      }
 
       const total = await this.count();
       const offset = (page - 1) * pageSize;
@@ -1087,6 +1246,16 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
    * }
    */
   async *stream(): AsyncGenerator<R> {
+    // Firestore cannot stream limitToLast queries (SDK throws). Reject locally with a clear
+    // message before opening the native stream. onSnapshot() is intentionally NOT guarded —
+    // listeners work with limitToLast.
+    if (this.hasLimitToLast) {
+      throw new Error(
+        'stream() is not supported after limitToLast(): Firestore cannot stream limitToLast queries. ' +
+          'Use get() instead.',
+      );
+    }
+
     try {
       // Use the Admin SDK's native query stream so documents are yielded incrementally as they
       // arrive, rather than buffering the entire result set via get(). Node readable streams are
@@ -1431,6 +1600,9 @@ export class FirestoreQueryBuilder<
     );
     next.query = this.query.select(...(fields as (string | FieldPath)[]));
     next.hasOrderBy = this.hasOrderBy;
+    // Carry limitToLast across the projection: select() builds a replacement builder, and dropping
+    // the flag would let orderBy().limitToLast(n).select(...).stream() incorrectly stream.
+    next.hasLimitToLast = this.hasLimitToLast;
     next.hasSelect = true;
     return next;
   }

@@ -96,6 +96,14 @@ server-side Firestore parity. Concretely:
    > unchanged, as is the decision not to pursue full server-side or Enterprise Pipeline parity.
    > Rationale and contract: ADR-0029.
 
+   > Amendment (3.0.0, issue #36): typed lower-level query bounds + `limitToLast` are **no longer
+   > deferred** — they ship in 3.0.0 as `startAt` / `startAfter` / `endAt` / `endBefore`, `offset`,
+   > and `limitToLast` on `FirestoreQueryBuilderBase` (SDK-matching snapshot / field-value
+   > overloads), with local guards for `limitToLast`+`orderBy`, `stream`, and opaque
+   > `paginate`/`offsetPaginate`. Opaque path-only `paginate` tokens are unchanged. So #36 leaves
+   > this list. The remaining deferrals (#37–#41) are unchanged, as is the decision not to pursue
+   > full server-side or Enterprise Pipeline parity. Rationale and contract: ADR-0030.
+
 We explicitly do **not** block v3 on any of the deferred items.
 
 ## Consequences
@@ -123,8 +131,9 @@ capability matrix is the honest middle ground.
 
 - The v3 release review and its round-2 response — "Server-side Firestore feature parity follow-up"
   (maintainer-local review records under `reviews/`, not committed to the repo).
-- GitHub issues #36–#41 (labels `parity`, `v3.x`); #30 is closed by the 3.0.0 `whereFilter` API
+- GitHub issues #37–#41 (labels `parity`, `v3.x`); #30 is closed by the 3.0.0 `whereFilter` API
   (ADR-0023), #31 by the 3.0.0 `collectionGroup()` API (ADR-0024), #32 by the 3.0.0 transaction
   options / `runReadOnlyAt` / `getInTransaction` rename (ADR-0025), #33 by the 3.0.0 conditional
   writes / `lastUpdateTime` preconditions API (ADR-0026), #34 by the 3.0.0 `aggregate(spec)` API
-  (ADR-0027), and #35 by the 3.0.0 `getMany(ids)` / `getManyInTransaction` API (ADR-0029).
+  (ADR-0027), #35 by the 3.0.0 `getMany(ids)` / `getManyInTransaction` API (ADR-0029), and #36 by
+  the 3.0.0 typed bounds / `offset` / `limitToLast` API (ADR-0030).

@@ -34,7 +34,7 @@ One **committed** directory per issue, on the feature branch:
 
 ```
 docs/plans/issue-NN-<kebab-slug>/
-  PLAN.md          the plan (§0–§11)
+  PLAN.md          the plan (§0–§12)
   probes/          investigation scripts, re-runnable
   prototype.patch  optional: the reverted prototype diff, so §6 can be copy-verbatim
   notes.md         the implementer writes this back
@@ -77,6 +77,30 @@ that is a calibration, not a target.
    covers **one** peer major; CI fans out over `^12` / `^13` / `^14` plus a pinned-firestore `^12`
    leg via `FIRESTORE_ORM_ADMIN_VERSION` / `FIRESTORE_ORM_FIRESTORE_VERSION`. Never claim the legs
    you did not run.
+7. **Verify the prescription, not just the findings.** Rules 1–6 govern §3 — the tree as it is.
+   §6/§8/§9/§10 are what the implementer will _type_, and they need executing too. This is where
+   plans fail even when §3 is perfect (#37: every §3 row exact, §6 did not compile). Four
+   obligations, all cheap:
+   - **Every code block in §6 goes through `tsc` before handoff.** Paste it into a scratch file
+     under `src/`, run `npm run test:types`, delete the file. This is **not** a prototype — no real
+     edit, no gate, no revert — and unlike a prototype it is **never optional on a handoff**. Record
+     the result in §12.
+   - **"Exported in some `.d.ts`" ≠ "importable from the module specifier in §6."** The §3 row must
+     cite the exact `from '…'` string §6 will use and show that import compiling — or failing, when
+     the failure _is_ the finding. A probe aimed one artifact to the left of the claim reads as
+     verified and is not. (#37: `@google-cloud/firestore`'s d.ts exports `ExplainMetrics`, but
+     `firebase-admin/firestore` re-exports an **allowlist** that omits it — the plan probed the
+     first and prescribed the second. `firebase-admin` omits `VectorQuery` from that same allowlist,
+     which is why `src/vector/` already carries a hand-written local type: assume nothing about what
+     the admin entry point re-exports.)
+   - **Every shell command written into the plan has been run, with its output recorded.** Greps,
+     gate legs, probe invocations. State the expected result too — some checks pass by matching
+     _nothing_ (a post-implementation `grep` for the old range must come back empty), so "it
+     returned no rows" is not by itself a pass or a failure.
+   - **No unresolved conditionals.** A plan may not say "assert this _if_ the suite checks type
+     exports, otherwise rely on `test:types`" when one file read settles it. Conditionals are how
+     work gets deferred to the implementer while the plan still reads as thorough; resolve them, and
+     state the resolution.
 
 ## Probes vs. prototypes — spend tokens where the unknown is
 
@@ -115,6 +139,14 @@ source `PROTOTYPE (#NN)` and require the implementer to replace every marker wit
 
 If you skip the prototype, say so in §5 and name what is consequently unverified. An unprototyped
 plan is fine; an unprototyped plan that reads as if it were verified is not.
+
+> **Skipping the prototype never licenses skipping the §6 compile** (evidence rule 7). This table is
+> a judgement call about _full prototypes_ only, and rows fire on both sides of it routinely — #37
+> matched "someone else implements it" **and** "local to one method, every call site greppable," took
+> the skip, and shipped two compile-blocking defects into §6. The type-spell compile is not on this
+> table: it
+> is unconditional, it costs about two minutes, and it is what the two-column judgement is not
+> allowed to reach.
 
 ## Handing off to a Cursor Cloud Agent
 
@@ -171,7 +203,7 @@ the others.
 
 ## Section contract
 
-Number sections `§0`…`§11` and cross-reference by number.
+Number sections `§0`…`§12` and cross-reference by number.
 
 | §   | Section                   | Must contain                                                                                                                                                                             |
 | --- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -179,15 +211,16 @@ Number sections `§0`…`§11` and cross-reference by number.
 | 0   | How to use this plan      | Read order, what is copy-verbatim, how to re-run probes, where to leave notes                                                                                                            |
 | 1   | Owner-approved decisions  | Table: `D1…Dn` · the fork · the decision · **the rejected alternative and why**. Settled — say "do not re-litigate"                                                                      |
 | 2   | Scope / scope correction  | In scope, explicitly **out** of scope, and where the issue's own framing is stale or incomplete                                                                                          |
-| 3   | Verified facts            | One subsection per probe, tables of ids → expression → observed result. Includes the **authoritative site enumeration** with current line numbers, and a "deliberately NOT changed" list |
+| 3   | Verified facts            | One subsection per probe, tables of ids → expression → observed result. Includes the **authoritative site enumeration** with current line numbers, and a "deliberately NOT changed" list where **every entry cites the fact id proving it is safe to leave alone** — an unproven entry is a decision wearing a fact's clothes, and these are the silent-omission class |
 | 4   | Traps                     | `T1…Tn` ordered by _how badly a reasonable implementer gets it wrong_. Each names the evidence id proving it, and the silent-failure mode                                                |
 | 5   | Could not verify / bounds | Honest limits. Anything carried over from a prior issue and deliberately still deferred                                                                                                  |
-| 6   | API specification         | Copy-verbatim code blocks, per file, with the JSDoc each new symbol owes. End with a size estimate (files / ±lines)                                                                      |
+| 6   | API specification         | Copy-verbatim code blocks, per file, with the JSDoc each new symbol owes — **every block compile-checked as written** (rule 7). End with a size estimate (files / ±lines)                |
 | 7   | Implementation sequence   | Ordered steps where order matters (and _why_ it matters), then **Anti-instructions** — an explicit "do NOT" list                                                                         |
-| 8   | Test specification        | Per suite, per id, what each asserts and which trap it guards                                                                                                                            |
+| 8   | Test specification        | Per suite, per id, what each asserts, **the observable that differs when it fails**, and which trap it guards. Plus the trap-coverage matrix and measured gate headroom (below)           |
 | 9   | Docs and ADR bookkeeping  | Every edit, by file and line. See the map below — this is where partial sweeps happen                                                                                                    |
 | 10  | Gate and commit           | The full command, expected baseline test counts, the Conventional Commits subject, and a breaking-or-not ruling with rationale                                                           |
 | 11  | Definition of done        | Checklist mapping 1:1 onto §§1–10, including "nothing in the §7 anti-instruction list violated" **and** "`git rm -r docs/plans/issue-NN-*/` — the plan directory is removed in this PR"  |
+| 12  | Pre-handoff verification  | **Your** evidence that §§6–10 were executed, not just written — see below. Short table, filled in before you push                                                                         |
 | —   | Appendix (optional)       | Probe inventory: file → what it proves                                                                                                                                                   |
 
 ### Traps are the highest-value section
@@ -218,7 +251,7 @@ Enumerate these **by file and line** in §9. Silent omissions here are the repo'
 | Issue is a `bug`, not a deferral                   | **None of the above.** Say so explicitly — copying the deferral pattern is a real failure mode (see #54 §9.1)                                                                                                                   |
 | A deferred capability ships                        | Move its row `reference/scope-and-capabilities.md` "Deferred to v3.x" → "Supported (first-class)" with a real Notes cell                                                                                                        |
 | An earlier ADR's decision is refined               | Add an `> Amendment` block in that ADR's voice; do **not** edit the original claim                                                                                                                                              |
-| Public API change                                  | Starlight pages (below); `docs-api-sync` rule; `src/index.ts` export + `src/tests/unit/packageExports.unit.test.ts`                                                                                                             |
+| Public API change                                  | Starlight pages (below); `docs-api-sync` rule; `src/index.ts` export + `src/tests/unit/packageExports.unit.test.ts`. **Also `src/vector/index.ts`** when the new type is nameable from a `/vector` return signature — `QueryBuilder.ts` has no export-map subpath, so a `/vector`-only consumer cannot name it otherwise (the `VectorValueLike` re-export is the precedent) |
 | New error class                                    | `src/core/Errors.ts`, `src/core/ErrorParser.ts`, `src/index.ts`, **and** the status mapping + JSDoc in [`src/express/index.ts`](../../../src/express/index.ts)                                                                  |
 | Install / pitch / quick-start / peer-dep change    | Both READMEs via the `readme-sync` skill. Otherwise **grep both, then declare them unaffected in the plan** — do not leave it implicit                                                                                          |
 
@@ -250,6 +283,28 @@ for each changed path in §8, and flag paths in **neither** (e.g. `src/core/Docu
 Type-only modules are excluded from coverage entirely (`jest.config.base.js` `collectCoverageFrom`).
 See the `unit-testing` / `integration-testing` skills for thresholds and harnesses.
 
+### Trap coverage runs both ways
+
+"Guards: T3" in the test table is the easy direction. The direction that catches real holes is the
+inverse: **for every trap, which test fails when that trap is realized, and what does that test
+observe?** Add a trap-coverage matrix to §8 — one row per trap, per **site the trap can occur at** —
+and for each cell name the observable. Two failure modes it catches, both from #37:
+
+- **A test that cannot see what it claims to guard.** I-3 was listed as guarding T3 (collection-group
+  `path`/`parentPath` identity), but the emulator throws `No explain results` _before_ a snapshot
+  exists, so the assertion never reaches `toResult`. It passed identically with and without the trap.
+  When the suite that owns the surface cannot reach the behavior, say so and require a unit mock that
+  can — do not let the unreachable test stand as the guard.
+- **A trap tested at one of the sites it spans.** T1 (`null` vs `[]`) applied to both the Core and the
+  vector mapper; the tests covered Core only, which is exactly where the copy-paste slip lands. "Every
+  trap has a test id" is satisfied by one test existing; per-site is what closes it.
+
+**Measure gate headroom; do not reason about it.** When §8 claims a new uncovered branch is
+gate-safe, parse the LCOV already on disk (`coverage/<suite>/lcov.info`) against
+`scripts/check-coverage-gates.mjs` and put the numbers in §3 — lines/branches/functions per owning
+gate, and the slack in each. A measured table is three rows; the paragraph of hedging it replaces is
+longer, and #37's version contradicted itself in its own last sentence.
+
 ## §10 — gate and commit
 
 Give the full command; require real output and honest failure reporting.
@@ -268,15 +323,50 @@ tree, and say which must go up and which must stay unchanged (for reference, `3b
 probes; the Conventional Commits subject (commitlint runs on `commit-msg`); and a **breaking-or-not
 ruling with rationale**, since v3.x work folds into the unreleased `3.0.0`.
 
+## §12 — pre-handoff verification
+
+Evidence rule 7 is only as good as the record that it happened, so §12 is where you record it. It is
+the planner's counterpart to `notes.md`: a reviewer can see at a glance whether the plan was checked
+or merely written, and a missing row is visible in a way an unfollowed instruction is not.
+
+Keep it to a short table — what you ran, and what came back:
+
+| Check | Command / method | Result |
+| ----- | ---------------- | ------ |
+| §6 blocks compile as written | temp file under `src/` + `npm run test:types` (removed after) | clean / diagnostics + how §6 was fixed |
+| Every `from '…'` specifier §6 uses | same compile, importing that exact specifier | resolved / TS2305 and what replaced it |
+| Declaration emit, if a new type is public | `tsc --declaration --emitDeclarationOnly` | no undeclared package in the emitted `.d.ts` |
+| Every §9 / §10 shell command | ran each one | output, and the expected result for checks that pass by matching nothing |
+| Baseline suite counts | both suites | `N suites / M tests` per suite |
+| Gate headroom, if §8 claims gate-safe | LCOV parse vs `check-coverage-gates.mjs` | per-gate slack |
+| Unresolved conditionals | re-read §§2–9 | none (or: resolved to X by reading `<file>`) |
+
+Two rows are worth their space beyond the compile itself. **Declaration emit** catches what a plain
+type-check cannot: a type that compiles locally can still put an undeclared package into the
+published `.d.ts` (`@google-cloud/firestore` is a transitive of the `firebase-admin` peer and is in
+neither `dependencies` nor `peerDependencies`, so referencing it type-checks under npm hoisting and
+breaks a strict pnpm consumer). And the **expected result** column stops a check that silently
+matches nothing from reading as a pass.
+
+If a row cannot be filled, that is a §5 entry, not a blank cell.
+
 ## Before you hand it off
 
 - Re-read §3 and ask of each row: _did I actually run this?_ Delete or move to §5 anything you
   didn't.
 - Re-check every `file:line` against the current tree — they rot fast on this repo.
+- **Compile every §6 block as written**, exact module specifiers included, and fill in §12. This is
+  the check whose absence cost #37 a review cycle.
+- **Run every shell command the plan tells the implementer to run** — greps, gate legs, probe
+  invocations — and record the output plus the expected result.
+- **Walk §4 against §8 in the inverse direction:** each trap, at each site it can occur, has a test
+  that would actually fail if the trap were realized. Name the observable, not just the test id.
+- **Search the plan for conditionals** ("if the suite…", "if it turns out…") and resolve every one
+  that a file read settles.
 - Walk §11 against §§1–10: every prescribed change has a checklist row, and every row traces to a
   section.
 - Ask the adversarial question: what surface did I miss? The usual answers are the vector wrapper
   (`src/vector/**`), `CollectionGroup.ts`, the read-only transaction surface, the express adapter,
-  the `.d.ts` shape, and the living-index footers.
+  the `.d.ts` shape, the `/vector` subpath re-export, and the living-index footers.
 - Surface open decisions to the owner **before** writing §1 — §1 is for settled calls, so an
   unresolved fork belongs in a question, not in the plan.

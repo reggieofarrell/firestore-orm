@@ -8,7 +8,7 @@
  *  - U-2 / U-3: `documents: null` (plan-only) vs `documents: []` (analyzed, empty) are distinct.
  *  - U-4: collection analyze maps docs through `toResult` (`{…data, id}`).
  *  - U-4g: collection-group analyze maps via group `toResult` (`path` / `parentPath`).
- *  - U-5: SDK throws are routed through `parseFirestoreError` (plain Error message preserved).
+ *  - U-5 / U-5v: SDK throws are routed through `parseFirestoreError` (coded error → NotFoundError).
  *  - U-6: missing `query.explain` → local capability Error (upgrade hint).
  *  - U-7 / U-8 / U-2v / U-3v / U-9: vector findNearest gate, doc mapping, null/[] contract,
  *    and defense-in-depth missing-`explain` guard.

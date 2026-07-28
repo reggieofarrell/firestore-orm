@@ -25,11 +25,18 @@ docs/plans/issue-NN-<kebab-slug>/
 
 `review.md` and `plan-review.md` are different artifacts and both are optional. `review.md` is
 reserved for an **external/third-party** reviewer of the finished implementation — implementers must
-**not** write it. Implementer adversarial self-review (`plan-execution`) stays in the chat/report;
-dispositions summarize in `notes.md` only. `plan-review.md` is a review of the **plan**, run before
-handoff — worth it when the plan is long, prescribes new peer/SDK types, or will be executed by
-someone who cannot ask questions. The plan's own §12 covers most of what such a review would catch;
-keep the filenames distinct so a plan review does not land in the external-reviewer slot.
+**not** write it. Write it with the **`implementation-review` skill** (`write-review` command),
+which owns the verify-don't-trust-`notes.md` rule, the finding shape, the three verdicts, and the
+round-trip protocol; the implementer then dispositions every finding id in `notes.md`
+(`plan-execution`). Implementer adversarial self-review stays in the chat/report; dispositions
+summarize in `notes.md` only. `plan-review.md` is a review of the **plan**, run before handoff —
+worth it when the plan is long, prescribes new peer/SDK types, or will be executed by someone who
+cannot ask questions. The plan's own §12 covers most of what such a review would catch; keep the
+filenames distinct so a plan review does not land in the external-reviewer slot.
+
+The three files form the loop: **`PLAN.md` → `notes.md` → `review.md` → `notes.md` dispositions →
+`review.md` round 2 → APPROVE.** Each is committed on the branch, because each hop may cross into a
+session that has none of the previous one's context.
 
 One directory so the unit of deletion equals the unit of work — `git rm -r docs/plans/issue-NN-*/`
 cannot be half-done. Scattering the plan, its probes and its notes across sibling trees is how a

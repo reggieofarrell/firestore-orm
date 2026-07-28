@@ -92,8 +92,10 @@ Do this yourself, before asking for external review. It is not optional and it i
 6. **Re-run the full gate after the fixes.** Fixing findings can break something else — and "gate not
    re-run after remediation" has itself been a finding here. Report both runs.
 
-If the reviewer's report is long, save it as `review.md` beside `notes.md` and summarize the
-dispositions in the notes.
+Keep the adversarial self-review in the chat/report. Summarize dispositions in `notes.md`.
+Do **not** write `review.md` into the plan directory — that filename is reserved for an
+**external/third-party reviewer**. Implementer self-review stays in the session output plus
+the disposition summary in notes.
 
 ## Ready for external review
 

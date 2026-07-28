@@ -17,17 +17,19 @@ docs/plans/issue-NN-<kebab-slug>/
   PLAN.md          the plan itself (§0–§12)
   probes/          investigation scripts, re-runnable
   prototype.patch  optional: the reverted prototype diff, so §6 can be copy-verbatim
-  notes.md         the implementer writes this back: deviations, unverified items, self-review
-  review.md        optional: the full adversarial-review report, when too long to inline in notes
+  notes.md         the implementer writes this back: deviations, unverified items,
+                   and adversarial self-review dispositions
+  review.md        optional inbound: **external/third-party** reviewer report only
   plan-review.md   optional: a review of the PLAN itself, before implementation starts
 ```
 
-`review.md` and `plan-review.md` are different artifacts and both are optional. `review.md` is the
-**implementer's** refute-first review of their own finished work (`plan-execution` §11).
-`plan-review.md` is a review of the **plan**, run before handoff — worth it when the plan is long,
-prescribes new peer/SDK types, or will be executed by someone who cannot ask questions. The plan's
-own §12 covers most of what such a review would catch; keep the filenames distinct so a plan review
-does not land in the implementer's slot.
+`review.md` and `plan-review.md` are different artifacts and both are optional. `review.md` is
+reserved for an **external/third-party** reviewer of the finished implementation — implementers must
+**not** write it. Implementer adversarial self-review (`plan-execution`) stays in the chat/report;
+dispositions summarize in `notes.md` only. `plan-review.md` is a review of the **plan**, run before
+handoff — worth it when the plan is long, prescribes new peer/SDK types, or will be executed by
+someone who cannot ask questions. The plan's own §12 covers most of what such a review would catch;
+keep the filenames distinct so a plan review does not land in the external-reviewer slot.
 
 One directory so the unit of deletion equals the unit of work — `git rm -r docs/plans/issue-NN-*/`
 cannot be half-done. Scattering the plan, its probes and its notes across sibling trees is how a

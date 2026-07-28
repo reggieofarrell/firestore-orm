@@ -173,7 +173,7 @@ Full §10 gate green twice (before and after adversarial fixes). Plan directory 
 
 ## Independent adversarial review
 
-**Reviewer:** Task subagent [Adversarial review #37](5bf784b5-d149-44f9-8aa0-32f20fdb4fee) ·
+**Reviewer:** Task subagent Adversarial review #37 (transcript `5bf784b5-d149-44f9-8aa0-32f20fdb4fee`) ·
 **Reviewed:** post-gate-1 tree · **Fixes in:** same tree · **Verdict:** pass with fixes → pass after
 remediation
 

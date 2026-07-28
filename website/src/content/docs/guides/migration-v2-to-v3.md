@@ -173,6 +173,10 @@ or `patch()` to clear a field. The other sentinels (`increment`, `arrayUnion`, `
 - **`aggregate(spec)`** is new in 3.0.0: multiple aliased `count` / `sum` / `average` values in one
   round trip (typed aliases; backend max 5). See
   [Aggregations](/firestore-orm/guides/working-with-data/queries/#aggregations).
+- **`explain(options?)`** is new in 3.0.0 for Core and vector queries (after `findNearest`): returns
+  `{ metrics, documents }` (`documents` is `null` plan-only, `[]` when analyzed empty). The
+  emulator throws `No explain results` — real metrics need production Firestore. See
+  [Query Explain](/firestore-orm/guides/working-with-data/queries/#query-explain).
 - `distinctValues(field)` now drops only `undefined` and preserves a stored `null` as a distinct
   value.
 

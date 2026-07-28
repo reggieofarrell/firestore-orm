@@ -129,6 +129,15 @@ try {
       `import { withVectorSearch, vectorEmbeddingSchema } from '${PKG}/vector';\n` +
       // T5: the named vector value type must be importable through the public /vector specifier...
       `import type { VectorValueLike } from '${PKG}/vector';\n` +
+      // Issue #37 / D5: QueryExplainResult must be nameable from root AND /vector (same rationale
+      // as VectorValueLike — QueryBuilder has no export-map subpath).
+      `import type { QueryExplainResult } from '${PKG}';\n` +
+      `import type { QueryExplainResult as VectorQueryExplainResult } from '${PKG}/vector';\n` +
+      `type _ExplainSame = QueryExplainResult<{ id: string }> extends VectorQueryExplainResult<{ id: string }>\n` +
+      `  ? VectorQueryExplainResult<{ id: string }> extends QueryExplainResult<{ id: string }> ? true : never\n` +
+      `  : never;\n` +
+      `const _explainOk: _ExplainSame = true;\n` +
+      `void _explainOk;\n` +
       `const vvl: VectorValueLike = { toArray: () => [1, 2, 3], isEqual: () => false };\n` +
       // ...and the schema input must be number[] | VectorValueLike, NOT `any` (which would silently
       // accept a string). A string assignment must be a compile error, or this @ts-expect-error is

@@ -138,6 +138,22 @@ For forward opaque paging, keep using `paginate(pageSize, cursor?)`. For reverse
 Execute the query and return all matching documents. `R` is `FirestoreDocument<T>` by default, or
 `FirestoreDocument<DeepPartial<T>>` after `select(...)`.
 
+**`explain(options?: { analyze?: boolean }): Promise<QueryExplainResult<R>>`**
+
+Plans this query and optionally executes it (Admin SDK Query Explain). Returns
+`{ metrics, documents }` — SDK diagnostics plus ORM-mapped rows (not a raw `ExplainResults` /
+`QuerySnapshot`).
+
+- Omit `analyze` (or pass `false`) for plan-only: `documents` is **`null`**.
+- Pass `{ analyze: true }` to execute: `documents` is `R[]` (possibly **`[]`** when nothing
+  matched — never collapse empty ↔ null).
+- Composes with `limitToLast` the same way `get()` does (no local reject).
+- Requires `@google-cloud/firestore` >= 7.4. Collection-group builders inherit this method.
+
+⚠️ The Firestore **emulator does not return explain metrics** today; the Admin SDK then throws
+`Error: No explain results`. Real plan/execution stats require production Firestore.
+`explainStream` is deferred ([#65](https://github.com/reggieofarrell/firestore-orm/issues/65)).
+
 **`getOne(): Promise<R | null>`**
 
 Return the first matching document, or `null`.

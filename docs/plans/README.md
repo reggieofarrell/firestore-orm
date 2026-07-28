@@ -18,6 +18,7 @@ docs/plans/issue-NN-<kebab-slug>/
   probes/          investigation scripts, re-runnable
   prototype.patch  optional: the reverted prototype diff, so §6 can be copy-verbatim
   notes.md         the implementer writes this back: deviations, unverified items, self-review
+  review.md        optional: the full adversarial-review report, when too long to inline in notes
 ```
 
 One directory so the unit of deletion equals the unit of work — `git rm -r docs/plans/issue-NN-*/`

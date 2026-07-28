@@ -91,7 +91,8 @@ it.]
 **Reviewer:** [fresh session / subagent + model] · **Reviewed:** `<commit>` · **Fixes in:**
 `<commit>` · **Verdict:** [pass / pass with fixes / needs work]
 
-[What it was given — diff, plan, tests, and **not** these notes. What it was asked to do: refute.]
+[What it was given — diff, plan, tests, and **not** these notes. What it was asked to do: refute. If
+the full report is long, save it as `review.md` beside this file and keep the dispositions below.]
 
 ### Findings fixed
 

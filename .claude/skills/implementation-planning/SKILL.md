@@ -45,6 +45,7 @@ docs/plans/issue-NN-<kebab-slug>/
   probes/          investigation scripts, re-runnable
   prototype.patch  optional: the reverted prototype diff, so §6 can be copy-verbatim
   notes.md         the implementer writes this back
+  review.md        optional: the implementer's adversarial-review report, if long
 ```
 
 Committed, because an implementer may be a **Cursor Cloud Agent** that only ever sees committed

@@ -9,7 +9,7 @@ Write an evidence-backed implementation plan for an issue into `docs/plans/issue
 implementer who will not have your context — a teammate, a later session, or a Cursor Cloud Agent on
 a fresh clone.
 
-**Follow the `implementation-planning` skill** — it owns the §0–§11 section contract, the evidence
+**Follow the `implementation-planning` skill** — it owns the §0–§12 section contract, the evidence
 rules, the probe-vs-prototype cost model, and the docs/ADR bookkeeping map. This command is the entry
 point and the sequence; the skill is the standard.
 
@@ -36,15 +36,25 @@ bookkeeping map and §10 gate anyway.
 6. **Put open forks to the owner with evidence** before writing §1. §1 is for settled decisions.
 7. **Write the plan** from the skill's `plan-template.md`, into
    `docs/plans/issue-NN-<slug>/PLAN.md`.
-8. **Enumerate the §9 bookkeeping by file and line** — new ADR, ADR-0017 amendment if the issue is in
+8. **Compile every §6 block as written — not optional.** Paste each block into a scratch file under
+   `src/`, run `npm run test:types`, delete the file. Exact module specifiers included: "the symbol
+   exists in some `.d.ts`" is a different claim from "this `import` resolves." If a new type is
+   public, also run `tsc --declaration --emitDeclarationOnly` and confirm the emitted `.d.ts` names
+   no undeclared package. Record it in §12. Skipping a **full prototype** is a judgement call;
+   skipping **this** is not — it is the check whose absence has cost a review cycle.
+9. **Enumerate the §9 bookkeeping by file and line** — new ADR, ADR-0017 amendment if the issue is in
    the parity/`v3.x` set, living-index footers, `docs/adr/README.md` row, capability matrix, Starlight
-   pages, READMEs. Silent omissions here are this repo's main defect mode.
-9. **Cut and push the branch with the plan on it**, so the implementer arrives to find it. Tell them
-   in §7 step 1 to check it out and rebase rather than cut a new one.
-10. **Self-review before handing off:** every §3 row actually executed, every `file:line` re-checked,
-    §11 mapping 1:1 onto §§1–10, and the adversarial question — what surface did I miss? The usual
-    misses are `src/vector/**`, `CollectionGroup.ts`, the read-only transaction surface, the express
-    adapter, the `.d.ts` shape, and the living-index footers.
+   pages, READMEs. Silent omissions here are this repo's main defect mode. **Run every grep and every
+   command you write into the plan**, and record the expected result — a sweep pattern that matches
+   nothing reads as "already done."
+10. **Cut and push the branch with the plan on it**, so the implementer arrives to find it. Tell them
+    in §7 step 1 to check it out and rebase rather than cut a new one.
+11. **Self-review before handing off** — the skill's "Before you hand it off" list in full. Beyond
+    every §3 row executed, every `file:line` re-checked and §11 mapping 1:1 onto §§1–10: §12 filled
+    in, every trap walked from §4 → §8 (at each site it can occur, with the observable named), every
+    conditional resolved, and the adversarial question — what surface did I miss? The usual misses
+    are `src/vector/**` (including its subpath re-exports), `CollectionGroup.ts`, the read-only
+    transaction surface, the express adapter, the `.d.ts` shape, and the living-index footers.
 
 ## Then
 

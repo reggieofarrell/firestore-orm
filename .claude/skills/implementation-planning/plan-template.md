@@ -23,8 +23,10 @@ apply.]
 ## §0 How to use this plan
 
 1. Read §1 (settled — do not re-litigate) and §4 (traps) **before** writing code.
-2. §6 blocks are copy-verbatim; they [compiled and gated / are specifications]. §7 is the ordered
-   build sequence, §8 the tests, §9 docs/ADR, §10 the gate, §11 done.
+2. §6 blocks are copy-verbatim and were **compile-checked as written** (see §12); they [also
+   compiled and gated as a prototype / are otherwise specifications]. §7 is the ordered build
+   sequence, §8 the tests, §9 docs/ADR, §10 the gate, §11 done, §12 the planner's own verification
+   record.
 3. Every claim in §3 was produced by an executed probe on this baseline. Probes are in
    `docs/plans/issue-NN-<slug>/probes/` — re-run them if you doubt one. **Do not trust the issue body
    over §3.**
@@ -80,9 +82,18 @@ apply.]
 
 **Deliberately NOT changed** (justify in your notes if you touch them):
 
-- `path:line` — why it is out of scope.
+- `path:line` — why it is out of scope, **and the fact id proving it is safe to leave alone**. An
+  entry with no id is a guess; if you have no id, probe it or move it to §5.
 
-### 3.N+1 [Prototype gate results, if prototyped]
+### 3.N+1 Gate headroom [if §8 claims a new uncovered branch is gate-safe]
+
+Measured from `coverage/<suite>/lcov.info` vs `scripts/check-coverage-gates.mjs` — do not reason
+about this.
+
+| Gate | lines (thr.) | branches (thr.) | functions (thr.) | Slack |
+| ---- | ------------ | --------------- | ---------------- | ----- |
+
+### 3.N+2 [Prototype gate results, if prototyped]
 
 | Step | Result |
 | ---- | ------ |
@@ -118,6 +129,10 @@ Ordered by how badly a reasonable implementer gets them wrong.
 
 [The JSDoc each new symbol owes, and the trap that JSDoc guards against.]
 
+[**How this block was compile-checked** — every block goes through `tsc` as written, exact module
+specifiers included, before handoff. Record it in §12. If a candidate spelling failed, say which and
+why the one above replaced it: the failure is a finding the implementer must not re-discover.]
+
 ### 6.N Size
 
 [N files, ~±L lines, plus tests, ADR, docs. Any runtime behavior change.]
@@ -146,14 +161,25 @@ Ordered by how badly a reasonable implementer gets them wrong.
 
 ### 8.1 [Suite] — `<path>`
 
-| Id  | Asserts | Guards |
-| --- | ------- | ------ |
-| U-1 |         | T1     |
+| Id  | Asserts | Observable when it fails | Guards |
+| --- | ------- | ------------------------ | ------ |
+| U-1 |         |                          | T1     |
 
-### 8.N Coverage gates
+### 8.N Trap coverage — the inverse direction
+
+One row per trap, **per site the trap can occur at**. The test named must be able to _observe_ the
+trap: a case that throws before reaching the mapping cannot guard the mapping.
+
+| Trap | Site | Falsifying test | What it observes |
+| ---- | ---- | --------------- | ---------------- |
+| T1   | `<file>` |             |                  |
+
+### 8.N+1 Coverage gates
 
 | Changed path | Gate |
 | ------------ | ---- |
+
+[Measured headroom is in §3.N+1 — reference it rather than reasoning about gate risk here.]
 
 ---
 
@@ -239,6 +265,24 @@ type(scope): summary (#NN)
 | …   | `notes.md` committed: deviations, unverified items, adversarial self-review                          |
 | …   | Assertion probes promoted to committed tests (§8), not left in `probes/`                            |
 | …   | `git rm -r docs/plans/issue-NN-*/` — this plan directory is removed in this PR                       |
+
+---
+
+## §12 Pre-handoff verification
+
+What the **planner** ran before pushing this plan — not the implementer's checklist (that is §11).
+A blank cell is a §5 entry, not a blank cell.
+
+| Check | Command / method | Result |
+| ----- | ---------------- | ------ |
+| §6 blocks compile as written | temp file under `src/` + `npm run test:types` (removed after) | |
+| Every `from '…'` specifier §6 uses | same compile, that exact specifier | |
+| Declaration emit [if a new type is public] | `tsc --declaration --emitDeclarationOnly` | no undeclared package in the emitted `.d.ts` |
+| Every §9 / §10 shell command | | output + expected result (some pass by matching nothing) |
+| Baseline suite counts | both suites, clean tree | |
+| Gate headroom [if §8 claims gate-safe] | LCOV vs `check-coverage-gates.mjs` | §3.N+1 |
+| Unresolved conditionals | re-read §§2–9 | none / resolved to X by reading `<file>` |
+| Trap coverage inverse walk | §4 against §8.N | every trap × site has a falsifying test |
 
 ---
 

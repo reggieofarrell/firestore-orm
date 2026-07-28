@@ -79,21 +79,41 @@ async function dump(label, promise) {
   }
 }
 
-console.log(
-  JSON.stringify(
-    {
-      label: 'env',
-      gcloudFirestore: gcloudPkg.version,
-      Query_explain: typeof q.explain,
-      Query_explainStream: typeof q.explainStream,
-      VectorQuery_d_ts_has_explain: /explain\s*\(/.test(vqBlock),
-      ExplainMetrics_exported: /export interface ExplainMetrics/.test(dts),
-      ExplainOptions_exported: /export interface ExplainOptions/.test(dts),
-    },
-    null,
-    2,
-  ),
-);
+// firebase-admin re-exports an explicit allowlist from @google-cloud/firestore — Explain* are
+  // omitted there even though they exist in gcloud's firestore.d.ts (plan P5b vs P5c / D9).
+  // admin's "exports" map blocks require.resolve('firebase-admin/package.json'), so walk up from
+  // a real export ('firebase-admin/app') to the package root.
+  const adminAppEntry = require.resolve('firebase-admin/app');
+  const adminRoot = dirname(dirname(dirname(adminAppEntry))); // .../lib/app → package root
+  const adminFirestoreDts = readFileSync(join(adminRoot, 'lib/firestore/index.d.ts'), 'utf8');
+  // Prefer the `export { … } from '@google-cloud/firestore'` allowlist line — not the earlier
+  // `import { Firestore } from …` which is only one symbol.
+  const adminAllowlistLine =
+    adminFirestoreDts
+      .split('\n')
+      .find(l => /export\s*\{/.test(l) && l.includes("from '@google-cloud/firestore'")) ?? '';
+
+  console.log(
+    JSON.stringify(
+      {
+        label: 'env',
+        gcloudFirestore: gcloudPkg.version,
+        Query_explain: typeof q.explain,
+        Query_explainStream: typeof q.explainStream,
+        VectorQuery_d_ts_has_explain: /explain\s*\(/.test(vqBlock),
+        // P5b — gcloud package exports these interfaces:
+        gcloud_ExplainMetrics_exported: /export interface ExplainMetrics/.test(dts),
+        gcloud_ExplainOptions_exported: /export interface ExplainOptions/.test(dts),
+        // P5c — admin allowlist does NOT name Explain*; Query IS named (D9 derives from it):
+        admin_allowlist_mentions_ExplainOptions: /ExplainOptions/.test(adminAllowlistLine),
+        admin_allowlist_mentions_ExplainMetrics: /ExplainMetrics/.test(adminAllowlistLine),
+        admin_allowlist_mentions_Query: /(?<![A-Za-z])Query(?![A-Za-z])/.test(adminAllowlistLine),
+        admin_allowlist_line_len: adminAllowlistLine.length,
+      },
+      null,
+      2,
+    ),
+  );
 
 await dump('plan-only', q.explain());
 await dump('analyze', q.explain({ analyze: true }));

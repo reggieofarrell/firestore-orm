@@ -12,7 +12,11 @@ export type {
 } from './core/FirestoreRepository.js';
 export type { FirestoreDocument, CollectionGroupDocument } from './core/DocumentId.js';
 export { FirestoreQueryBuilder } from './core/QueryBuilder.js';
-export type { PaginatedResult, QueryFilterFactory } from './core/QueryBuilder.js';
+export type {
+  PaginatedResult,
+  QueryFilterFactory,
+  QueryExplainResult,
+} from './core/QueryBuilder.js';
 export type {
   CountAggregation,
   SumAggregation,

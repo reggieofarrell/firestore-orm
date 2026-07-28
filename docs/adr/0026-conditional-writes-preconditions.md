@@ -133,10 +133,11 @@ the existence read the method already performs would turn today's benign races i
 silent behavior change to an existing method.
 
 This record **amends ADR-0017**: conditional writes / preconditions are no longer deferred. The
-remaining deferrals (#37–#41) and the decision not to pursue full server-side or Enterprise Pipeline
-parity are unchanged. (#34 generic multi-aggregation, #35 `getMany`, and #36 typed bounds /
-`limitToLast` have since shipped — see ADR-0027 / ADR-0029 / ADR-0030; this footer is a living index
-of remaining ADR-0017 deferrals — see [`docs/adr/README.md`](README.md) Conventions.)
+remaining deferrals (#38–#41) and the decision not to pursue full server-side or Enterprise Pipeline
+parity are unchanged. (#34 generic multi-aggregation, #35 `getMany`, #36 typed bounds /
+`limitToLast`, and #37 `explain()` have since shipped — see ADR-0027 / ADR-0029 / ADR-0030 /
+ADR-0031; this footer is a living index of remaining ADR-0017 deferrals — see
+[`docs/adr/README.md`](README.md) Conventions.)
 
 ## Consequences
 

@@ -1,9 +1,15 @@
 import { parseFirestoreError } from '../core/ErrorParser.js';
 import { FirestoreQueryBuilder, getQueryRef } from '../core/QueryBuilder.js';
-import type { QueryFilterFactory } from '../core/QueryBuilder.js';
+import type { QueryFilterFactory, QueryExplainResult } from '../core/QueryBuilder.js';
 import { FirestoreDocument } from '../core/DocumentId.js';
 import { DeepPartial, FieldPaths, OmitId, KeysOf } from '../utils/pathTypes.js';
-import { FieldPath, Filter, QueryDocumentSnapshot, WhereFilterOp } from 'firebase-admin/firestore';
+import {
+  FieldPath,
+  Filter,
+  Query,
+  QueryDocumentSnapshot,
+  WhereFilterOp,
+} from 'firebase-admin/firestore';
 import {
   assertVectorSearchSupported,
   DistanceFieldResult,
@@ -12,11 +18,30 @@ import {
 } from './VectorSearch.js';
 
 /**
+ * Options for {@link VectorQueryBuilder.explain}, derived from Admin SDK `Query.explain` (same
+ * D9 alias pattern as core — firebase-admin does not re-export `ExplainOptions` by name).
+ */
+type ExplainOptions = NonNullable<Parameters<Query['explain']>[0]>;
+
+/**
+ * Metrics object from Admin SDK Query Explain, derived from `Query.explain`'s return type.
+ */
+type ExplainMetrics = Awaited<ReturnType<Query['explain']>>['metrics'];
+
+/**
  * Minimal vector query surface used because firebase-admin does not re-export VectorQuery.
+ * `explain` is optional: it exists at runtime on `@google-cloud/firestore` >= 7.8 but is omitted
+ * from the current firestore.d.ts; making it required would break the `as FirestoreVectorQuery<T>`
+ * cast at findNearest (TS2352).
  */
 type FirestoreVectorQuery<T> = {
   get(): Promise<{
     docs: Array<QueryDocumentSnapshot<T>>;
+  }>;
+  /** Present on @google-cloud/firestore >= 7.8 at runtime; omitted from current firestore.d.ts. */
+  explain?: (options?: ExplainOptions) => Promise<{
+    metrics: ExplainMetrics;
+    snapshot: { docs: Array<QueryDocumentSnapshot<T>> } | null;
   }>;
 };
 
@@ -199,6 +224,52 @@ export class VectorQueryBuilder<T extends object, S extends object = T, R = Fire
         ...(doc.data() as T),
         id: doc.id,
       })) as unknown as R[];
+    } catch (error: unknown) {
+      throw parseFirestoreError(error);
+    }
+  }
+
+  /**
+   * Plans / optionally executes this vector query (Admin SDK VectorQuery.explain).
+   *
+   * Requires {@link findNearest} first — explaining the prefilter query alone would silently omit
+   * the nearest-neighbor stage.
+   *
+   * Same `{ metrics, documents }` contract as {@link FirestoreQueryBuilderBase.explain}, including
+   * `documents: null` for plan-only and `documents: []` for an empty analyzed result. Emulator:
+   * throws `No explain results` (no metrics from the emulator).
+   *
+   * Note: `explainStream` does not exist on VectorQuery in the Admin SDK; it is not offered here.
+   * The typeof guard below is defense-in-depth: `findNearest` already requires firestore >= 7.10,
+   * which includes VectorQuery.explain (since 7.8).
+   */
+  async explain(options?: ExplainOptions): Promise<QueryExplainResult<R>> {
+    if (!this.vectorQuery) {
+      throw new Error('explain() on a vector query requires findNearest() to be called first.');
+    }
+    // Defense-in-depth: public findNearest already requires firestore >= 7.10 (explain since 7.8),
+    // but a stub VectorQuery without explain (tests / future SDK quirks) should fail clearly.
+    if (typeof this.vectorQuery.explain !== 'function') {
+      throw new Error(
+        'explain() is not available on this VectorQuery: the installed Firestore SDK does not ' +
+          'expose VectorQuery.explain() (added in @google-cloud/firestore >= 7.8). Upgrade ' +
+          'firebase-admin (or @google-cloud/firestore).',
+      );
+    }
+
+    try {
+      const results = await this.vectorQuery.explain(options);
+      return {
+        metrics: results.metrics,
+        // Same null vs [] contract as core explain() — plan-only → null; analyzed empty → [].
+        documents:
+          results.snapshot === null || results.snapshot === undefined
+            ? null
+            : (results.snapshot.docs.map((doc: QueryDocumentSnapshot<T>) => ({
+                ...(doc.data() as T),
+                id: doc.id,
+              })) as unknown as R[]),
+      };
     } catch (error: unknown) {
       throw parseFirestoreError(error);
     }

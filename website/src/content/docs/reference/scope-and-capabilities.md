@@ -40,6 +40,7 @@ reach the raw Admin SDK for anything not yet wrapped.
 | `getMany(ids)` multi-document reads              | One batched `BatchGetDocuments` read; results in **input order**; `null` marks missing ids in position; optional `fieldMask`; transaction variant `getManyInTransaction`. Prefer over `whereId('in', …)` for id lookups.                    |
 | Field transforms / sentinels                     | Strict per-field approval by default                                                                                                                                                                                                      |
 | Vector search (`vectorQuery().findNearest()`)    | Distance measures, result field, threshold, prefilters (incl. AND/OR)                                                                                                                                                                     |
+| Query Explain (`explain()`)                      | Core + vector (after `findNearest`); returns `{ metrics, documents }` (`documents` is `null` plan-only, `[]` when analyzed empty). **Emulator throws `No explain results`** — real metrics need production Firestore. `explainStream` deferred ([#65](https://github.com/reggieofarrell/firestore-orm/issues/65)). |
 
 ## Deferred to v3.x (tracked)
 
@@ -48,7 +49,7 @@ issue labeled `parity` / `v3.x`. Until then, use the [raw-SDK escape hatch](#raw
 
 | Capability                                         | Issue                                                            |
 | -------------------------------------------------- | ---------------------------------------------------------------- |
-| Query Explain / `explainStream`                    | [#37](https://github.com/reggieofarrell/firestore-orm/issues/37) |
+| Query `explainStream` (Core only)                  | [#65](https://github.com/reggieofarrell/firestore-orm/issues/65) |
 | BulkWriter high-throughput API + recursive delete  | [#38](https://github.com/reggieofarrell/firestore-orm/issues/38) |
 | Snapshot/write metadata + detailed listeners       | [#39](https://github.com/reggieofarrell/firestore-orm/issues/39) |
 | Server-side / structured-equality `distinctValues` | [#40](https://github.com/reggieofarrell/firestore-orm/issues/40) |

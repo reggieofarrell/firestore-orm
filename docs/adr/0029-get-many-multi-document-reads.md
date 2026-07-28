@@ -124,7 +124,7 @@ the wrong return type. The established `create(data, options)` pair has the iden
 - Plan / probes (maintainer-local): `tmp/plans/issue-35-get-many.md`, `tmp/probes/issue-35/`
 
 This record **amends ADR-0017**: multi-document `getMany` reads are no longer deferred. The
-remaining deferrals (#37–#41) and the decision not to pursue full server-side or Enterprise Pipeline
-parity are unchanged. (#36 typed bounds / `limitToLast` have since shipped — see ADR-0030; this
-footer is a living index of remaining ADR-0017 deferrals — see [`docs/adr/README.md`](README.md)
-Conventions.)
+remaining deferrals (#38–#41) and the decision not to pursue full server-side or Enterprise Pipeline
+parity are unchanged. (#36 typed bounds / `limitToLast` and #37 `explain()` have since shipped — see
+ADR-0030 / ADR-0031; this footer is a living index of remaining ADR-0017 deferrals — see
+[`docs/adr/README.md`](README.md) Conventions.)

@@ -56,6 +56,34 @@ export type PaginatedResult<T extends object> = {
 };
 
 /**
+ * Options for {@link FirestoreQueryBuilderBase.explain}, derived from the Admin SDK
+ * `Query.explain` signature. firebase-admin's public allowlist does not re-export `ExplainOptions`
+ * by name (ADR-0031 / D9) — importing that name from `firebase-admin/firestore` fails TS2305.
+ */
+type ExplainOptions = NonNullable<Parameters<Query['explain']>[0]>;
+
+/**
+ * Metrics object returned by Admin SDK Query Explain, derived from `Query.explain`'s return type.
+ * Not re-exported as a public name — consumers use {@link QueryExplainResult}.
+ */
+type ExplainMetrics = Awaited<ReturnType<Query['explain']>>['metrics'];
+
+/**
+ * Result of {@link FirestoreQueryBuilderBase.explain}.
+ *
+ * `metrics` is the Admin SDK explain-metrics object (plan summary, and execution stats when the
+ * query was analyzed). `documents` is the ORM-mapped page of results when `analyze: true`, or
+ * `null` when the query was plan-only (`analyze` false/omitted) and the SDK returned no snapshot.
+ *
+ * An analyzed query that matches nothing yields `documents: []` — not `null`. Do not collapse the
+ * two; callers use `null` vs `[]` to distinguish “did not execute” from “executed, empty.”
+ */
+export type QueryExplainResult<R> = {
+  readonly metrics: ExplainMetrics;
+  readonly documents: R[] | null;
+};
+
+/**
  * One entry in an {@link AggregationSpec}. `count` takes no field; `sum` and `average` take a
  * numeric stored field path (top-level, nested/dotted, or a `FieldPath`).
  *
@@ -1441,6 +1469,60 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
       const snapshot: QuerySnapshot = await this.query.get();
       return snapshot.docs.map(doc => this.toResult(doc));
     } catch (error: any) {
+      throw parseFirestoreError(error);
+    }
+  }
+
+  /**
+   * Plans this query and optionally executes it (Admin SDK Query Explain).
+   *
+   * Pass `{ analyze: true }` to execute the query and receive execution statistics plus the
+   * matching documents mapped through this builder's result shape (`R`). Omit `analyze` (or pass
+   * `false`) for a plan-only request: `documents` is `null` and `metrics.executionStats` is null.
+   *
+   * Returns `{ metrics, documents }` — SDK diagnostics plus ORM-mapped rows — not a raw
+   * `ExplainResults` / `QuerySnapshot`. Use {@link get} when you only need documents.
+   *
+   * Composes with `limitToLast` the same way `get()` does (SDK reverses the page for
+   * `LimitType.Last`); there is no local `hasLimitToLast` reject.
+   *
+   * ⚠️ The Firestore **emulator does not return explain metrics** today; the Admin SDK then throws
+   * `Error: No explain results`. Real plan/execution stats require production Firestore.
+   *
+   * Requires a Firestore SDK that exposes `Query.explain` (`@google-cloud/firestore` >= 7.4).
+   *
+   * @example
+   * const plan = await userRepo.query().where('status', '==', 'active').explain();
+   * console.log(plan.metrics.planSummary.indexesUsed);
+   *
+   * const analyzed = await userRepo.query().where('status', '==', 'active').explain({ analyze: true });
+   * // analyzed.documents: User[] (possibly empty); analyzed.metrics.executionStats is non-null
+   */
+  async explain(options?: ExplainOptions): Promise<QueryExplainResult<R>> {
+    // Capability check OUTSIDE parseFirestoreError: older admin-12 installs can resolve firestore
+    // <7.4 where Query.explain is absent — a plain Error with an upgrade hint beats a cryptic
+    // "explain is not a function" from the call site.
+    if (typeof this.query.explain !== 'function') {
+      throw new Error(
+        'explain() is not available: the installed Firestore SDK does not expose Query.explain(). ' +
+          'Query Explain requires @google-cloud/firestore >= 7.4 (firebase-admin 12 only when the ' +
+          'resolved @google-cloud/firestore is new enough; firebase-admin >= 13 typically bundles it). ' +
+          'Upgrade firebase-admin (or @google-cloud/firestore).',
+      );
+    }
+
+    try {
+      const results = await this.query.explain(options);
+      return {
+        metrics: results.metrics,
+        // Plan-only responses leave snapshot null/undefined → documents: null. An analyzed query
+        // that matched nothing yields docs: [] → documents: [] (never coerce empty ↔ null).
+        documents:
+          results.snapshot === null || results.snapshot === undefined
+            ? null
+            : results.snapshot.docs.map(doc => this.toResult(doc)),
+      };
+    } catch (error: unknown) {
       throw parseFirestoreError(error);
     }
   }

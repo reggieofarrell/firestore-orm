@@ -215,6 +215,10 @@ can be called only once per query, `limit` must be a positive integer no greater
 `orderBy()`, `onSnapshot()`, and `stream()` are **not supported** on a vector query builder — each
 throws. Apply ordering implicitly through `findNearest()` and pre-filter with `where()` instead.
 
+After `findNearest()`, you can call **`explain(options?)`** for Admin SDK vector-query diagnostics
+(same `{ metrics, documents }` contract as core `explain()`). There is no vector `explainStream` in
+the Admin SDK. The emulator throws `No explain results` (no metrics from the emulator).
+
 ### `vectorEmbeddingSchema(dimensions?)`
 
 Zod helper whose value type is `number[] | VectorValueLike` — a plain number array or a native
@@ -234,6 +238,8 @@ Also exported from `@reggieofarrell/firestore-orm/vector`:
 
 - **`VectorValueLike`** — the structural value type accepted by `vectorEmbeddingSchema`
   (`{ toArray(): number[]; isEqual(other): boolean }`).
+- **`QueryExplainResult`** — the return type of `explain()` (re-exported so `/vector`-only
+  consumers can name it without importing the main entry).
 - **`VectorEnabledRepository`** — the return type of `withVectorSearch(repo)`.
 - **`assertVectorSearchSupported(query)`** — throws a deterministic `>= 7.10` compatibility error on
   an SDK whose `findNearest` is absent or positional-only.
@@ -249,6 +255,7 @@ Also exported from `@reggieofarrell/firestore-orm/vector`:
 ## Limitations
 
 - No real-time listeners: `onSnapshot()`, `stream()`, and `orderBy()` throw on vector queries
+- `explain()` is available after `findNearest()`; there is no vector `explainStream`
 - Maximum 2048 embedding dimensions
 - Maximum 1000 results per query
 - Index management is external to the ORM

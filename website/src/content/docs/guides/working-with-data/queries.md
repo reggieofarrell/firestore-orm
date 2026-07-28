@@ -42,9 +42,10 @@ The chainable builder methods are:
 - `offset(n)` — skip the first _N_ matches (`0` allowed; not combinable with opaque
   `paginate` / `offsetPaginate`).
 
-Terminal methods that execute the query include `get()`, `getOne()`, `exists()`, `count()`,
-`collectionCount()`, `sum()`, `average()`, `aggregate()`, `distinctValues()`, `paginate()`,
-`offsetPaginate()`, `paginateWithCount()`, `stream()`, `onSnapshot()`, `update()`, and `delete()`.
+Terminal methods that execute the query include `get()`, `explain()`, `getOne()`, `exists()`,
+`count()`, `collectionCount()`, `sum()`, `average()`, `aggregate()`, `distinctValues()`,
+`paginate()`, `offsetPaginate()`, `paginateWithCount()`, `stream()`, `onSnapshot()`, `update()`,
+and `delete()`.
 Opaque forward paging stays on `paginate(pageSize, cursor)`; reverse pages use bounds +
 `limitToLast` + `get()` (see [Query bounds & reverse pagination](#query-bounds--reverse-pagination)).
 `getOne()` / `exists()` compose with `limitToLast` (they skip a `.limit(1)` narrowing that would
@@ -513,6 +514,32 @@ for await (const order of orderRepo.query().where('status', '==', 'pending').str
 
 **Performance cost:** Streaming still reads every matching document, so you are charged for every
 document read. Use appropriate filters and limits.
+
+## Query Explain
+
+`explain(options?)` returns Admin SDK Query Explain diagnostics plus optionally the matching
+documents mapped through the builder's result shape:
+
+```typescript
+const plan = await userRepo.query().where('status', '==', 'active').explain();
+console.log(plan.metrics.planSummary.indexesUsed);
+// plan.documents === null (plan-only; query was not executed)
+
+const analyzed = await userRepo
+  .query()
+  .where('status', '==', 'active')
+  .explain({ analyze: true });
+// analyzed.documents: User[] (possibly empty []); analyzed.metrics.executionStats is non-null
+```
+
+`documents` is **`null`** for plan-only requests and **`[]`** when analyze ran and matched nothing —
+do not collapse the two. Collection-group builders inherit `explain()`; vector queries expose it
+after `findNearest()` (see the vector-search guide).
+
+⚠️ The Firestore **emulator does not return explain metrics** today — the Admin SDK throws
+`Error: No explain results`. Real plan/execution stats require production Firestore. Streaming
+diagnostics (`explainStream`) are deferred
+([#65](https://github.com/reggieofarrell/firestore-orm/issues/65)).
 
 ## Real-time subscriptions
 

@@ -104,6 +104,15 @@ server-side Firestore parity. Concretely:
    > this list. The remaining deferrals (#37–#41) are unchanged, as is the decision not to pursue
    > full server-side or Enterprise Pipeline parity. Rationale and contract: ADR-0030.
 
+   > Amendment (3.0.0, issue #37): Query Explain is **no longer deferred** for the non-streaming
+   > path — it ships in 3.0.0 as `explain(options?)` on `FirestoreQueryBuilderBase` (collection +
+   > collection-group) and on `VectorQueryBuilder` after `findNearest()`, returning
+   > `QueryExplainResult<R> = { metrics, documents }` with ORM-mapped rows (`null` plan-only / `[]`
+   > analyzed empty). `explainStream` remains deferred (Core-only follow-up). Emulator does not
+   > return explain metrics. So #37 leaves this list for `explain()`. The remaining deferrals
+   > (#38–#41) are unchanged, as is the decision not to pursue full server-side or Enterprise
+   > Pipeline parity. Rationale and contract: ADR-0031.
+
 We explicitly do **not** block v3 on any of the deferred items.
 
 ## Consequences
@@ -131,9 +140,10 @@ capability matrix is the honest middle ground.
 
 - The v3 release review and its round-2 response — "Server-side Firestore feature parity follow-up"
   (maintainer-local review records under `reviews/`, not committed to the repo).
-- GitHub issues #37–#41 (labels `parity`, `v3.x`); #30 is closed by the 3.0.0 `whereFilter` API
+- GitHub issues #38–#41 (labels `parity`, `v3.x`); #30 is closed by the 3.0.0 `whereFilter` API
   (ADR-0023), #31 by the 3.0.0 `collectionGroup()` API (ADR-0024), #32 by the 3.0.0 transaction
   options / `runReadOnlyAt` / `getInTransaction` rename (ADR-0025), #33 by the 3.0.0 conditional
   writes / `lastUpdateTime` preconditions API (ADR-0026), #34 by the 3.0.0 `aggregate(spec)` API
-  (ADR-0027), #35 by the 3.0.0 `getMany(ids)` / `getManyInTransaction` API (ADR-0029), and #36 by
-  the 3.0.0 typed bounds / `offset` / `limitToLast` API (ADR-0030).
+  (ADR-0027), #35 by the 3.0.0 `getMany(ids)` / `getManyInTransaction` API (ADR-0029), #36 by the
+  3.0.0 typed bounds / `offset` / `limitToLast` API (ADR-0030), and #37 by the 3.0.0 `explain()` API
+  (ADR-0031; `explainStream` remains tracked separately).

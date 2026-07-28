@@ -82,7 +82,8 @@ We will ship typed bounds and `limitToLast` as follows:
   cursor (empty when those values fall past the set — probe F2 — or a suffix otherwise). Opaque
   `paginate` path membership binding is unchanged and separately tested. Production may still differ
   — do not treat emulator pins as production equivalence.
-- Capability matrix: #36 moves Deferred → Supported. Remaining ADR-0017 deferrals are `#37–#41`.
+- Capability matrix: #36 moves Deferred → Supported. Remaining ADR-0017 deferrals are `#38–#41` (#37
+  `explain()` has since shipped — see ADR-0031).
 
 ## Alternatives considered
 
@@ -112,6 +113,6 @@ requires guarded `stream` rejection; local checks match `paginate`'s voice and f
 - Starlight: query builder reference, queries guide, subcollections, scope & capabilities
 
 This record **amends ADR-0017**: typed lower-level bounds + `limitToLast` are no longer deferred.
-The remaining deferrals (#37–#41) and the decision not to pursue full server-side or Enterprise
-Pipeline parity are unchanged. (This footer is a living index of remaining ADR-0017 deferrals — see
-[`docs/adr/README.md`](README.md) Conventions.)
+The remaining deferrals (#38–#41) and the decision not to pursue full server-side or Enterprise
+Pipeline parity are unchanged. (#37 `explain()` has since shipped — see ADR-0031; this footer is a
+living index of remaining ADR-0017 deferrals — see [`docs/adr/README.md`](README.md) Conventions.)

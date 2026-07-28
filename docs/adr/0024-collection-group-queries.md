@@ -146,10 +146,10 @@ from an existing repository.
    parallel-scan tooling rather than the read surface.
 
 This record **amends ADR-0017**: collection-group queries are no longer deferred. The remaining
-deferrals (#37–#41) and the decision not to pursue full server-side or Enterprise Pipeline parity
+deferrals (#38–#41) and the decision not to pursue full server-side or Enterprise Pipeline parity
 are unchanged. (#32 transaction options, #33 conditional writes, #34 generic multi-aggregation, #35
-`getMany`, and #36 typed bounds / `limitToLast` have since shipped — see ADR-0025 / ADR-0026 /
-ADR-0027 / ADR-0029 / ADR-0030; this footer is kept as a living index — see
+`getMany`, #36 typed bounds / `limitToLast`, and #37 `explain()` have since shipped — see ADR-0025 /
+ADR-0026 / ADR-0027 / ADR-0029 / ADR-0030 / ADR-0031; this footer is kept as a living index — see
 [`docs/adr/README.md`](README.md) Conventions.)
 
 ## Consequences

@@ -26,7 +26,8 @@ reach the raw Admin SDK for anything not yet wrapped.
 | Composite AND/OR filters (`whereFilter`)         | Schema-aware filter factory; also a vector prefilter                                                                                                                                                                                      |
 | Collection-group queries (`collectionGroup`)     | Read-only; results carry full-path identity; needs group-scoped indexes                                                                                                                                                                   |
 | Document-name queries (`whereId` / `orderById`)  | Native doc-name filter/order; `where('id', …)` is a compile error                                                                                                                                                                         |
-| Ordering, forward `limit`                        |                                                                                                                                                                                                                                           |
+| Ordering, forward `limit`, `limitToLast`         | `limitToLast` requires `orderBy`; rejected by `stream` / opaque `paginate` (use `get()` for reverse pages)                                                                                                                                |
+| Typed cursor bounds (`startAt` / `endAt` / …)    | Inclusive/exclusive snapshot or field-value bounds; public `offset(n)` (`0` allowed). Opaque `paginate` stays path-only and forward-only.                                                                                                 |
 | Cursor + offset pagination                       | Opaque, forward-only cursor bound to the collection                                                                                                                                                                                       |
 | Field projections (`select`)                     | Result type narrows to `FirestoreDocument<DeepPartial<T>>`                                                                                                                                                                                |
 | Real-time listeners (`onSnapshot`)               | Full-model arrays; not combinable with `select()`                                                                                                                                                                                         |
@@ -47,7 +48,6 @@ issue labeled `parity` / `v3.x`. Until then, use the [raw-SDK escape hatch](#raw
 
 | Capability                                         | Issue                                                            |
 | -------------------------------------------------- | ---------------------------------------------------------------- |
-| Typed lower-level bounds + `limitToLast()`         | [#36](https://github.com/reggieofarrell/firestore-orm/issues/36) |
 | Query Explain / `explainStream`                    | [#37](https://github.com/reggieofarrell/firestore-orm/issues/37) |
 | BulkWriter high-throughput API + recursive delete  | [#38](https://github.com/reggieofarrell/firestore-orm/issues/38) |
 | Snapshot/write metadata + detailed listeners       | [#39](https://github.com/reggieofarrell/firestore-orm/issues/39) |

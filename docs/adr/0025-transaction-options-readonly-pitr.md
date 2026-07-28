@@ -90,10 +90,11 @@ query-shaped PITR mapping), so it fronts every PITR example.
    already-breaking major as `feat(repository)!:`.
 
 This record **amends ADR-0017**: transaction options / PITR are no longer deferred. The remaining
-deferrals (#36–#41) and the decision not to pursue full server-side or Enterprise Pipeline parity
-are unchanged. (#33 conditional writes, #34 generic multi-aggregation, and #35 `getMany` have since
-shipped — see ADR-0026 / ADR-0027 / ADR-0029; this footer is a living index of remaining ADR-0017
-deferrals — see [`docs/adr/README.md`](README.md) Conventions.)
+deferrals (#37–#41) and the decision not to pursue full server-side or Enterprise Pipeline parity
+are unchanged. (#33 conditional writes, #34 generic multi-aggregation, #35 `getMany`, and #36 typed
+bounds / `limitToLast` have since shipped — see ADR-0026 / ADR-0027 / ADR-0029 / ADR-0030; this
+footer is a living index of remaining ADR-0017 deferrals — see [`docs/adr/README.md`](README.md)
+Conventions.)
 
 The read-only surface gained `getManyInTransaction` and an optional second type parameter `S`
 (defaults to `T`) so field-mask paths are typed against the stored model — see ADR-0029.

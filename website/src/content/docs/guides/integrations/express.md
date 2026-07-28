@@ -145,9 +145,10 @@ app.listen(3000, () => {
 >   [Document Identity](/firestore-orm/guides/concepts/document-identity/).
 > - Reads use `getById(id)`, which returns `FirestoreDocument<User> | null` — check for `null` (or
 >   use `getByIdOrThrow(id)` to get a `NotFoundError` instead).
-> - Offset pagination is `offsetPaginate(page, pageSize)`. Cursor pagination is
->   `paginate(pageSize, cursor?)` and requires a prior `orderBy()`; there is no `.startAfter()`
->   chaining method. See [Queries](/firestore-orm/guides/working-with-data/queries/).
+> - Offset pagination is `offsetPaginate(page, pageSize)`. Forward opaque cursor pagination is
+>   `paginate(pageSize, cursor?)` and requires a prior `orderBy()`. Typed bounds
+>   (`startAt` / `startAfter` / …) and reverse pages (`limitToLast`) are also on the query builder —
+>   see [Queries](/firestore-orm/guides/working-with-data/queries/).
 > - `update(id, data, { returnDoc: true })` returns the updated document. The `id` field is always
 >   stripped from write payloads, so spreading `...req.body` is safe.
 

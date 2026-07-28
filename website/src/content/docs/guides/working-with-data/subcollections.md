@@ -103,9 +103,9 @@ const recentOrders = await userOrders
   .get();
 ```
 
-For cursor-based paging use `paginate(pageSize, cursor?)` (it requires a prior `orderBy()`); there
-is no `.startAfter()` chaining. See [queries](/firestore-orm/guides/working-with-data/queries/) for
-the full query surface.
+For forward opaque paging use `paginate(pageSize, cursor?)` (it requires a prior `orderBy()`). For
+typed bounds and reverse pages (`startAt` / `endAt` / `limitToLast`), see
+[queries](/firestore-orm/guides/working-with-data/queries/#query-bounds--reverse-pagination).
 
 ## Querying every parent's subcollection at once
 

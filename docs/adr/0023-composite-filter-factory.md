@@ -197,11 +197,11 @@ it is imported from `firebase-admin/firestore`, consistent with `FieldPath` / `W
   `VectorQueryBuilder.select()`, which delegates to core `select()`.
 
 This record **amends ADR-0017**: composite filters are no longer deferred. The remaining deferrals
-(#36–#41) and the decision not to pursue full server-side or Enterprise Pipeline parity are
+(#37–#41) and the decision not to pursue full server-side or Enterprise Pipeline parity are
 unchanged. (#31 collection groups, #32 transaction options, #33 conditional writes, #34 generic
-multi-aggregation, and #35 `getMany` have since shipped — see ADR-0024 / ADR-0025 / ADR-0026 /
-ADR-0027 / ADR-0029; this footer is kept as a living index — see [`docs/adr/README.md`](README.md)
-Conventions.)
+multi-aggregation, #35 `getMany`, and #36 typed bounds / `limitToLast` have since shipped — see
+ADR-0024 / ADR-0025 / ADR-0026 / ADR-0027 / ADR-0029 / ADR-0030; this footer is kept as a living
+index — see [`docs/adr/README.md`](README.md) Conventions.)
 
 ## Alternatives considered
 

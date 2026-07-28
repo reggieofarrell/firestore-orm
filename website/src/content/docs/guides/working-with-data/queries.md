@@ -34,13 +34,21 @@ The chainable builder methods are:
 - `select(...fields)` — project only the named fields.
 - `orderBy(field, dir = 'asc')` — sort results (required before `paginate()`).
 - `orderById(dir = 'asc')` — order by document name.
-- `limit(n)` — cap the number of documents returned.
+- `limit(n)` — cap the number of documents returned (last-wins with `limitToLast`).
+- `limitToLast(n)` — last _N_ of an ordered result set (requires `orderBy`; not combinable with
+  `stream` / opaque `paginate` / `offsetPaginate`).
+- `startAt` / `startAfter` / `endAt` / `endBefore` — typed inclusive/exclusive cursor bounds
+  (`DocumentSnapshot` or field values).
+- `offset(n)` — skip the first _N_ matches (`0` allowed; not combinable with opaque
+  `paginate` / `offsetPaginate`).
 
 Terminal methods that execute the query include `get()`, `getOne()`, `exists()`, `count()`,
 `collectionCount()`, `sum()`, `average()`, `aggregate()`, `distinctValues()`, `paginate()`,
 `offsetPaginate()`, `paginateWithCount()`, `stream()`, `onSnapshot()`, `update()`, and `delete()`.
-There is no public `.startAfter()` chaining — cursor pagination is handled entirely through
-`paginate(pageSize, cursor)`.
+Opaque forward paging stays on `paginate(pageSize, cursor)`; reverse pages use bounds +
+`limitToLast` + `get()` (see [Query bounds & reverse pagination](#query-bounds--reverse-pagination)).
+`getOne()` / `exists()` compose with `limitToLast` (they skip a `.limit(1)` narrowing that would
+otherwise last-wins overwrite the last-N window).
 
 **Performance note:** Firestore charges per document read. Use `limit()` and pagination to control
 costs on large collections — see [Performance](/firestore-orm/guides/designing/performance/) for the
@@ -313,10 +321,11 @@ const sorted = await productRepo.query().orderBy('price', 'desc').orderBy('name'
 
 ## Pagination
 
-`paginate(pageSize, cursor?)` performs cursor-based pagination and returns
+`paginate(pageSize, cursor?)` performs **forward**, opaque cursor-based pagination and returns
 `{ items, nextCursor, hasMore }`. It **requires** at least one prior `orderBy()` call for a stable
 cursor and **throws** if `pageSize` is less than or equal to `0`. Pass the previous page's
-`nextCursor` to fetch the next page.
+`nextCursor` to fetch the next page. Tokens encode a document path only — they are not interchangeable
+with typed `startAfter` field values.
 
 ```typescript
 // Cursor-based pagination (recommended)
@@ -331,12 +340,37 @@ const nextPage = await userRepo.query().orderBy('createdAt', 'desc').paginate(20
 ```
 
 Use `offsetPaginate(page, pageSize)` for offset-based pagination. It is simpler but less efficient
-on large datasets, since Firestore must scan and discard the skipped documents.
+on large datasets, since Firestore must scan and discard the skipped documents. For a raw skip on
+the builder itself, `offset(n)` is also available (`n >= 0`).
 
 ```typescript
 // Offset pagination (less efficient for large datasets)
 const page2 = await userRepo.query().orderBy('createdAt', 'desc').offsetPaginate(2, 20);
 ```
+
+## Query bounds & reverse pagination
+
+Typed bounds mirror the Admin SDK: pass a `DocumentSnapshot`, or field values in the same order as
+your `orderBy` clauses.
+
+```typescript
+// Inclusive bounded range on a stored field
+const midScores = await productRepo.query().orderBy('score', 'asc').startAt(20).endAt(40).get();
+
+// Reverse page ending at a cursor (results still in orderBy order)
+const previousPage = await productRepo
+  .query()
+  .orderBy('score', 'asc')
+  .endAt(40)
+  .limitToLast(20)
+  .get();
+```
+
+`limitToLast(n)` requires `orderBy` and cannot be combined with `stream()`, `paginate()`, or
+`offsetPaginate()` — use `get()` (or `onSnapshot()` for listeners). `getOne()` / `exists()` **do**
+compose with `limitToLast` (they avoid applying a `.limit(1)` that would last-wins overwrite the
+window). A prior `offset(n)` is likewise rejected by opaque `paginate` / `offsetPaginate`. If both
+`limit` and `limitToLast` are chained, the **last** call wins.
 
 `paginateWithCount(pageSize, cursor?)` combines `paginate()` and `count()` in a single call,
 returning the same `{ items, nextCursor, hasMore }` plus a `total` count of all matching documents.

@@ -467,7 +467,8 @@ export class FeedService {
 }
 ```
 
-Pagination is `paginate(pageSize, cursor?)` and requires a prior `orderBy()` (it throws otherwise) —
-the first page calls `paginate(limit)`, and subsequent pages pass the cursor returned by the
-previous call as `paginate(limit, cursor)`. There is no `.startAfter()` chaining method; the cursor
-threads through `paginate` itself.
+Forward opaque pagination is `paginate(pageSize, cursor?)` and requires a prior `orderBy()` (it
+throws otherwise) — the first page calls `paginate(limit)`, and subsequent pages pass the cursor
+returned by the previous call as `paginate(limit, cursor)`. Typed `startAfter` / `endAt` bounds and
+`limitToLast` reverse pages are available on the query builder for range and reverse walks; see
+[Queries](/firestore-orm/guides/working-with-data/queries/#query-bounds--reverse-pagination).

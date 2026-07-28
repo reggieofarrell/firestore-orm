@@ -310,6 +310,8 @@ export class FirestoreCollectionGroupQueryBuilder<
     next.hasOrderBy = this.hasOrderBy;
     // Carry limitToLast across the projection — same silent-drop hazard as the collection builder.
     next.hasLimitToLast = this.hasLimitToLast;
+    // Carry offset across the projection — same hasOffset guard hazard as the collection builder.
+    next.hasOffset = this.hasOffset;
     next.hasSelect = true;
     return next;
   }

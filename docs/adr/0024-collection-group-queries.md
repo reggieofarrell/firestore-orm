@@ -133,7 +133,14 @@ from an existing repository.
 8. **Cursor binding is by collection id, not parent path.** `assertCursorBelongsToSource` compares
    `docRef.parent.id` to the group id. A cursor from a _different parent in the same group_ must be
    valid — that is the point of a group — while one from any other collection is rejected, closing
-   the forged-cursor probe Firestore itself allows.
+   the forged-cursor probe for **opaque** `paginate` path tokens.
+
+   > Amendment (3.0.0, issue #36): the Context bullet above that claimed typed
+   > `startAfter(foreignSnapshot)` on a group "succeeds silently and returns the whole result set"
+   > is **stale**. Emulator-verified behavior (ADR-0030): a group foreign snapshot is accepted and
+   > uses the snap's `orderBy` field values as the cursor (empty or a suffix depending on those
+   > values); a single-collection foreign snapshot throws. Opaque `paginate` membership binding by
+   > collection id is unchanged. Do not treat the original Context prose as current SDK behavior.
 
 9. **`getPartitions()` is not wrapped.** The issue defers it ("consider later"), and it belongs with
    parallel-scan tooling rather than the read surface.

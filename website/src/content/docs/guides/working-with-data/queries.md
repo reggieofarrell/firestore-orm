@@ -36,16 +36,19 @@ The chainable builder methods are:
 - `orderById(dir = 'asc')` — order by document name.
 - `limit(n)` — cap the number of documents returned (last-wins with `limitToLast`).
 - `limitToLast(n)` — last _N_ of an ordered result set (requires `orderBy`; not combinable with
-  `stream` / opaque `paginate`).
+  `stream` / opaque `paginate` / `offsetPaginate`).
 - `startAt` / `startAfter` / `endAt` / `endBefore` — typed inclusive/exclusive cursor bounds
   (`DocumentSnapshot` or field values).
-- `offset(n)` — skip the first _N_ matches (`0` allowed).
+- `offset(n)` — skip the first _N_ matches (`0` allowed; not combinable with opaque
+  `paginate` / `offsetPaginate`).
 
 Terminal methods that execute the query include `get()`, `getOne()`, `exists()`, `count()`,
 `collectionCount()`, `sum()`, `average()`, `aggregate()`, `distinctValues()`, `paginate()`,
 `offsetPaginate()`, `paginateWithCount()`, `stream()`, `onSnapshot()`, `update()`, and `delete()`.
 Opaque forward paging stays on `paginate(pageSize, cursor)`; reverse pages use bounds +
 `limitToLast` + `get()` (see [Query bounds & reverse pagination](#query-bounds--reverse-pagination)).
+`getOne()` / `exists()` compose with `limitToLast` (they skip a `.limit(1)` narrowing that would
+otherwise last-wins overwrite the last-N window).
 
 **Performance note:** Firestore charges per document read. Use `limit()` and pagination to control
 costs on large collections — see [Performance](/firestore-orm/guides/designing/performance/) for the
@@ -364,8 +367,10 @@ const previousPage = await productRepo
 ```
 
 `limitToLast(n)` requires `orderBy` and cannot be combined with `stream()`, `paginate()`, or
-`offsetPaginate()` — use `get()` (or `onSnapshot()` for listeners). If both `limit` and
-`limitToLast` are chained, the **last** call wins.
+`offsetPaginate()` — use `get()` (or `onSnapshot()` for listeners). `getOne()` / `exists()` **do**
+compose with `limitToLast` (they avoid applying a `.limit(1)` that would last-wins overwrite the
+window). A prior `offset(n)` is likewise rejected by opaque `paginate` / `offsetPaginate`. If both
+`limit` and `limitToLast` are chained, the **last** call wins.
 
 `paginateWithCount(pageSize, cursor?)` combines `paginate()` and `count()` in a single call,
 returning the same `{ items, nextCursor, hasMore }` plus a `total` count of all matching documents.

@@ -24,10 +24,12 @@ Emulator probes against `@google-cloud/firestore@8.6.0` / `firebase-admin@14.2.0
 - `stream()` rejects `limitToLast`; `onSnapshot` does **not**.
 - `limit` / `limitToLast` are SDK last-wins.
 - Opaque `paginate` applies `.limit(pageSize+1)`, which would silently override `limitToLast`.
-- Collection-group foreign snapshots yield **empty** results; single-collection foreign snapshots
-  throw. ADR-0024's older claim that foreign `startAfter` "succeeds silently and returns the whole
-  result set" is **stale on this emulator** for those cases (opaque `paginate` still binds cursors
-  by collection id / group membership for forged tokens).
+- Collection-group foreign **typed** snapshots are accepted and use the snap's `orderBy` field
+  values as the cursor (empty when those values fall past the set, or a suffix otherwise) —
+  membership is **not** checked. Single-collection foreign snapshots throw. ADR-0024's older claim
+  that foreign `startAfter` "succeeds silently and returns the whole result set" is **stale on this
+  emulator** for those cases (opaque `paginate` still binds cursors by collection id / group
+  membership for forged tokens).
 
 No peer bump is required — these Admin SDK APIs exist on the supported peer floor.
 
@@ -42,14 +44,18 @@ We will ship typed bounds and `limitToLast` as follows:
    SDK-matching overloads: `(snapshot: DocumentSnapshot)` and `(...fieldValues: unknown[])`. Field
    values follow the stored-shape rule (same as `where`).
 3. **`offset(n)`** is public on the base; `n` must be a non-negative finite integer (`0` allowed).
-   `offsetPaginate` is unchanged.
+   Sets `hasOffset`. **`paginate()`** and **`offsetPaginate()`** reject when `hasOffset` (caller
+   offset re-applies after page cursors / desyncs `count` totals). `offsetPaginate` itself is
+   unchanged for callers that never chain a prior `offset()`.
 4. **`limitToLast(n)`** requires `hasOrderBy` (local `Error`), sets `hasLimitToLast`, and validates
    non-negative `n`. **`stream()`**, **`paginate()`**, and **`offsetPaginate()`** reject when
-   `hasLimitToLast`. **`onSnapshot` is not rejected.**
+   `hasLimitToLast`. **`onSnapshot` is not rejected.** **`getOne()` / `exists()`** skip their
+   `.limit(1)` narrowing when `hasLimitToLast` so last-wins does not pull a document from outside
+   the last-N window (or report existence for `limitToLast(0)`).
 5. **`limit()` after `limitToLast()` clears `hasLimitToLast`** (and the reverse sets it) so guards
    track SDK last-wins.
-6. **Both `select()` implementations** (collection + group) copy `hasLimitToLast` onto the
-   replacement builder.
+6. **Both `select()` implementations** (collection + group) copy `hasLimitToLast` and `hasOffset`
+   onto the replacement builder.
 7. **No snapshot membership checks** on typed bounds — mirror SDK errors; opaque `paginate` binding
    unchanged.
 8. **`VectorQueryBuilder` unchanged** (it already rejects `orderBy`, which `limitToLast` requires).
@@ -64,6 +70,9 @@ We will ship typed bounds and `limitToLast` as follows:
   field-value equivalents). Forward opaque paging stays `paginate` / `paginateWithCount`.
 - Combining `paginate` / `offsetPaginate` / `stream` with `limitToLast` throws locally instead of
   silently producing a forward page or an opaque SDK stream failure.
+- Combining `paginate` / `offsetPaginate` with a prior `offset()` throws locally instead of silently
+  losing page documents or desyncing `total` from `items`.
+- `getOne()` / `exists()` after `limitToLast` observe the last-N window (no `.limit(1)` override).
 - Collection and collection-group builders share the surface; vector queries do not gain bounds.
 - Passing a `DocumentReference` as a field-value bound against a non–document-id `orderBy` can
   silently yield an empty result (SDK footgun) — documented in JSDoc; prefer snapshots or scalars.

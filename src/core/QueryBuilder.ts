@@ -330,6 +330,16 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
    * `limitToLast` state — not after a subsequent `limit()` cleared it.
    */
   protected hasLimitToLast = false;
+  /**
+   * True once `offset()` has been applied on this builder.
+   *
+   * Opaque `paginate()` leaves any caller offset on the query (it only adds a cursor + limit), so a
+   * prior `offset(n)` re-applies *after* each page cursor and can silently drop documents while
+   * still reporting `hasMore: true`. `offsetPaginate()` replaces the offset slot with its own page
+   * math while `count()` still observes the caller's offset, desyncing `total` from `items`. Track
+   * the flag so both terminals can reject the combination locally.
+   */
+  protected hasOffset = false;
   // True once select() has applied a field mask. A projected query cannot be used with onSnapshot()
   // (Firestore rejects field-masked listeners), so this is used to guard that combination locally.
   protected hasSelect = false;
@@ -354,8 +364,9 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
    * A forged or foreign opaque `paginate` cursor must never be dereferenced: without this, pagination
    * could probe arbitrary documents in the same database and disclose their existence. On the
    * current emulator, a typed `startAfter(foreignSnapshot)` on a **single collection** throws, and
-   * on a **collection group** returns empty — but opaque path tokens still re-fetch by path, so this
-   * membership check remains the forged-cursor gate for `paginate` / `paginateWithCount`.
+   * on a **collection group** is accepted using the snap's `orderBy` field values as the cursor
+   * (empty or a suffix depending on those values) — but opaque path tokens still re-fetch by path,
+   * so this membership check remains the forged-cursor gate for `paginate` / `paginateWithCount`.
    */
   protected abstract assertCursorBelongsToSource(docRef: DocumentReference): void;
 
@@ -639,6 +650,10 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
    * Pass a `DocumentReference` only if you intend it as a *field value* (almost never correct for a
    * field `orderBy` — it can yield an empty result with no throw). Prefer snapshots or scalar values.
    *
+   * Bound methods forward to the Admin SDK immediately and may throw **raw SDK errors** synchronously
+   * (for example a single-collection foreign `DocumentSnapshot` is rejected at the call site, not
+   * wrapped by `parseFirestoreError` — same voice as `where` / `orderBy`).
+   *
    * @example
    * await repo.query().orderBy('score').startAt(20).endAt(40).get();
    * await repo.query().orderBy('score').startAt(await db.doc('…').get()).get();
@@ -690,7 +705,9 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
    * Skip the first `n` matching documents. `n` must be a non-negative integer (`0` is allowed).
    *
    * Prefer cursor bounds or opaque `paginate()` for large offsets — Firestore still scans skipped
-   * documents, so large offsets are costly.
+   * documents, so large offsets are costly. Opaque `paginate()` / `offsetPaginate()` reject a prior
+   * `offset()`: the terminals own the offset/limit slots and composing them silently desyncs pages
+   * or totals.
    *
    * @param n - Number of matching documents to skip (including `0`)
    * @returns The query builder instance
@@ -698,6 +715,7 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
   offset(n: number): this {
     this.assertNonNegativeInt('offset', n);
     this.query = this.query.offset(n);
+    this.hasOffset = true;
     return this;
   }
 
@@ -706,11 +724,13 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
    *
    * Requires at least one prior `orderBy()` / `orderById()` / `orderByPath()` (local guard).
    * Cannot be combined with native `stream()` — call `get()` instead. Real-time `onSnapshot()`
-   * **is** supported. If both `limit` and `limitToLast` are chained, the **last** call wins (SDK).
+   * **is** supported. `getOne()` / `exists()` also compose: they skip an internal `.limit(1)` that
+   * would otherwise last-wins overwrite this window. If both `limit` and `limitToLast` are chained,
+   * the **last** call wins (SDK).
    *
    * Reverse pagination pattern: `orderBy(...).endAt(cursor).limitToLast(pageSize).get()`.
    * Do not use opaque `paginate()` for reverse pages — it is forward-only and rejects
-   * `limitToLast`.
+   * `limitToLast`. Opaque `paginate` / `offsetPaginate` also reject a prior `offset()`.
    *
    * @param n - Number of trailing documents to return (`0` yields an empty page)
    * @returns The query builder instance
@@ -798,6 +818,16 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
         );
       }
 
+      // paginate() does not clear/replace a prior offset(): the caller's offset stays on the query
+      // and re-applies after each page cursor, which can report hasMore while returning an empty
+      // next page (silent document loss). Reject so callers use bounds or offsetPaginate alone.
+      if (this.hasOffset) {
+        throw new Error(
+          'paginate() cannot be used after offset(): a prior offset re-applies after each page ' +
+            'cursor and can silently drop documents. Use cursor bounds, or offsetPaginate() alone.',
+        );
+      }
+
       let finalQuery = this.query;
 
       if (cursor) {
@@ -863,6 +893,15 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
         );
       }
 
+      // offsetPaginate replaces the offset slot with (page-1)*pageSize while count() still observes
+      // any prior offset() — totals and items desync. Reject the combination.
+      if (this.hasOffset) {
+        throw new Error(
+          'offsetPaginate() cannot be used after offset(): offsetPaginate owns the offset slot for ' +
+            'page math while count() would still observe the prior offset. Call offsetPaginate() alone.',
+        );
+      }
+
       const total = await this.count();
       const offset = (page - 1) * pageSize;
 
@@ -907,7 +946,14 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
     try {
       // Build a local limited query instead of calling this.limit(1), which would mutate this.query
       // and permanently limit any later use of the same builder.
-      const snapshot = await this.query.limit(1).get();
+      //
+      // When limitToLast is active, do NOT apply .limit(1): the Admin SDK treats limit/limitToLast
+      // as last-wins, so narrowing would replace limitToLast and return a document from the *front*
+      // of the ordered set (outside the intended last-N window). Fetch the limitToLast result and
+      // take the first row instead — the optimization is skipped only for that combination.
+      const snapshot = this.hasLimitToLast
+        ? await this.query.get()
+        : await this.query.limit(1).get();
       const doc = snapshot.docs[0];
       return doc ? this.toResult(doc) : null;
     } catch (error: any) {
@@ -936,7 +982,12 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
   async exists(): Promise<boolean> {
     try {
       // Local limited count — do not mutate this.query via this.limit(1) (see getOne()).
-      const snapshot = await this.query.limit(1).count().get();
+      // Same last-wins hazard as getOne(): .limit(1) after limitToLast would replace the last-N
+      // window. When hasLimitToLast, count the unscoped-to-limit(1) query so limitToLast(0) stays
+      // empty / false rather than counting the forward first document.
+      const snapshot = this.hasLimitToLast
+        ? await this.query.count().get()
+        : await this.query.limit(1).count().get();
       return snapshot.data().count > 0;
     } catch (error: any) {
       throw parseFirestoreError(error);
@@ -1604,6 +1655,9 @@ export class FirestoreQueryBuilder<
     // Carry limitToLast across the projection: select() builds a replacement builder, and dropping
     // the flag would let orderBy().limitToLast(n).select(...).stream() incorrectly stream.
     next.hasLimitToLast = this.hasLimitToLast;
+    // Same silent-drop hazard for offset: without the copy, offset(n).select(...).paginate() would
+    // bypass the hasOffset guard and reintroduce the page-cursor document-loss bug.
+    next.hasOffset = this.hasOffset;
     next.hasSelect = true;
     return next;
   }

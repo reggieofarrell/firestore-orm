@@ -239,6 +239,41 @@ describe('Query bounds + limitToLast (issue #36)', () => {
     ).rejects.toThrow(/paginate\(\) cannot be used after limitToLast/);
   });
 
+  it('R1: offset() then paginate() is rejected (silent page loss)', async () => {
+    await seedScores();
+    await expect(userRepo.query().orderBy('score', 'asc').offset(2).paginate(2)).rejects.toThrow(
+      /paginate\(\) cannot be used after offset/,
+    );
+  });
+
+  it('R2: offset() then offsetPaginate() is rejected (total/items desync)', async () => {
+    await seedScores();
+    await expect(
+      userRepo.query().orderBy('score', 'asc').offset(3).offsetPaginate(1, 10),
+    ).rejects.toThrow(/offsetPaginate\(\) cannot be used after offset/);
+  });
+
+  it('R3: getOne() after limitToLast returns the first of the last-N window', async () => {
+    await seedScores();
+    const one = await userRepo.query().orderBy('score', 'asc').limitToLast(2).getOne();
+    expect(one?.name).toBe('d');
+  });
+
+  it('R4: exists() after limitToLast(0) is false', async () => {
+    await seedScores();
+    const present = await userRepo.query().orderBy('score', 'asc').limitToLast(2).exists();
+    expect(present).toBe(true);
+    const empty = await userRepo.query().orderBy('score', 'asc').limitToLast(0).exists();
+    expect(empty).toBe(false);
+  });
+
+  it('R1b: select() copies hasOffset so paginate still rejects', async () => {
+    await seedScores();
+    await expect(
+      userRepo.query().orderBy('score', 'asc').offset(1).select('name').paginate(2),
+    ).rejects.toThrow(/paginate\(\) cannot be used after offset/);
+  });
+
   it('I-16: collection startAfter(foreign snapshot) throws (emulator F7)', async () => {
     await seedScores();
     const foreignPath = `foreign_bounds_${Date.now()}/x`;

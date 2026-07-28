@@ -109,7 +109,8 @@ Return the last `n` documents of the ordered result set (results still in `order
 Requires at least one prior `orderBy()` / `orderById()` / `orderByPath()`. `n` must be a
 non-negative integer (`0` yields an empty page). Cannot be combined with `stream()`, opaque
 `paginate()`, or `offsetPaginate()` — call `get()` instead. Real-time `onSnapshot()` **is**
-supported.
+supported. `getOne()` / `exists()` also compose: they skip an internal `.limit(1)` narrowing that
+would otherwise last-wins overwrite `limitToLast`.
 
 **`startAt` / `startAfter` / `endAt` / `endBefore`**
 
@@ -117,12 +118,15 @@ Typed cursor bounds matching the Admin SDK overloads: pass a `DocumentSnapshot`,
 `orderBy` order (`unknown`, stored-shape rule). `startAt` / `endAt` are **inclusive**;
 `startAfter` / `endBefore` are **exclusive**. Prefer snapshots or scalar field values — a
 `DocumentReference` as a field-value bound against a non–document-id `orderBy` can silently yield
-an empty result.
+an empty result. Bound methods may throw **raw SDK errors** synchronously (for example a
+single-collection foreign snapshot), consistent with `where` / `orderBy`.
 
 **`offset(n: number): this`**
 
 Skip the first `n` matching documents. `n` must be a non-negative integer (`0` is allowed). Prefer
-cursor bounds or `paginate()` for large offsets — Firestore still scans skipped documents.
+cursor bounds or `paginate()` for large offsets — Firestore still scans skipped documents. Opaque
+`paginate()` / `offsetPaginate()` reject a prior `offset()` (the terminals own the offset/limit
+slots).
 
 For forward opaque paging, keep using `paginate(pageSize, cursor?)`. For reverse pages, use
 `orderBy(...).endAt(cursor).limitToLast(pageSize).get()`.

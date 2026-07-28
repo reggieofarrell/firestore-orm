@@ -173,9 +173,67 @@ describe('FirestoreQueryBuilder bounds / limitToLast guards (issue #36)', () => 
     expect(projectedQuery.stream).not.toHaveBeenCalled();
   });
 
+  it('U-select-copy: select() also copies hasOffset so paginate still rejects', async () => {
+    const projectedQuery: Record<string, jest.Mock> = {
+      get: jest.fn(async () => ({ docs: [] })),
+    };
+    const query: Record<string, jest.Mock | (() => unknown)> = makeFluentQuery();
+    query.select = jest.fn(() => projectedQuery);
+
+    const builder = new FirestoreQueryBuilder(
+      query as any,
+      {} as any,
+      {} as any,
+      async () => {},
+      async () => {},
+    );
+    await expect(builder.orderBy('score').offset(1).select('name').paginate(2)).rejects.toThrow(
+      /paginate\(\) cannot be used after offset/,
+    );
+  });
+
   it('limitToLast(0) forwards to the SDK after validation', () => {
     const { builder, query } = makeBuilder();
     builder.orderBy('score').limitToLast(0);
     expect(query.limitToLast).toHaveBeenCalledWith(0);
+  });
+
+  it('R1/R2: paginate and offsetPaginate reject a prior offset()', async () => {
+    const { builder } = makeBuilder();
+
+    await expect(builder.orderBy('score').offset(2).paginate(2)).rejects.toThrow(
+      /paginate\(\) cannot be used after offset/,
+    );
+    await expect(
+      makeBuilder().builder.orderBy('score').offset(3).offsetPaginate(1, 10),
+    ).rejects.toThrow(/offsetPaginate\(\) cannot be used after offset/);
+  });
+
+  it('R3: getOne after limitToLast does not apply limit(1)', async () => {
+    const { builder, query } = makeBuilder();
+    query.get = jest.fn(async () => ({
+      docs: [
+        { data: () => ({ name: 'd' }), id: 'd' },
+        { data: () => ({ name: 'e' }), id: 'e' },
+      ],
+    }));
+    query.limit = jest.fn(() => query);
+
+    const one = await builder.orderBy('score').limitToLast(2).getOne();
+    expect(one).toEqual({ name: 'd', id: 'd' });
+    expect(query.limit).not.toHaveBeenCalled();
+    expect(query.get).toHaveBeenCalledTimes(1);
+  });
+
+  it('R4: exists after limitToLast uses count() without limit(1)', async () => {
+    const { builder, query } = makeBuilder();
+    const countGet = jest.fn(async () => ({ data: () => ({ count: 0 }) }));
+    query.count = jest.fn(() => ({ get: countGet }));
+    query.limit = jest.fn(() => query);
+
+    const empty = await builder.orderBy('score').limitToLast(0).exists();
+    expect(empty).toBe(false);
+    expect(query.limit).not.toHaveBeenCalled();
+    expect(query.count).toHaveBeenCalledTimes(1);
   });
 });

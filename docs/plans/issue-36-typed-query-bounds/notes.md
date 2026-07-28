@@ -13,7 +13,8 @@
 Done-pending-external-review. Typed bounds / `offset` / `limitToLast` shipped on
 `FirestoreQueryBuilderBase` with guards, both `select()` flag copies, §8 tests (plus review
 additions), ADR-0030 + bookkeeping, Starlight docs. Full §10 gate green after adversarial-review
-fixes. Plan directory left in place for review.
+fixes. **Maintainer review findings 1–4 addressed** (`hasOffset` guards; `getOne`/`exists` skip
+`.limit(1)` under `limitToLast`; ADR/docs notes). Plan directory left in place for review.
 
 ## Ambiguities resolved
 
@@ -202,3 +203,14 @@ All fourteen §10 legs green (Run 2). Suite counts: unit 30/366, integration 30/
 ## Open questions for the reviewer
 
 None.
+
+## Maintainer review follow-up (PR comment)
+
+Addressed findings 1–4 from the GitHub review:
+
+1. **`hasOffset` flag** — set in `offset()`; `paginate` / `offsetPaginate` reject; both `select()`
+   sites copy it (R1/R2/R1b tests).
+2. **`getOne` / `exists`** — skip `.limit(1)` when `hasLimitToLast` so last-N semantics hold
+   (R3/R4).
+3. Smaller notes: ADR-0030 Context aligned with Consequences; ADR-0024 amendment for stale foreign
+   cursor claim; `queries.md` / `query-builder.md` updated; bound-method JSDoc notes sync SDK throws.

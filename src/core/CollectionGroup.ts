@@ -192,9 +192,10 @@ export class FirestoreCollectionGroupQueryBuilder<
    * Binds a cursor to THIS collection group. Membership is by collection id, not by an exact parent
    * path — the whole point of a group is that its documents live under many different parents.
    *
-   * Firestore does not enforce this itself: a `startAfter()` with a snapshot from outside the group
-   * was verified to succeed silently and return the full result set, which is exactly the
-   * forged-cursor probe this rejects.
+   * Typed `startAfter(foreignSnapshot)` on a group is **not** membership-rejected: the SDK uses the
+   * snapshot's `orderBy` field values as the cursor (which may yield empty or a suffix). Opaque
+   * `paginate` cursors still re-fetch by path, so this membership check remains the forged-token
+   * gate for path-only pagination tokens.
    */
   protected assertCursorBelongsToSource(docRef: DocumentReference): void {
     if (docRef.parent.id !== this.collectionIdValue) {

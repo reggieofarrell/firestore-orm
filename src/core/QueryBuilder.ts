@@ -351,10 +351,11 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
   /**
    * Rejects a decoded pagination cursor whose document does not belong to this query's source.
    *
-   * A forged or foreign cursor must never be dereferenced: without this, pagination could probe
-   * arbitrary documents in the same database and disclose their existence. Firestore itself does
-   * NOT enforce it — a `startAfter()` with an out-of-source snapshot was verified to succeed
-   * silently and return the whole result set.
+   * A forged or foreign opaque `paginate` cursor must never be dereferenced: without this, pagination
+   * could probe arbitrary documents in the same database and disclose their existence. On the
+   * current emulator, a typed `startAfter(foreignSnapshot)` on a **single collection** throws, and
+   * on a **collection group** returns empty — but opaque path tokens still re-fetch by path, so this
+   * membership check remains the forged-cursor gate for `paginate` / `paginateWithCount`.
    */
   protected abstract assertCursorBelongsToSource(docRef: DocumentReference): void;
 

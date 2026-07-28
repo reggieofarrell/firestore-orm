@@ -11,6 +11,7 @@
  *  - U-4: offset(-1) / non-integer throw; offset(0) forwards to the SDK
  */
 import { FirestoreQueryBuilder } from '../../core/QueryBuilder.js';
+import { FirestoreCollectionGroupQueryBuilder } from '../../core/CollectionGroup.js';
 
 /**
  * Builds a fluent mock Query whose clause methods return themselves so builder chaining keeps
@@ -85,7 +86,9 @@ describe('FirestoreQueryBuilder bounds / limitToLast guards (issue #36)', () => 
   it('U-4: offset validates non-negative integers and forwards 0 to the SDK', () => {
     const { builder, query } = makeBuilder();
 
-    expect(() => builder.offset(-1)).toThrow(/offset must be a non-negative integer \(received -1\)/);
+    expect(() => builder.offset(-1)).toThrow(
+      /offset must be a non-negative integer \(received -1\)/,
+    );
     expect(() => builder.offset(1.5)).toThrow(/offset must be a non-negative integer/);
     expect(() => builder.offset(NaN)).toThrow(/offset must be a non-negative integer/);
     expect(query.offset).not.toHaveBeenCalled();
@@ -122,5 +125,57 @@ describe('FirestoreQueryBuilder bounds / limitToLast guards (issue #36)', () => 
     const { builder, query } = makeBuilder();
     builder.orderBy('score').startAt(30);
     expect(query.startAt).toHaveBeenCalledWith(30);
+  });
+
+  it('U-select-copy: select() copies hasLimitToLast so stream() still rejects', async () => {
+    const projectedQuery = {
+      stream: jest.fn(async function* () {
+        // should never be reached when the flag is copied
+      }),
+    };
+    const query: Record<string, jest.Mock | (() => unknown)> = makeFluentQuery();
+    query.select = jest.fn(() => projectedQuery);
+
+    const builder = new FirestoreQueryBuilder(
+      query as any,
+      {} as any,
+      {} as any,
+      async () => {},
+      async () => {},
+    );
+
+    const projected = builder.orderBy('score').limitToLast(2).select('name');
+    const iterate = async () => {
+      for await (const _doc of projected.stream()) {
+        // drain
+      }
+    };
+
+    await expect(iterate()).rejects.toThrow(/stream\(\) is not supported after limitToLast/);
+    expect(projectedQuery.stream).not.toHaveBeenCalled();
+  });
+
+  it('U-select-copy (group): collection-group select() also copies hasLimitToLast', async () => {
+    const projectedQuery = {
+      stream: jest.fn(async function* () {}),
+    };
+    const query: Record<string, jest.Mock | (() => unknown)> = makeFluentQuery();
+    query.select = jest.fn(() => projectedQuery);
+
+    const builder = new FirestoreCollectionGroupQueryBuilder(query as any, 'posts', {} as any);
+    const projected = builder.orderBy('score').limitToLast(2).select('title');
+    const iterate = async () => {
+      for await (const _doc of projected.stream()) {
+        // drain
+      }
+    };
+    await expect(iterate()).rejects.toThrow(/stream\(\) is not supported after limitToLast/);
+    expect(projectedQuery.stream).not.toHaveBeenCalled();
+  });
+
+  it('limitToLast(0) forwards to the SDK after validation', () => {
+    const { builder, query } = makeBuilder();
+    builder.orderBy('score').limitToLast(0);
+    expect(query.limitToLast).toHaveBeenCalledWith(0);
   });
 });

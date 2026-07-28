@@ -161,6 +161,6 @@ documentation / guidance problem, not a type problem; optional numeric fields ar
 
 This record **amends ADR-0017**: generic multi-aggregation is no longer deferred. The remaining
 deferrals (#37–#41) and the decision not to pursue full server-side or Enterprise Pipeline parity
-are unchanged. (#35 `getMany` and #36 typed bounds / `limitToLast` have since shipped — see
-ADR-0029 / ADR-0030; this footer is a living index of remaining ADR-0017 deferrals — see
+are unchanged. (#35 `getMany` and #36 typed bounds / `limitToLast` have since shipped — see ADR-0029
+/ ADR-0030; this footer is a living index of remaining ADR-0017 deferrals — see
 [`docs/adr/README.md`](README.md) Conventions.)

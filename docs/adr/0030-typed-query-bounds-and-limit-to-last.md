@@ -67,8 +67,12 @@ We will ship typed bounds and `limitToLast` as follows:
 - Collection and collection-group builders share the surface; vector queries do not gain bounds.
 - Passing a `DocumentReference` as a field-value bound against a non–document-id `orderBy` can
   silently yield an empty result (SDK footgun) — documented in JSDoc; prefer snapshots or scalars.
-- Foreign-cursor behavior is pinned to the emulator contracts in integration tests; production may
-  differ for some foreign-snapshot cases (§5 of the implementation plan).
+- Foreign typed snapshot bounds are **not** membership-checked (D7). Emulator pins in
+  `query-bounds.integration.test.ts`: single-collection foreign `startAfter` throws (F7);
+  collection-group foreign snapshots are accepted and use the snap's `orderBy` field values as the
+  cursor (empty when those values fall past the set — probe F2 — or a suffix otherwise). Opaque
+  `paginate` path membership binding is unchanged and separately tested. Production may still differ
+  — do not treat emulator pins as production equivalence.
 - Capability matrix: #36 moves Deferred → Supported. Remaining ADR-0017 deferrals are `#37–#41`.
 
 ## Alternatives considered
@@ -95,8 +99,7 @@ requires guarded `stream` rejection; local checks match `paginate`'s voice and f
   guards, `select` flag copy
 - [`src/core/CollectionGroup.ts`](../../src/core/CollectionGroup.ts) — group `select` flag copy
 - Tests: `src/tests/integration/query-bounds.integration.test.ts`,
-  `src/tests/unit/queryBuilderBounds.unit.test.ts`,
-  `src/tests/types/query-bounds.type-test.ts`
+  `src/tests/unit/queryBuilderBounds.unit.test.ts`, `src/tests/types/query-bounds.type-test.ts`
 - Starlight: query builder reference, queries guide, subcollections, scope & capabilities
 
 This record **amends ADR-0017**: typed lower-level bounds + `limitToLast` are no longer deferred.

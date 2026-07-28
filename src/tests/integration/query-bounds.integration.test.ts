@@ -15,10 +15,7 @@ import type { Firestore } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import { FirestoreRepository } from '../../core/FirestoreRepository.js';
 import { resetTestFactoryCounters } from '../shared/factories/counters.js';
-import {
-  createUserRepoHarness,
-  getIntegrationDb,
-} from './helpers/firestoreIntegrationHarness.js';
+import { createUserRepoHarness, getIntegrationDb } from './helpers/firestoreIntegrationHarness.js';
 
 type ScoreDoc = {
   id: string;
@@ -204,19 +201,58 @@ describe('Query bounds + limitToLast (issue #36)', () => {
   it('I-14: onSnapshot after limitToLast delivers results', async () => {
     await seedScores();
     const emissions: string[][] = [];
-    const unsubscribe = await userRepo
-      .query()
-      .orderBy('score', 'asc')
-      .limitToLast(2)
-      .onSnapshot(rows => {
-        emissions.push(names(rows));
-      });
+    let unsubscribe: () => void = () => {};
 
-    await new Promise(resolve => setTimeout(resolve, 500));
+    // Wait for the first listener emission rather than a bare sleep — avoids CI flake under load.
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error('onSnapshot timed out waiting for emission')),
+        5000,
+      );
+      void userRepo
+        .query()
+        .orderBy('score', 'asc')
+        .limitToLast(2)
+        .onSnapshot(rows => {
+          emissions.push(names(rows));
+          clearTimeout(timer);
+          resolve();
+        })
+        .then(unsub => {
+          unsubscribe = unsub;
+        }, reject);
+    });
+
     unsubscribe();
 
     expect(emissions.length).toBeGreaterThanOrEqual(1);
     expect(emissions[emissions.length - 1]).toEqual(['d', 'e']);
+  });
+
+  it('I-15: limitToLast(0) returns an empty page; paginateWithCount rejects limitToLast', async () => {
+    await seedScores();
+    const empty = await userRepo.query().orderBy('score', 'asc').limitToLast(0).get();
+    expect(empty).toEqual([]);
+
+    await expect(
+      userRepo.query().orderBy('score', 'asc').limitToLast(2).paginateWithCount(2),
+    ).rejects.toThrow(/paginate\(\) cannot be used after limitToLast/);
+  });
+
+  it('I-16: collection startAfter(foreign snapshot) throws (emulator F7)', async () => {
+    await seedScores();
+    const foreignPath = `foreign_bounds_${Date.now()}/x`;
+    await db.doc(foreignPath).set({ name: 'x', score: 30 });
+    try {
+      const foreignSnap = await db.doc(foreignPath).get();
+      // The Admin SDK rejects a single-collection foreign snapshot synchronously in startAfter(),
+      // before get() — assert the local builder call throws with the SDK membership message.
+      expect(() => userRepo.query().orderBy('score', 'asc').startAfter(foreignSnap)).toThrow(
+        /not part of the query result set/i,
+      );
+    } finally {
+      await db.doc(foreignPath).delete();
+    }
   });
 });
 
@@ -225,6 +261,7 @@ describe('Query bounds on collection groups (issue #36 / I-13)', () => {
   const RUN = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const GROUP_ID = `cg_bounds_${RUN}`;
   const USERS = `cg_bounds_users_${RUN}`;
+  const OTHER_ID = `cg_bounds_other_${RUN}`;
 
   const postSchema = z.object({
     title: z.string(),
@@ -239,6 +276,7 @@ describe('Query bounds on collection groups (issue #36 / I-13)', () => {
     u2b: `${USERS}/u2/${GROUP_ID}/b`,
     u2c: `${USERS}/u2/${GROUP_ID}/c`,
     root: `${GROUP_ID}/root`,
+    outsider: `${USERS}/u1/${OTHER_ID}/n1`,
   };
 
   beforeAll(async () => {
@@ -247,6 +285,7 @@ describe('Query bounds on collection groups (issue #36 / I-13)', () => {
       db.doc(seeded.u2b).set({ title: 'b', score: 20 }),
       db.doc(seeded.u2c).set({ title: 'c', score: 30 }),
       db.doc(seeded.root).set({ title: 'r', score: 40 }),
+      db.doc(seeded.outsider).set({ title: 'n', score: 25 }),
     ]);
   });
 
@@ -263,8 +302,39 @@ describe('Query bounds on collection groups (issue #36 / I-13)', () => {
     const lastTwo = await postGroup.query().orderBy('score', 'asc').limitToLast(2).get();
     expect(lastTwo.map(row => row.title)).toEqual(['c', 'r']);
 
-    // orderByPath also sets hasOrderBy, so limitToLast is legal after it.
-    const byPath = await postGroup.query().orderByPath('asc').limitToLast(1).get();
-    expect(byPath).toHaveLength(1);
+    // orderByPath sets hasOrderBy, so the local limitToLast(orderBy) guard accepts it. Do not
+    // execute get() here: the emulator rejects some documentId + limitToLast scans with
+    // FAILED_PRECONDITION ("does not support descending key scans") even for asc — that is an
+    // SDK/emulator constraint, not an ORM guard regression.
+    expect(() => postGroup.query().orderByPath('asc').limitToLast(1)).not.toThrow();
+  });
+
+  it('I-13b: group select() copies hasLimitToLast so stream() still rejects', async () => {
+    const builder = postGroup.query().orderBy('score', 'asc').limitToLast(2).select('title');
+    const iterate = async () => {
+      for await (const _row of builder.stream()) {
+        // drain
+      }
+    };
+    await expect(iterate()).rejects.toThrow(/stream\(\) is not supported after limitToLast/);
+  });
+
+  it('I-17: group startAfter(foreign snap) uses orderBy field values (emulator F2 shape)', async () => {
+    // Typed snapshot bounds are NOT membership-checked (D7). On a group, a foreign snapshot is
+    // accepted and its orderBy field values drive the cursor. A foreign doc with score beyond the
+    // set yields empty (probe F2 used score:99); a mid-range score acts like startAfter(that score).
+    const highForeign = `${USERS}/u1/${OTHER_ID}/high`;
+    await db.doc(highForeign).set({ title: 'high', score: 99 });
+    try {
+      const highSnap = await db.doc(highForeign).get();
+      const empty = await postGroup.query().orderBy('score', 'asc').startAfter(highSnap).get();
+      expect(empty).toEqual([]);
+
+      const midSnap = await db.doc(seeded.outsider).get(); // score: 25
+      const afterMid = await postGroup.query().orderBy('score', 'asc').startAfter(midSnap).get();
+      expect(afterMid.map(row => row.title)).toEqual(['c', 'r']);
+    } finally {
+      await db.doc(highForeign).delete();
+    }
   });
 });

@@ -90,7 +90,11 @@ export async function snapshotAndFieldValueOverloadsTypecheck() {
   // Field values follow the stored-shape rule (unknown), same as where() — scalars and mixed
   // multi-orderBy prefixes are accepted at the type level.
   await users.query().orderBy('score').orderBy('tag').startAt(30, 'x').get();
-  await users.query().orderBy('score').startAt('prefix-ok-as-unknown' as unknown).get();
+  await users
+    .query()
+    .orderBy('score')
+    .startAt('prefix-ok-as-unknown' as unknown)
+    .get();
 }
 
 // ---------------------------------------------------------------------------

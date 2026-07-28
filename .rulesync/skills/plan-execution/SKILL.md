@@ -97,6 +97,28 @@ Do **not** write `review.md` into the plan directory — that filename is reserv
 **external/third-party reviewer**. Implementer self-review stays in the session output plus
 the disposition summary in notes.
 
+## When an external `review.md` arrives
+
+An external reviewer (`implementation-review` skill, `write-review` command) writes
+`docs/plans/issue-NN-*/review.md`. It is **their** artifact: read it, act on it, never edit it.
+
+1. **Disposition every finding id in `notes.md`** — `B1`, `M2`, `N3` — into exactly one bucket:
+   **fixed** (say how, with the `file:line` that proves it), **not a defect** (say why, with evidence
+   you executed), or **deferred** (open an issue and link it). An undisposed finding leaves the round
+   trip unfalsifiable, and a reviewer who has to guess will re-raise it.
+2. **Read their "verified and holding" section before re-checking anything.** It exists so you do not
+   spend a cycle re-proving settled surfaces.
+3. **Do not silently reverse a deviation the reviewer judged correct.** Sometimes the plan is wrong
+   and your deviation was right; if the reviewer agreed, keep it and leave the reasoning in notes.
+4. **Re-run the full gate after remediation** and record it as a distinct run. Fixing one finding
+   breaking another is a real failure mode here — and a review whose fixes were never re-gated has
+   itself been a finding.
+5. **Keep ids stable in your replies.** The reviewer's next round matches on them; renaming or
+   renumbering breaks the trace.
+
+Report back in chat *and* in `notes.md` — the reviewer may be a different session with none of your
+context, exactly as you were to the planner.
+
 ## Ready for external review
 
 - [ ] Every §11 row satisfied and audited against source

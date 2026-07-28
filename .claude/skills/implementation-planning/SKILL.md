@@ -45,8 +45,9 @@ docs/plans/issue-NN-<kebab-slug>/
   probes/          investigation scripts, re-runnable
   prototype.patch  optional: the reverted prototype diff, so §6 can be copy-verbatim
   notes.md         the implementer writes this back (incl. self-review dispositions)
-  review.md        optional inbound: **external/third-party** reviewer report only —
-                   implementers must not write this file; self-review stays in chat + notes
+  review.md        optional inbound: **external/third-party** reviewer report only, written via
+                   the `implementation-review` skill / `write-review` command — implementers must
+                   not write this file; their self-review stays in chat + notes
 ```
 
 Committed, because an implementer may be a **Cursor Cloud Agent** that only ever sees committed

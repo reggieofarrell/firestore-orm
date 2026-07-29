@@ -23,7 +23,10 @@ out.firebase_admin_version = readPkg('firebase-admin');
 out.gcloud_firestore_version = readPkg('@google-cloud/firestore');
 out.ts_typeof_toJSON = typeof Timestamp.now().toJSON;
 
-process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:8080';
+// Honour FIRESTORE_EMULATOR_HOST when the caller points at an alternate port (e.g. 8099 when
+// 8080 is taken). Default to the repo's firebase.json port so a bare `node` run still works
+// under `firebase emulators:exec` with the stock config.
+process.env.FIRESTORE_EMULATOR_HOST = process.env.FIRESTORE_EMULATOR_HOST ?? '127.0.0.1:8080';
 const app = initializeApp({ projectId: 'demo-p40' });
 const db = getFirestore(app);
 

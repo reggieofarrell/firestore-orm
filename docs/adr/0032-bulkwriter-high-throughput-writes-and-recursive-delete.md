@@ -69,7 +69,8 @@ public name can be `bulkWrite`. Fixed-batch helpers are otherwise unchanged.
 - Collection-wide recursive delete remains deferred
   ([#69](https://github.com/reggieofarrell/firestore-orm/issues/69)).
 - `bulkWrite` is the first ORM write path that runs **no** hooks by design (with a loud guard).
-- Remaining ADR-0017 deferrals are `#39–#41`.
+- Remaining ADR-0017 deferrals are `#40–#41` (#39 snapshot read metadata / detailed listeners have
+  since shipped — see ADR-0033).
 
 ## Alternatives considered
 
@@ -122,7 +123,8 @@ the most destructive call in the library and not in #38's acceptance.
 
 This record **amends ADR-0017**: BulkWriter high-throughput writes (`bulkWrite`) and explicit
 document-scoped recursive delete (`recursiveDelete`) are no longer deferred. The remaining deferrals
-(#39–#41) and the decision not to pursue full server-side or Enterprise Pipeline parity are
-unchanged. (#38 has since shipped — see this ADR; collection-wide recursive delete is tracked
-separately as [#69](https://github.com/reggieofarrell/firestore-orm/issues/69). This footer is a
-living index of remaining ADR-0017 deferrals — see [`docs/adr/README.md`](README.md) Conventions.)
+(#40–#41) and the decision not to pursue full server-side or Enterprise Pipeline parity are
+unchanged. (#38 has since shipped — see this ADR; #39 snapshot read metadata / detailed listeners
+have since shipped — see ADR-0033; collection-wide recursive delete is tracked separately as
+[#69](https://github.com/reggieofarrell/firestore-orm/issues/69). This footer is a living index of
+remaining ADR-0017 deferrals — see [`docs/adr/README.md`](README.md) Conventions.)

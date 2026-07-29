@@ -4,6 +4,11 @@ import { FirestoreDocument, asFirestoreDocument } from './DocumentId.js';
 import { ValidationError } from './Errors.js';
 import { UpdateInput } from './Validation.js';
 import {
+  buildDocumentMetadata,
+  type DetailedQuerySnapshot,
+  type WithMetadata,
+} from './SnapshotMetadata.js';
+import {
   DeepPartial,
   FieldPaths,
   NumericFieldPaths,
@@ -385,6 +390,29 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
    * over the document's own data. The single place every terminal read materializes a row.
    */
   protected abstract toResult(doc: QueryDocumentSnapshot<any>): R;
+
+  /**
+   * {@link toResult} paired with the snapshot's provenance metadata — the mapper every
+   * `{ withMetadata: true }` terminal uses. Kept beside {@link toResult} so a subclass that
+   * overrides the result shape (e.g. the collection-group builder's `path`/`parentPath` overlay)
+   * gets the metadata variant for free.
+   */
+  protected toResultWithMetadata(doc: QueryDocumentSnapshot<any>): WithMetadata<R> {
+    return { doc: this.toResult(doc), metadata: buildDocumentMetadata(doc) };
+  }
+
+  /**
+   * Map a page of snapshots to the shape the caller's `withMetadata` flag selected. One place, so a
+   * new terminal cannot forget the branch.
+   */
+  private mapDocs(
+    docs: QueryDocumentSnapshot<any>[],
+    withMetadata: boolean | undefined,
+  ): R[] | WithMetadata<R>[] {
+    return withMetadata
+      ? docs.map(doc => this.toResultWithMetadata(doc))
+      : docs.map(doc => this.toResult(doc));
+  }
 
   /**
    * Rejects a decoded pagination cursor whose document does not belong to this query's source.
@@ -805,8 +833,13 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
    * Paginate through query results using cursor-based pagination.
    * More efficient than offset pagination for large datasets.
    *
+   * Pass `{ withMetadata: true }` as the third argument to receive each row as `{ doc, metadata }`
+   * instead — the same mapped document under `doc`, plus its Firestore provenance. When the third
+   * argument is used, pass `null` (or a cursor) explicitly for the middle parameter.
+   *
    * @param pageSize - Number of items per page
    * @param cursor - Opaque cursor string returned by the previous page
+   * @param options - Optional `{ withMetadata }` opt-in
    * @returns Object with items, next cursor, and hasMore flag
    *
    * @example
@@ -825,8 +858,19 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
    */
   async paginate(
     pageSize: number,
+    cursor: string | null | undefined,
+    options: { withMetadata: true },
+  ): Promise<{ items: WithMetadata<R>[]; nextCursor: string | null; hasMore: boolean }>;
+  async paginate(
+    pageSize: number,
     cursor?: string | null,
-  ): Promise<{ items: R[]; nextCursor: string | null; hasMore: boolean }> {
+    options?: { withMetadata?: false },
+  ): Promise<{ items: R[]; nextCursor: string | null; hasMore: boolean }>;
+  async paginate(
+    pageSize: number,
+    cursor?: string | null,
+    options?: { withMetadata?: boolean },
+  ): Promise<{ items: R[] | WithMetadata<R>[]; nextCursor: string | null; hasMore: boolean }> {
     try {
       this.assertPositiveInt('pageSize', pageSize);
 
@@ -869,7 +913,7 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
       const snapshot: QuerySnapshot = await finalQuery.get();
       const hasMore = snapshot.docs.length > pageSize;
       const pageDocs = hasMore ? snapshot.docs.slice(0, pageSize) : snapshot.docs;
-      const items = pageDocs.map(doc => this.toResult(doc));
+      const items = this.mapDocs(pageDocs, options?.withMetadata);
 
       const last = pageDocs[pageDocs.length - 1];
       const nextCursor = hasMore && last ? this.encodeCursor(last) : null;
@@ -901,8 +945,25 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
   async offsetPaginate(
     page: number,
     pageSize: number,
+    options: { withMetadata: true },
   ): Promise<{
-    items: R[];
+    items: WithMetadata<R>[];
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+  }>;
+  async offsetPaginate(
+    page: number,
+    pageSize: number,
+    options?: { withMetadata?: false },
+  ): Promise<{ items: R[]; page: number; pageSize: number; total: number; totalPages: number }>;
+  async offsetPaginate(
+    page: number,
+    pageSize: number,
+    options?: { withMetadata?: boolean },
+  ): Promise<{
+    items: R[] | WithMetadata<R>[];
     page: number;
     pageSize: number;
     total: number;
@@ -937,7 +998,7 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
       finalQuery = finalQuery.offset(offset).limit(pageSize);
 
       const snapshot = await finalQuery.get();
-      const items = snapshot.docs.map(doc => this.toResult(doc));
+      const items = this.mapDocs(snapshot.docs, options?.withMetadata);
 
       return {
         items,
@@ -970,7 +1031,9 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
    *   .orderBy('price', 'asc')
    *   .getOne();
    */
-  async getOne(): Promise<R | null> {
+  async getOne(options: { withMetadata: true }): Promise<WithMetadata<R> | null>;
+  async getOne(options?: { withMetadata?: false }): Promise<R | null>;
+  async getOne(options?: { withMetadata?: boolean }): Promise<R | WithMetadata<R> | null> {
     try {
       // Build a local limited query instead of calling this.limit(1), which would mutate this.query
       // and permanently limit any later use of the same builder.
@@ -983,7 +1046,8 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
         ? await this.query.get()
         : await this.query.limit(1).get();
       const doc = snapshot.docs[0];
-      return doc ? this.toResult(doc) : null;
+      if (!doc) return null;
+      return options?.withMetadata ? this.toResultWithMetadata(doc) : this.toResult(doc);
     } catch (error: any) {
       throw parseFirestoreError(error);
     }
@@ -1325,7 +1389,11 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
    *   csvStream.write(`${user.name},${user.email}\n`);
    * }
    */
-  async *stream(): AsyncGenerator<R> {
+  // The overload SIGNATURES must not carry `*` — TS1222 ("An overload signature cannot be declared
+  // as a generator"). Only the implementation is `async *`.
+  stream(options: { withMetadata: true }): AsyncGenerator<WithMetadata<R>>;
+  stream(options?: { withMetadata?: false }): AsyncGenerator<R>;
+  async *stream(options?: { withMetadata?: boolean }): AsyncGenerator<R | WithMetadata<R>> {
     // Firestore cannot stream limitToLast queries (SDK throws). Reject locally with a clear
     // message before opening the native stream. onSnapshot() is intentionally NOT guarded —
     // listeners work with limitToLast.
@@ -1343,7 +1411,7 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
       // semantics are preserved.
       const source = this.query.stream() as AsyncIterable<QueryDocumentSnapshot<any>>;
       for await (const doc of source) {
-        yield this.toResult(doc);
+        yield options?.withMetadata ? this.toResultWithMetadata(doc) : this.toResult(doc);
       }
     } catch (error: any) {
       throw parseFirestoreError(error);
@@ -1406,11 +1474,91 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
   }
 
   /**
+   * Subscribe to real-time updates **with the incremental change set**, rather than only the full
+   * result array.
+   *
+   * Each emission delivers the complete mapped result set (`docs`) *and* what changed since the
+   * previous one (`changes`) — the Admin SDK's `docChanges()`, mapped through this builder's result
+   * shape and paired with per-document metadata. The first emission reports every matching document
+   * as an `'added'` change with `oldIndex: -1`.
+   *
+   * Use {@link onSnapshot} when you only need the current array; this method exists for consumers
+   * that maintain their own list and want to apply deltas.
+   *
+   * ⚠️ A `'removed'` change carries the document **as it last was** (`doc` and `metadata` are
+   * populated, and the underlying snapshot reports `exists: true`). Branch on `change.type`, never
+   * on the document. `readTime` is the emission's read time — Firestore reports no deletion time.
+   *
+   * Like {@link onSnapshot}, this cannot be combined with `select()`: Firestore does not allow a
+   * real-time listener on a field-masked query.
+   *
+   * @param callback - Function called with each detailed emission
+   * @param onError - Optional error handler
+   * @returns Unsubscribe function to stop listening
+   *
+   * @example
+   * const unsubscribe = await orderRepo.query()
+   *   .where('status', '==', 'active')
+   *   .onSnapshotDetailed(snapshot => {
+   *     for (const change of snapshot.changes) {
+   *       if (change.type === 'added') addRow(change.newIndex, change.doc);
+   *       else if (change.type === 'removed') removeRow(change.oldIndex);
+   *       else moveRow(change.oldIndex, change.newIndex, change.doc);
+   *     }
+   *   });
+   *
+   * // Later: stop listening
+   * unsubscribe();
+   */
+  async onSnapshotDetailed(
+    callback: (snapshot: DetailedQuerySnapshot<R>) => void,
+    onError?: (error: Error) => void,
+  ): Promise<() => void> {
+    // Same server-side restriction as onSnapshot(): reject locally with an actionable message
+    // instead of letting an opaque SDK error arrive asynchronously through onError.
+    if (this.hasSelect) {
+      throw new Error(
+        'onSnapshotDetailed() is not supported after select(): Firestore does not allow real-time ' +
+          'listeners on a projected (field-masked) query. Listen without select() and project ' +
+          'in your callback, or use get()/stream() for a one-time projected read.',
+      );
+    }
+
+    try {
+      return this.query.onSnapshot(
+        snapshot => {
+          callback({
+            docs: snapshot.docs.map(doc => this.toResult(doc)),
+            changes: snapshot.docChanges().map(change => ({
+              type: change.type,
+              doc: this.toResult(change.doc),
+              metadata: buildDocumentMetadata(change.doc),
+              oldIndex: change.oldIndex,
+              newIndex: change.newIndex,
+            })),
+            size: snapshot.size,
+            empty: snapshot.empty,
+            readTime: snapshot.readTime,
+          });
+        },
+        error => {
+          // Normalize async stream errors through the same error parser as one-time reads, so the
+          // same query surfaces one error type however it is read.
+          if (onError) onError(parseFirestoreError(error));
+        },
+      );
+    } catch (error: any) {
+      throw parseFirestoreError(error);
+    }
+  }
+
+  /**
    * Paginate with total count included.
    * Combines paginate() and count() in a single method.
    *
    * @param pageSize - Number of items per page
    * @param cursor - Opaque cursor string returned by the previous page
+   * @param options - Optional `{ withMetadata }` opt-in (forwarded to {@link paginate})
    * @returns Paginated results with total count
    *
    * @example
@@ -1423,11 +1571,35 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
    */
   async paginateWithCount(
     pageSize: number,
+    cursor: string | null | undefined,
+    options: { withMetadata: true },
+  ): Promise<{
+    items: WithMetadata<R>[];
+    nextCursor: string | null;
+    hasMore: boolean;
+    total: number;
+  }>;
+  async paginateWithCount(
+    pageSize: number,
     cursor?: string | null,
-  ): Promise<{ items: R[]; nextCursor: string | null; hasMore: boolean; total: number }> {
+    options?: { withMetadata?: false },
+  ): Promise<{ items: R[]; nextCursor: string | null; hasMore: boolean; total: number }>;
+  async paginateWithCount(
+    pageSize: number,
+    cursor?: string | null,
+    options?: { withMetadata?: boolean },
+  ): Promise<{
+    items: R[] | WithMetadata<R>[];
+    nextCursor: string | null;
+    hasMore: boolean;
+    total: number;
+  }> {
     try {
       const total = await this.count();
-      const result = await this.paginate(pageSize, cursor);
+      // The third argument MUST be forwarded: without it `paginate` resolves to its no-metadata
+      // overload and returns bare rows while this method's declared type promises wrappers. The
+      // implementation signature's union return absorbs the mismatch, so nothing fails to compile.
+      const result = await this.paginate(pageSize, cursor, options as { withMetadata: true });
       return { ...result, total };
     } catch (error: any) {
       throw parseFirestoreError(error);
@@ -1446,6 +1618,11 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
    * Execute the query and return all matching documents.
    * This is the main method to retrieve query results.
    *
+   * Pass `{ withMetadata: true }` to receive each row as `{ doc, metadata }` instead — the same
+   * mapped document under `doc`, plus its Firestore `ref` / `path` / `parentPath` / `createTime` /
+   * `updateTime` / `readTime`. The default return shape is unchanged.
+   *
+   * @param options - Optional `{ withMetadata }` opt-in
    * @returns Array of documents matching the query
    *
    * @example
@@ -1455,19 +1632,16 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
    *   .get();
    *
    * @example
-   * // Complex query with multiple conditions
-   * const results = await orderRepo.query()
-   *   .where('status', '==', 'pending')
-   *   .where('total', '>', 100)
-   *   .where('createdAt', '>=', startOfDay)
-   *   .orderBy('createdAt', 'desc')
-   *   .limit(50)
-   *   .get();
+   * // With snapshot metadata
+   * const rows = await userRepo.query().where('status', '==', 'active').get({ withMetadata: true });
+   * console.log(rows[0].doc.name, rows[0].metadata.updateTime.toDate());
    */
-  async get(): Promise<R[]> {
+  async get(options: { withMetadata: true }): Promise<WithMetadata<R>[]>;
+  async get(options?: { withMetadata?: false }): Promise<R[]>;
+  async get(options?: { withMetadata?: boolean }): Promise<R[] | WithMetadata<R>[]> {
     try {
       const snapshot: QuerySnapshot = await this.query.get();
-      return snapshot.docs.map(doc => this.toResult(doc));
+      return this.mapDocs(snapshot.docs, options?.withMetadata);
     } catch (error: any) {
       throw parseFirestoreError(error);
     }

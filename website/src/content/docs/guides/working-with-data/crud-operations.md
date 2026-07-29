@@ -68,12 +68,38 @@ await userRepo.delete('user-123'); // Hard delete; throws NotFoundError if the d
 | Method                             | Returns                                                                       |
 | ---------------------------------- | ----------------------------------------------------------------------------- |
 | `getById(id)`                      | `FirestoreDocument<T> \| null`                                                |
+| `getById(id, { withMetadata: true })` | `{ doc, metadata } \| null` — general read-metadata shape                      |
 | `getByIdOrThrow(id)`               | `FirestoreDocument<T>` — throws `NotFoundError` when the doc is missing       |
-| `getMany(ids, options?)`           | `(FirestoreDocument<T> \| null)[]` — input order; `null` marks missing; optional `fieldMask` |
+| `getMany(ids, options?)`           | `(FirestoreDocument<T> \| null)[]` — input order; `null` marks missing; optional `fieldMask` / `{ withMetadata: true }` |
 | `getAll()`                         | All documents in the collection                                               |
 | `findByField(field, value)`        | Array of all matching documents                                               |
 | `getOneByField(field, value)`      | First match, or `null` when there are none                                    |
 | `getOneByFieldOrThrow(field, val)` | Single match — throws `NotFoundError` on zero, `ConflictError` on two or more |
+
+### Reading snapshot metadata
+
+Pass `{ withMetadata: true }` on supported reads to receive `{ doc, metadata }` instead of a flat
+document. The document under `doc` is unchanged from the default read (still JSON-serializable);
+provenance (`ref`, `path`, `parentPath`, `createTime`, `updateTime`, `readTime`) lives in the
+sibling `metadata` object. `metadata.ref` is a live `DocumentReference` and is **not**
+JSON-serializable — prefer `metadata.path` when you only need identity.
+
+```typescript
+const row = await userRepo.getById('user-123', { withMetadata: true });
+if (row) {
+  console.log(row.doc.name, row.metadata.updateTime.toDate());
+}
+```
+
+Pass the flag **inline** — a hoisted options object widens and fails to match:
+
+```typescript
+// ❌ const opts = { withMetadata: true }; — widens to { withMetadata: boolean }
+const row = await userRepo.getById('user-123', { withMetadata: true }); // ✅
+```
+
+For optimistic-concurrency tokens only, `getByIdWithUpdateTime` remains the narrow accessor; see
+[Conditional writes](#conditional-writes).
 
 ```typescript
 // Batched id lookup — prefer over whereId('in', …) for id lists
@@ -160,9 +186,10 @@ for (let attempt = 0; attempt < 3; attempt++) {
 ```
 
 The result of `getByIdWithUpdateTime` is a **pair** `{ doc, updateTime }` (not an overlay on the
-document), so a stored field named `updateTime` is never shadowed. A plain `update` on a missing
-document still raises `NotFoundError`; a precondition-guarded one raises `PreconditionFailedError`
-instead (Firestore reports the absent document as stored version 0).
+document), so a stored field named `updateTime` is never shadowed. For the general read-metadata
+shape (all provenance fields, not just `updateTime`), use `getById(id, { withMetadata: true })`.
+A plain `update` on a missing document still raises `NotFoundError`; a precondition-guarded one
+raises `PreconditionFailedError` instead (Firestore reports the absent document as stored version 0).
 
 ## Bulk Operations
 

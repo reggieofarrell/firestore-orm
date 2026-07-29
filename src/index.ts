@@ -29,6 +29,12 @@ export type {
   AggregationSpec,
   AggregationResult,
 } from './core/QueryBuilder.js';
+export type {
+  DocumentMetadata,
+  WithMetadata,
+  DetailedDocumentChange,
+  DetailedQuerySnapshot,
+} from './core/SnapshotMetadata.js';
 export {
   FirestoreCollectionGroup,
   FirestoreCollectionGroupQueryBuilder,

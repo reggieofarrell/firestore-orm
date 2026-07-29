@@ -18,8 +18,11 @@
  *    pagination / composite filters) behaves identically to a single-collection query.
  *  - The read converter, `allowLegacyDatastoreIds` policy, and typed stored paths are inherited
  *    from the originating repository.
+ *  - Opt-in `{ withMetadata: true }` and `onSnapshotDetailed` are inherited from
+ *    `FirestoreQueryBuilderBase` with no CollectionGroup.ts source edit (issue #39 / T9): `doc.path`
+ *    equals `metadata.path`, and parentPath likewise, across ≥2 distinct parents.
  */
-import { FieldPath, Filter, type Firestore } from 'firebase-admin/firestore';
+import { FieldPath, Filter, Timestamp, type Firestore } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import { FirestoreRepository } from '../../core/FirestoreRepository.js';
 import { InvalidDocumentIdError } from '../../core/Errors.js';
@@ -692,5 +695,101 @@ describe('FirestoreRepository collectionGroup()', () => {
     expect(own.map(row => row.id)).toEqual(['p1']);
     expect(await postsRepo.query().collectionCount()).toBe(1);
     await expect(postsRepo.getByIdOrThrow('p1')).resolves.toMatchObject({ id: 'p1', title: 'A' });
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #39 — inherited withMetadata / onSnapshotDetailed (I-3)
+  // -------------------------------------------------------------------------
+
+  it('I-3#1–2: get({ withMetadata: true }) keeps CG identity and agrees with metadata paths (T9)', async () => {
+    const rows = await postGroup.query().get({ withMetadata: true });
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+
+    const parentPaths = new Set<string>();
+    for (const row of rows) {
+      expect(row.doc.id).toBeDefined();
+      expect(typeof row.doc.path).toBe('string');
+      expect(typeof row.doc.parentPath).toBe('string');
+      expect(row.doc.path).toBe(row.metadata.path);
+      expect(row.doc.parentPath).toBe(row.metadata.parentPath);
+      parentPaths.add(row.doc.parentPath);
+    }
+    // ≥2 distinct parents — the identity agreement is not an accident of a single collection.
+    expect(parentPaths.size).toBeGreaterThanOrEqual(2);
+  });
+
+  it('I-3#3: stream({ withMetadata: true }) yields wrappers', async () => {
+    const streamed: Array<{ doc: { path: string }; metadata: { path: string } }> = [];
+    for await (const row of postGroup.query().where('status', '==', 'published').stream({
+      withMetadata: true,
+    })) {
+      streamed.push(row);
+    }
+    expect(streamed.length).toBeGreaterThan(0);
+    for (const row of streamed) {
+      expect(row.doc.path).toBe(row.metadata.path);
+    }
+  });
+
+  it('I-3#4: onSnapshotDetailed delivers changes whose metadata.parentPath differs across parents', async () => {
+    const emissions: Array<{
+      changes: Array<{
+        type: string;
+        doc: { title: string; path: string };
+        metadata: {
+          parentPath: string;
+          createTime: unknown;
+          updateTime: unknown;
+        };
+      }>;
+    }> = [];
+    let unsubscribe: (() => void) | undefined;
+
+    try {
+      unsubscribe = await postGroup.query().onSnapshotDetailed(snap => {
+        emissions.push(snap);
+      });
+
+      const started = Date.now();
+      while (Date.now() - started < 10000 && emissions.length === 0) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      expect(emissions.length).toBeGreaterThanOrEqual(1);
+
+      const initial = emissions[0];
+      const parentPaths = new Set(initial.changes.map(c => c.metadata.parentPath));
+      expect(parentPaths.size).toBeGreaterThanOrEqual(2);
+
+      // Delete one seeded doc to prove removed changes still carry group identity + last-known
+      // data (T6), then restore so later tests / afterAll cleanup stay consistent.
+      const targetPath = seeded.u2p2;
+      const lastKnown = initial.changes.find(c => c.doc.path === targetPath);
+      expect(lastKnown).toBeDefined();
+      const before = emissions.length;
+      await db.doc(targetPath).delete();
+
+      let removal: (typeof emissions)[number]['changes'][number] | undefined;
+      while (Date.now() - started < 15000) {
+        const snap = emissions
+          .slice(before)
+          .find(s => s.changes.some(c => c.type === 'removed' && c.doc.path === targetPath));
+        if (snap) {
+          removal = snap.changes.find(c => c.type === 'removed' && c.doc.path === targetPath);
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      // F1: must fail loudly if deletions were silently dropped from `changes`.
+      expect(removal).toBeDefined();
+      expect(removal!.type).toBe('removed');
+      expect(removal!.doc.title).toBe(lastKnown!.doc.title);
+      expect(removal!.metadata.parentPath).toBe(`${USERS}/u2/${GROUP_ID}`);
+      expect(removal!.metadata.createTime).toBeInstanceOf(Timestamp);
+      expect(removal!.metadata.updateTime).toBeInstanceOf(Timestamp);
+
+      await db.doc(targetPath).set({ title: 'C', status: 'published', views: 30 });
+    } finally {
+      unsubscribe?.();
+    }
   });
 });

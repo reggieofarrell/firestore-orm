@@ -122,6 +122,14 @@ server-side Firestore parity. Concretely:
    > The remaining deferrals (#39–#41) are unchanged, as is the decision not to pursue full
    > server-side or Enterprise Pipeline parity. Rationale and contract: ADR-0032.
 
+   > Amendment (3.0.0, issue #39): Snapshot **read** metadata and detailed listeners are **no longer
+   > deferred** — they ship in 3.0.0 as `{ withMetadata: true }` on the core reads and query
+   > terminals, plus `onSnapshotDetailed()` / `listenOneDetailed()`. **Write** metadata stays
+   > deferred ([#72](https://github.com/reggieofarrell/firestore-orm/issues/72)). So #39 leaves this
+   > list for read metadata and detailed listeners. The remaining deferrals **(#40–#41)** are
+   > unchanged, as is the decision not to pursue full server-side or Enterprise Pipeline parity.
+   > Rationale and contract: ADR-0033.
+
 We explicitly do **not** block v3 on any of the deferred items.
 
 ## Consequences
@@ -149,11 +157,13 @@ capability matrix is the honest middle ground.
 
 - The v3 release review and its round-2 response — "Server-side Firestore feature parity follow-up"
   (maintainer-local review records under `reviews/`, not committed to the repo).
-- GitHub issues #39–#41 (labels `parity`, `v3.x`); #30 is closed by the 3.0.0 `whereFilter` API
+- GitHub issues #40–#41 (labels `parity`, `v3.x`); #30 is closed by the 3.0.0 `whereFilter` API
   (ADR-0023), #31 by the 3.0.0 `collectionGroup()` API (ADR-0024), #32 by the 3.0.0 transaction
   options / `runReadOnlyAt` / `getInTransaction` rename (ADR-0025), #33 by the 3.0.0 conditional
   writes / `lastUpdateTime` preconditions API (ADR-0026), #34 by the 3.0.0 `aggregate(spec)` API
   (ADR-0027), #35 by the 3.0.0 `getMany(ids)` / `getManyInTransaction` API (ADR-0029), #36 by the
   3.0.0 typed bounds / `offset` / `limitToLast` API (ADR-0030), #37 by the 3.0.0 `explain()` API
-  (ADR-0031; `explainStream` remains tracked separately), and #38 is closed by the 3.0.0 `bulkWrite`
-  / `recursiveDelete` API (ADR-0032; collection-wide recursive delete remains tracked as #69).
+  (ADR-0031; `explainStream` remains tracked separately), #38 is closed by the 3.0.0 `bulkWrite` /
+  `recursiveDelete` API (ADR-0032; collection-wide recursive delete remains tracked as #69), and #39
+  is closed by the 3.0.0 `withMetadata` / `onSnapshotDetailed` API (ADR-0033; write metadata remains
+  tracked as #72).

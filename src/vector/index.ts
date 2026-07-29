@@ -22,3 +22,12 @@ export type { VectorValueLike } from '../utils/pathTypes.js';
 // Re-exported so /vector consumers can name explain()'s return type without importing the main
 // entry (QueryBuilder has no export-map subpath) — same rationale as VectorValueLike above.
 export type { QueryExplainResult } from '../core/QueryBuilder.js';
+// Re-exported so /vector consumers can name the opt-in snapshot-metadata shapes returned by the
+// proxied core reads on a VectorEnabledRepository, without importing the main entry
+// (core/SnapshotMetadata has no export-map subpath) — same rationale as VectorValueLike above.
+export type {
+  DocumentMetadata,
+  WithMetadata,
+  DetailedDocumentChange,
+  DetailedQuerySnapshot,
+} from '../core/SnapshotMetadata.js';

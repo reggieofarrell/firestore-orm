@@ -24,6 +24,7 @@ import { deepFreeze } from '../utils/safeObject.js';
 import { FirestoreCollectionGroup } from './CollectionGroup.js';
 import type { FirestoreDocument } from './DocumentId.js';
 import { asFirestoreDocument } from './DocumentId.js';
+import { buildDocumentMetadata, type WithMetadata } from './SnapshotMetadata.js';
 import {
   validateCollectionPath,
   validateCollectionSegment,
@@ -1619,6 +1620,41 @@ export class FirestoreRepository<
   }
 
   /**
+   * Materialize one existing snapshot into the shape the caller's `withMetadata` flag selected.
+   *
+   * **Requires `snapshot.exists`.** Every caller narrows first; see {@link buildDocumentMetadata}
+   * for why the metadata builder is unsound on a missing document.
+   */
+  private toDocumentResult(
+    snapshot: FirebaseFirestore.DocumentSnapshot,
+    withMetadata: boolean | undefined,
+  ): FirestoreDocument<T> | WithMetadata<FirestoreDocument<T>> {
+    // Overlay the authoritative document name (snapshot.id), never a caller-supplied argument.
+    const doc = asFirestoreDocument<T>({ ...(snapshot.data() as T), id: snapshot.id });
+    return withMetadata ? { doc, metadata: buildDocumentMetadata(snapshot) } : doc;
+  }
+
+  /**
+   * Metadata-carrying counterpart to {@link mapManySnapshots}.
+   *
+   * Deliberately a SEPARATE method rather than a flag on `mapManySnapshots`: that helper is shared
+   * with `getManyInTransaction`, whose result shape is out of scope for issue #39 and whose
+   * `ReadOnlyTransactionalRepository` overloads would not catch a shape change.
+   */
+  private mapManySnapshotsWithMetadata(
+    snapshots: FirebaseFirestore.DocumentSnapshot[],
+  ): (WithMetadata<FirestoreDocument<T>> | null)[] {
+    return snapshots.map(snapshot =>
+      snapshot.exists
+        ? {
+            doc: asFirestoreDocument<T>({ ...(snapshot.data() as T), id: snapshot.id }),
+            metadata: buildDocumentMetadata(snapshot),
+          }
+        : null,
+    );
+  }
+
+  /**
    * Retrieve a document by its ID.
    * Returns null if the document doesn't exist.
    *
@@ -1633,15 +1669,20 @@ export class FirestoreRepository<
    * }
    *
    */
-  async getById(id: ID): Promise<FirestoreDocument<T> | null> {
+  async getById(
+    id: ID,
+    options: { withMetadata: true },
+  ): Promise<WithMetadata<FirestoreDocument<T>> | null>;
+  async getById(id: ID, options?: { withMetadata?: false }): Promise<FirestoreDocument<T> | null>;
+  async getById(
+    id: ID,
+    options?: { withMetadata?: boolean },
+  ): Promise<FirestoreDocument<T> | WithMetadata<FirestoreDocument<T>> | null> {
     this.validateId(id);
     try {
       const snapshot = await this.readCol().doc(id).get();
       if (!snapshot.exists) return null;
-
-      const data = snapshot.data() as any;
-      // Overlay the authoritative document name (snapshot.id), never the caller-supplied argument.
-      return asFirestoreDocument<T>({ ...(data as T), id: snapshot.id });
+      return this.toDocumentResult(snapshot, options?.withMetadata);
     } catch (error: any) {
       throw parseFirestoreError(error);
     }
@@ -1711,8 +1752,18 @@ export class FirestoreRepository<
    * @returns Document with ID
    * @throws {NotFoundError} If no document exists for the provided id
    */
-  async getByIdOrThrow(id: ID): Promise<FirestoreDocument<T>> {
-    const doc = await this.getById(id);
+  async getByIdOrThrow(
+    id: ID,
+    options: { withMetadata: true },
+  ): Promise<WithMetadata<FirestoreDocument<T>>>;
+  async getByIdOrThrow(id: ID, options?: { withMetadata?: false }): Promise<FirestoreDocument<T>>;
+  async getByIdOrThrow(
+    id: ID,
+    options?: { withMetadata?: boolean },
+  ): Promise<FirestoreDocument<T> | WithMetadata<FirestoreDocument<T>>> {
+    // Forward `options` — calling the no-argument overload here silently drops the metadata the
+    // declared return type promises, with no compile error at either end.
+    const doc = await this.getById(id, options as { withMetadata: true });
     if (!doc) {
       throw new NotFoundError(`Document with id ${id} not found`);
     }
@@ -1786,16 +1837,35 @@ export class FirestoreRepository<
    */
   async getMany(
     ids: ID[],
-    options: { fieldMask: (FieldPaths<OmitId<S>> | FieldPath)[] },
+    options: { fieldMask: (FieldPaths<OmitId<S>> | FieldPath)[]; withMetadata: true },
+  ): Promise<(WithMetadata<FirestoreDocument<DeepPartial<T>>> | null)[]>;
+  async getMany(
+    ids: ID[],
+    options: { fieldMask?: undefined; withMetadata: true },
+  ): Promise<(WithMetadata<FirestoreDocument<T>> | null)[]>;
+  async getMany(
+    ids: ID[],
+    options: { fieldMask: (FieldPaths<OmitId<S>> | FieldPath)[]; withMetadata?: false },
   ): Promise<(FirestoreDocument<DeepPartial<T>> | null)[]>;
   async getMany(
     ids: ID[],
-    options?: { fieldMask?: undefined },
+    options?: { fieldMask?: undefined; withMetadata?: false },
   ): Promise<(FirestoreDocument<T> | null)[]>;
   async getMany(
     ids: ID[],
-    options?: { fieldMask?: (FieldPaths<OmitId<S>> | FieldPath)[] },
-  ): Promise<(FirestoreDocument<T> | FirestoreDocument<DeepPartial<T>> | null)[]> {
+    options?: {
+      fieldMask?: (FieldPaths<OmitId<S>> | FieldPath)[];
+      withMetadata?: boolean;
+    },
+  ): Promise<
+    (
+      | FirestoreDocument<T>
+      | FirestoreDocument<DeepPartial<T>>
+      | WithMetadata<FirestoreDocument<T>>
+      | WithMetadata<FirestoreDocument<DeepPartial<T>>>
+      | null
+    )[]
+  > {
     // Validate every id first (matches bulk write helpers). forEach over [] is a no-op, so empty
     // input still short-circuits cleanly below without an SDK round trip.
     ids.forEach(id => this.validateId(id));
@@ -1810,7 +1880,9 @@ export class FirestoreRepository<
       const snapshots = options?.fieldMask
         ? await this.db.getAll(...refs, { fieldMask: options.fieldMask as (string | FieldPath)[] })
         : await this.db.getAll(...refs);
-      return this.mapManySnapshots(snapshots);
+      return options?.withMetadata
+        ? this.mapManySnapshotsWithMetadata(snapshots)
+        : this.mapManySnapshots(snapshots);
     } catch (error: any) {
       throw parseFirestoreError(error);
     }
@@ -2957,12 +3029,28 @@ export class FirestoreRepository<
   async findByField(
     field: FieldPaths<OmitId<S>> | FieldPath,
     value: unknown,
-  ): Promise<FirestoreDocument<T>[]> {
+    options: { withMetadata: true },
+  ): Promise<WithMetadata<FirestoreDocument<T>>[]>;
+  async findByField(
+    field: FieldPaths<OmitId<S>> | FieldPath,
+    value: unknown,
+    options?: { withMetadata?: false },
+  ): Promise<FirestoreDocument<T>[]>;
+  async findByField(
+    field: FieldPaths<OmitId<S>> | FieldPath,
+    value: unknown,
+    options?: { withMetadata?: boolean },
+  ): Promise<FirestoreDocument<T>[] | WithMetadata<FirestoreDocument<T>>[]> {
     try {
       const snapshot = await this.readCol()
         .where(field as string | FieldPath, '==', value)
         .get();
-      return snapshot.docs.map(doc => asFirestoreDocument<T>({ ...(doc.data() as T), id: doc.id }));
+      return options?.withMetadata
+        ? snapshot.docs.map(doc => ({
+            doc: asFirestoreDocument<T>({ ...(doc.data() as T), id: doc.id }),
+            metadata: buildDocumentMetadata(doc),
+          }))
+        : snapshot.docs.map(doc => asFirestoreDocument<T>({ ...(doc.data() as T), id: doc.id }));
     } catch (error: any) {
       throw parseFirestoreError(error);
     }
@@ -2995,7 +3083,18 @@ export class FirestoreRepository<
   async getOneByField(
     field: FieldPaths<OmitId<S>> | FieldPath,
     value: unknown,
-  ): Promise<FirestoreDocument<T> | null> {
+    options: { withMetadata: true },
+  ): Promise<WithMetadata<FirestoreDocument<T>> | null>;
+  async getOneByField(
+    field: FieldPaths<OmitId<S>> | FieldPath,
+    value: unknown,
+    options?: { withMetadata?: false },
+  ): Promise<FirestoreDocument<T> | null>;
+  async getOneByField(
+    field: FieldPaths<OmitId<S>> | FieldPath,
+    value: unknown,
+    options?: { withMetadata?: boolean },
+  ): Promise<FirestoreDocument<T> | WithMetadata<FirestoreDocument<T>> | null> {
     try {
       // We add `limit(1)` so Firestore only returns one document even if multiple matches exist.
       // This keeps reads/costs low and makes the method intentionally "first-match" oriented.
@@ -3009,7 +3108,7 @@ export class FirestoreRepository<
 
       // The query is limited to one document, so index 0 is always the first and only match here.
       const doc = snapshot.docs[0];
-      return asFirestoreDocument<T>({ ...(doc.data() as T), id: doc.id });
+      return this.toDocumentResult(doc, options?.withMetadata);
     } catch (error: any) {
       throw parseFirestoreError(error);
     }
@@ -3029,7 +3128,18 @@ export class FirestoreRepository<
   async getOneByFieldOrThrow(
     field: FieldPaths<OmitId<S>> | FieldPath,
     value: unknown,
-  ): Promise<FirestoreDocument<T>> {
+    options: { withMetadata: true },
+  ): Promise<WithMetadata<FirestoreDocument<T>>>;
+  async getOneByFieldOrThrow(
+    field: FieldPaths<OmitId<S>> | FieldPath,
+    value: unknown,
+    options?: { withMetadata?: false },
+  ): Promise<FirestoreDocument<T>>;
+  async getOneByFieldOrThrow(
+    field: FieldPaths<OmitId<S>> | FieldPath,
+    value: unknown,
+    options?: { withMetadata?: boolean },
+  ): Promise<FirestoreDocument<T> | WithMetadata<FirestoreDocument<T>>> {
     try {
       // We query with limit(2) so we can efficiently detect duplicate matches
       // without paying for an unbounded query read.
@@ -3049,7 +3159,7 @@ export class FirestoreRepository<
       }
 
       const doc = snapshot.docs[0];
-      return asFirestoreDocument<T>({ ...(doc.data() as T), id: doc.id });
+      return this.toDocumentResult(doc, options?.withMetadata);
     } catch (error: any) {
       throw parseFirestoreError(error);
     }
@@ -3102,6 +3212,71 @@ export class FirestoreRepository<
   }
 
   /**
+   * Subscribe to real-time updates for a single document, **with snapshot metadata**.
+   *
+   * Identical to {@link listenOne} except that the callback receives `{ doc, metadata }` — the same
+   * document under `doc`, plus its Firestore `ref` / `path` / `parentPath` / `createTime` /
+   * `updateTime` / `readTime`.
+   *
+   * Deletion is reported the same way {@link listenOne} reports it: through
+   * `onError(new NotFoundError(...))`, not as a callback emission. A deleted document's snapshot
+   * carries no `createTime` / `updateTime`, so there is no metadata to deliver for it.
+   *
+   * @param id - Document ID to observe
+   * @param callback - Function invoked with the updated document and its metadata
+   * @param onError - Optional error handler for not-found and Firestore errors
+   * @returns Unsubscribe function to stop listening
+   *
+   * @example
+   * const unsubscribe = userRepo.listenOneDetailed(
+   *   'user-123',
+   *   ({ doc, metadata }) => {
+   *     console.log(`${doc.name} last written ${metadata.updateTime.toDate().toISOString()}`);
+   *   },
+   *   error => console.error(error),
+   * );
+   */
+  listenOneDetailed(
+    id: ID,
+    callback: (item: WithMetadata<FirestoreDocument<T>>) => void,
+    onError?: (error: Error) => void,
+  ): () => void {
+    this.validateId(id);
+    try {
+      return this.readCol()
+        .doc(id)
+        .onSnapshot(
+          snapshot => {
+            try {
+              if (!snapshot.exists) {
+                if (onError) {
+                  onError(new NotFoundError(`Document with id ${id} not found`));
+                }
+                return;
+              }
+
+              callback({
+                doc: asFirestoreDocument<T>({ ...(snapshot.data() as T), id: snapshot.id }),
+                metadata: buildDocumentMetadata(snapshot),
+              });
+            } catch (error: any) {
+              if (onError) {
+                onError(parseFirestoreError(error));
+              }
+            }
+          },
+          error => {
+            if (onError) {
+              onError(parseFirestoreError(error));
+            }
+          },
+        );
+    } catch (error: any) {
+      throw parseFirestoreError(error);
+    }
+  }
+
+  /**
    * Get all documents in the collection.
    * This method intentionally performs an unbounded read, so callers should
    * prefer query().paginate() for large collections where incremental loading
@@ -3113,10 +3288,19 @@ export class FirestoreRepository<
    * // Fetch the entire users collection
    * const users = await userRepo.getAll();
    */
-  async getAll(): Promise<FirestoreDocument<T>[]> {
+  async getAll(options: { withMetadata: true }): Promise<WithMetadata<FirestoreDocument<T>>[]>;
+  async getAll(options?: { withMetadata?: false }): Promise<FirestoreDocument<T>[]>;
+  async getAll(options?: {
+    withMetadata?: boolean;
+  }): Promise<FirestoreDocument<T>[] | WithMetadata<FirestoreDocument<T>>[]> {
     try {
       const snapshot = await this.readCol().get();
-      return snapshot.docs.map(doc => asFirestoreDocument<T>({ ...(doc.data() as T), id: doc.id }));
+      return options?.withMetadata
+        ? snapshot.docs.map(doc => ({
+            doc: asFirestoreDocument<T>({ ...(doc.data() as T), id: doc.id }),
+            metadata: buildDocumentMetadata(doc),
+          }))
+        : snapshot.docs.map(doc => asFirestoreDocument<T>({ ...(doc.data() as T), id: doc.id }));
     } catch (error: any) {
       throw parseFirestoreError(error);
     }

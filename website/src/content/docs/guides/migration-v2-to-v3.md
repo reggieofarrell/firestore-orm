@@ -178,7 +178,9 @@ or `patch()` to clear a field. The other sentinels (`increment`, `arrayUnion`, `
   emulator throws `No explain results` — real metrics need production Firestore. See
   [Query Explain](/firestore-orm/guides/working-with-data/queries/#query-explain).
 - `distinctValues(field)` now drops only `undefined` and preserves a stored `null` as a distinct
-  value.
+  value, and dedupes structured/reference values by Firestore-aware semantic equality (maps/arrays
+  structural, key order irrelevant; `Timestamp`/`GeoPoint`/`DocumentReference`/`Bytes`/`VectorValue`
+  by value). Unrecognized `readConverter` output falls back to identity.
 
 ### 10. Empty update payloads are rejected
 

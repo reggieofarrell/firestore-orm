@@ -167,4 +167,14 @@ describe('FirestoreQueryBuilder terminal reads (D3, D12)', () => {
     expect(projectedLimited.get).toHaveBeenCalledTimes(1);
     expect(one).toEqual({ name: 'a', id: '1' });
   });
+
+  it('U-24: distinctValues wires to semantic equality for equal maps with different key order (T4)', async () => {
+    // Confirms §6.2 edit 3: the call site uses distinctFirestoreValues rather than `new Set`. Two
+    // semantically equal maps with different key order must collapse to one value.
+    const { builder } = makeBuilder({
+      fullDocs: [doc('1', { m: { x: 1, y: 2 } }), doc('2', { m: { y: 2, x: 1 } })],
+    });
+    const values = await builder.distinctValues('m' as any);
+    expect(values).toHaveLength(1);
+  });
 });

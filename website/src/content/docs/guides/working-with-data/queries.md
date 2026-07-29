@@ -419,7 +419,7 @@ const totalUsers = await userRepo.query().where('status', '==', 'active').collec
 // Existence check
 const hasOrders = await orderRepo.query().where('userId', '==', 'user-123').exists();
 
-// Distinct values for a field — drops undefined but preserves stored null
+// Distinct values for a field — semantic equality; drops undefined but preserves stored null
 const categories = await productRepo.query().distinctValues('category');
 ```
 
@@ -428,7 +428,7 @@ ignores any `where()` clauses on the builder. `sum(field)` and `average(field)` 
 fields; `average(field)` returns `number | null`, yielding `null` (distinct from `0`) when there are
 no numeric values. `aggregate(spec)` runs several aliased `count` / `sum` / `average` entries in a
 single round trip (backend max **5** per request). `distinctValues(field)` returns the unique values
-for a field, dropping `undefined` but preserving stored `null`.
+for a field by Firestore-aware semantic equality, dropping `undefined` but preserving stored `null`.
 
 <!-- prettier-ignore -->
 :::caution

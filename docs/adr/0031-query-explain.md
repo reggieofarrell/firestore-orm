@@ -62,8 +62,8 @@ Return type is **`QueryExplainResult<R> = { metrics: ExplainMetrics; documents: 
 
 - Capability matrix: #37 `explain()` moves Deferred → Supported; Deferred row becomes
   `explainStream` only (follow-up issue).
-- Remaining ADR-0017 deferrals are `#40–#41` (#39 snapshot read metadata / detailed listeners have
-  since shipped — see ADR-0033).
+- Remaining ADR-0017 deferrals are `#41` (#39 snapshot read metadata / detailed listeners have since
+  shipped — see ADR-0033; #40 `distinctValues` semantic equality has since shipped — see ADR-0034).
 - Callers must use production Firestore for real plan/execution stats; docs and JSDoc warn about the
   emulator throw.
 - Follow-up for `explainStream` must add a local `hasLimitToLast` guard (SDK stream throws for
@@ -100,9 +100,10 @@ escape hatch remains `query.aggregate(…).explain()` on the raw SDK.
 - Follow-up: [#65](https://github.com/reggieofarrell/firestore-orm/issues/65) (`explainStream`)
 
 This record **amends ADR-0017**: Query Explain (`explain()`) is no longer deferred. The remaining
-deferrals (#40–#41) and the decision not to pursue full server-side or Enterprise Pipeline parity
-are unchanged. (#37 `explain()` has since shipped — see this ADR; #38 `bulkWrite` /
-`recursiveDelete` have since shipped — see ADR-0032; #39 snapshot read metadata / detailed listeners
-have since shipped — see ADR-0033; `explainStream` is tracked separately as
+deferrals (#41) and the decision not to pursue full server-side or Enterprise Pipeline parity are
+unchanged. (#37 `explain()` has since shipped — see this ADR; #38 `bulkWrite` / `recursiveDelete`
+have since shipped — see ADR-0032; #39 snapshot read metadata / detailed listeners have since
+shipped — see ADR-0033; #40 `distinctValues` semantic equality has since shipped — see ADR-0034;
+`explainStream` is tracked separately as
 [#65](https://github.com/reggieofarrell/firestore-orm/issues/65). This footer is a living index of
 remaining ADR-0017 deferrals — see [`docs/adr/README.md`](README.md) Conventions.)

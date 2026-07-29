@@ -157,6 +157,104 @@ describe('read-only converters: writes bypass the converter (issue #11)', () => 
     expect([...values].sort((a, b) => a - b)).toEqual([100, 101]);
   });
 
+  it('I-6a: distinctValues merges equal Dates from a readConverter (issue #40 / D4)', async () => {
+    // A readConverter that returns a Date for `when`: two documents with the same instant must
+    // collapse to one — the Date special case in the canonicalizer (D4).
+    const dateSchema = z.object({
+      label: z.string(),
+      whenMs: z.number(),
+    });
+    type DateDoc = { id: string; label: string; when: Date };
+    const dateConverter: ReadConverter<DateDoc> = snapshot => {
+      const data = snapshot.data() as { label: string; whenMs: number };
+      return { label: data.label, when: new Date(data.whenMs) } as DateDoc;
+    };
+    const dateCol = `test_read_only_converter_date_${Date.now()}`;
+    const dateRepo = FirestoreRepository.withSchema(db, dateCol, dateSchema, {
+      readConverter: dateConverter,
+      storedSchema: dateSchema,
+    });
+
+    await dateRepo.bulkCreate([
+      { label: 'a', whenMs: 1_700_000_000_000 },
+      { label: 'b', whenMs: 1_700_000_000_000 },
+    ]);
+
+    expect(await dateRepo.query().distinctValues('when' as any)).toHaveLength(1);
+
+    const docs = await dateRepo.query().get();
+    if (docs.length > 0) {
+      await dateRepo.bulkDelete(docs.map(doc => doc.id));
+    }
+  });
+
+  it('I-6b: distinctValues keeps custom-class converter output distinct by identity (issue #40 / T2)', async () => {
+    // A converter returning a custom class instance: two structurally equal instances must stay
+    // distinct (identity fallback — never over-merge unrecognized types).
+    class Box {
+      constructor(readonly n: number) {}
+    }
+    const boxSchema = z.object({
+      label: z.string(),
+      n: z.number(),
+    });
+    type BoxDoc = { id: string; label: string; box: Box };
+    const boxConverter: ReadConverter<BoxDoc> = snapshot => {
+      const data = snapshot.data() as { label: string; n: number };
+      return { label: data.label, box: new Box(data.n) } as BoxDoc;
+    };
+    const boxCol = `test_read_only_converter_box_${Date.now()}`;
+    const boxRepo = FirestoreRepository.withSchema(db, boxCol, boxSchema, {
+      readConverter: boxConverter,
+      storedSchema: boxSchema,
+    });
+
+    await boxRepo.bulkCreate([
+      { label: 'a', n: 1 },
+      { label: 'b', n: 1 },
+    ]);
+
+    expect(await boxRepo.query().distinctValues('box' as any)).toHaveLength(2);
+
+    const docs = await boxRepo.query().get();
+    if (docs.length > 0) {
+      await boxRepo.bulkDelete(docs.map(doc => doc.id));
+    }
+  });
+
+  it('I-6c: distinctValues does not throw on cyclic readConverter output (issue #40 / T7)', async () => {
+    // §8.5 requires T7 on the converter read path: cyclic converter output must terminate on a
+    // marker (merge), never crash the read terminal with RangeError.
+    const cycleSchema = z.object({
+      label: z.string(),
+      n: z.number(),
+    });
+    type CycleDoc = { id: string; label: string; node: Record<string, unknown> };
+    const cycleConverter: ReadConverter<CycleDoc> = snapshot => {
+      const data = snapshot.data() as { label: string; n: number };
+      const node: Record<string, unknown> = { n: data.n };
+      node.self = node;
+      return { label: data.label, node } as CycleDoc;
+    };
+    const cycleCol = `test_read_only_converter_cycle_${Date.now()}`;
+    const cycleRepo = FirestoreRepository.withSchema(db, cycleCol, cycleSchema, {
+      readConverter: cycleConverter,
+      storedSchema: cycleSchema,
+    });
+
+    await cycleRepo.bulkCreate([
+      { label: 'a', n: 1 },
+      { label: 'b', n: 1 },
+    ]);
+
+    await expect(cycleRepo.query().distinctValues('node' as any)).resolves.toHaveLength(1);
+
+    const docs = await cycleRepo.query().get();
+    if (docs.length > 0) {
+      await cycleRepo.bulkDelete(docs.map(doc => doc.id));
+    }
+  });
+
   it('getInTransaction() applies the converter on a transactional read', async () => {
     const created = await repo.create({ name: 'zeta', value: 7 });
 

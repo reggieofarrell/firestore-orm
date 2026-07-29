@@ -205,10 +205,15 @@ guide). Also available on collection-group builders (inherited from the shared r
 union read models while preserving the element type — ADR-0028.)
 
 Return the distinct values observed for a field. Drops `undefined`, but preserves a stored `null` as
-a distinct value. Reads the document's own field directly rather than a materialized row, so on a
-collection group `distinctValues('path')` returns the values of a _stored_ field named `path`, not
-the document paths `get()` reports as `row.path`. That is intentional — it is the only surface that
-can read a field the identity overlay shadows.
+a distinct value. Deduplication uses **Firestore-aware semantic equality** (maps and arrays compare
+structurally and map key order is irrelevant; `Timestamp`, `GeoPoint`, `DocumentReference` by path,
+`Bytes`, and `VectorValue` compare by value). Values a `readConverter` produced that are not
+Firestore values — a `Map`, a `Set`, a custom class — fall back to per-instance identity and are
+never merged. The terminal is still client-side: it downloads matching documents and dedupes in
+process. Reads the document's own field directly rather than a materialized row, so on a collection
+group `distinctValues('path')` returns the values of a _stored_ field named `path`, not the document
+paths `get()` reports as `row.path`. That is intentional — it is the only surface that can read a
+field the identity overlay shadows.
 
 **`paginate(pageSize: number, cursor?: string | null): Promise<{ items: R[]; nextCursor: string | null; hasMore: boolean }>`** /
 **`paginate(pageSize, cursor, options: { withMetadata: true }): Promise<{ items: WithMetadata<R>[]; nextCursor: string | null; hasMore: boolean }>`**

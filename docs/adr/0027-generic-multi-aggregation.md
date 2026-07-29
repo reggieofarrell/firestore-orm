@@ -164,8 +164,9 @@ documentation / guidance problem, not a type problem; optional numeric fields ar
   `tmp/probes/issue-34/`.
 
 This record **amends ADR-0017**: generic multi-aggregation is no longer deferred. The remaining
-deferrals (#40–#41) and the decision not to pursue full server-side or Enterprise Pipeline parity
-are unchanged. (#35 `getMany`, #36 typed bounds / `limitToLast`, #37 `explain()`, #38 `bulkWrite` /
+deferrals (#41) and the decision not to pursue full server-side or Enterprise Pipeline parity are
+unchanged. (#35 `getMany`, #36 typed bounds / `limitToLast`, #37 `explain()`, #38 `bulkWrite` /
 `recursiveDelete`, and #39 snapshot read metadata / detailed listeners have since shipped — see
-ADR-0029 / ADR-0030 / ADR-0031 / ADR-0032 / ADR-0033; this footer is a living index of remaining
-ADR-0017 deferrals — see [`docs/adr/README.md`](README.md) Conventions.)
+ADR-0029 / ADR-0030 / ADR-0031 / ADR-0032 / ADR-0033; #40 `distinctValues` semantic equality has
+since shipped — see ADR-0034; this footer is a living index of remaining ADR-0017 deferrals — see
+[`docs/adr/README.md`](README.md) Conventions.)

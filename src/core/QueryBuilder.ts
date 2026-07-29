@@ -17,6 +17,7 @@ import {
   ValueAtKey,
 } from '../utils/pathTypes.js';
 import { validateDocumentId } from '../utils/documentId.js';
+import { distinctFirestoreValues } from '../utils/firestoreValueEquality.js';
 import { deepFreeze, safeAssign } from '../utils/safeObject.js';
 import {
   AggregateField,
@@ -1311,11 +1312,13 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
    * Get all distinct values for a specific field.
    * Useful for generating filter options or analyzing data distribution.
    *
-   * LIMITATION — scalar values only: distinctness is computed with a JavaScript `Set`, which uses
-   * reference identity for objects. Structured/reference Firestore values (maps, arrays,
-   * `Timestamp`, `GeoPoint`, `DocumentReference`) are therefore deduplicated by identity, not by
-   * semantic equality, so two equal-but-distinct-object values are reported as separate. Use this
-   * only for scalar fields (string/number/boolean), or dedupe structured values yourself.
+   * **Client-side, with Firestore-aware semantic equality.** This terminal downloads every matching
+   * document and dedupes in process — Firestore Core has no server-side `DISTINCT` (the Enterprise
+   * Pipeline model that does is out of scope; see issue #41). Deduplication is *not* reference
+   * identity: maps and arrays compare structurally and map key order is irrelevant, and `Timestamp`,
+   * `GeoPoint`, `DocumentReference` (by path), `Bytes` and `VectorValue` compare by value. Values a
+   * `readConverter` produced that are not Firestore values — a `Map`, a `Set`, a custom class — fall
+   * back to per-instance identity and are never merged. See {@link distinctFirestoreValues}.
    *
    * **Reads the document's own field, never a repository identity overlay** (review M1). Unlike the
    * terminals that materialize whole rows, this reads `doc.data()[field]` directly, so on a
@@ -1358,10 +1361,9 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
     try {
       const snapshot = await this.query.get();
       const values = snapshot.docs.map(doc => doc.data()[field as string]);
-      // Drop only `undefined` (an absent field), not `null`: `null` is a real, stored, distinct
-      // field value and must survive deduplication. A loose `!= undefined` would also strip `null`
-      // (since `null == undefined`), conflating "field absent" with "field is null" (ADR-0020, B9).
-      return [...new Set(values)].filter(val => val !== undefined) as ValueAtKey<T, K>[];
+      // Drops only `undefined` (an absent field), never a stored `null`, and dedupes by
+      // Firestore-aware semantic equality rather than object identity (ADR-0020 B9; issue #40).
+      return distinctFirestoreValues(values) as ValueAtKey<T, K>[];
     } catch (error: any) {
       throw parseFirestoreError(error);
     }

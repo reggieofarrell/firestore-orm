@@ -744,6 +744,8 @@ describe('FirestoreRepository collectionGroup()', () => {
       }>;
     }> = [];
     let unsubscribe: (() => void) | undefined;
+    // Hoisted so `finally` can restore even if setup/assertions throw before the local binding.
+    const targetPath = seeded.u2p2;
 
     try {
       unsubscribe = await postGroup.query().onSnapshotDetailed(snap => {
@@ -762,7 +764,6 @@ describe('FirestoreRepository collectionGroup()', () => {
 
       // Delete one seeded doc to prove removed changes still carry group identity + last-known
       // data (T6), then restore so later tests / afterAll cleanup stay consistent.
-      const targetPath = seeded.u2p2;
       const lastKnown = initial.changes.find(c => c.doc.path === targetPath);
       expect(lastKnown).toBeDefined();
       const before = emissions.length;
@@ -786,9 +787,10 @@ describe('FirestoreRepository collectionGroup()', () => {
       expect(removal!.metadata.parentPath).toBe(`${USERS}/u2/${GROUP_ID}`);
       expect(removal!.metadata.createTime).toBeInstanceOf(Timestamp);
       expect(removal!.metadata.updateTime).toBeInstanceOf(Timestamp);
-
-      await db.doc(targetPath).set({ title: 'C', status: 'published', views: 30 });
     } finally {
+      // Restore the shared fixture even when an assertion above fails, so a later test in this
+      // file cannot inherit a silently deleted document and look like flakiness.
+      await db.doc(targetPath).set({ title: 'C', status: 'published', views: 30 });
       unsubscribe?.();
     }
   });

@@ -8,10 +8,11 @@ against the tree and matched before editing).
 
 ## Status
 
-**Done-pending-review.** Read snapshot metadata (`{ withMetadata: true }`) and detailed listeners
-(`onSnapshotDetailed` / `listenOneDetailed`) are implemented per §6–§9. Full §10 gate passed twice
-(before and after adversarial-review fixes). Plan directory left in place. **Not committed** (per
-instruction).
+**Done — external review findings addressed (round 1).** Read snapshot metadata
+(`{ withMetadata: true }`) and detailed listeners (`onSnapshotDetailed` / `listenOneDetailed`) are
+implemented per §6–§9. Feature work committed as `3d4a028`. Round-1 `review.md` findings M2/N1/N2/N3
+fixed in the working tree (not yet committed — awaiting explicit commit request). Plan directory
+left in place.
 
 ## Ambiguities resolved
 
@@ -85,6 +86,7 @@ None that re-litigated §1. Mechanical choices:
 | I-2#5 T6 | `docChanges().filter(c => c.type !== 'removed')` | **Fails** — `Timed out waiting for emission: removed change` |
 | I-2#8 T8 | Remove `hasSelect` guard on `onSnapshotDetailed` | **Fails** — `Received promise resolved instead of rejected` (resolved to unsubscribe) |
 | I-3#2 T9 | `path: snapshot.ref.path + '/MUTATED'` in `buildDocumentMetadata` | **Fails** — `expect(row.doc.path).toBe(row.metadata.path)` mismatch |
+| I-2#1–7 M2 (external) | `doc: this.toResult(change.doc)` instead of `byPath.get(...) ?? …` | **Fails** — `expect(…find(c => c.doc === docs[0])).toBeDefined()` Received: undefined |
 
 ## Gate results
 
@@ -107,6 +109,26 @@ npm run docs:build                         ✓ ; grep ::: website/dist/ → no r
 
 **Run 2** (after F1/F3–F7 fixes): same 14 legs all ✓; suite counts still **31/383** unit and
 **34/497** integration.
+
+**Run 3** (after external-review M2/N1/N2/N3 remediation; worktree parked for M1):
+
+```
+npm run test:types                         ✓
+npm run lint                               ✓
+npm run check:format                       ✓ (worktree parked; see #73)
+npm run test:unit                          31 suites / 383 tests
+npm run build                              ✓
+npm run test:integration:emulator          34 suites / 497 tests  ✓
+npm run test:unit:coverage + gate:unit     ✓
+npm run test:integration:coverage + gate   ✓
+npm run check:package                      ✓
+npm run check:consumer                     ✓
+npm run check:docs                         ✓ (183 doc files)
+npm run docs:build                         ✓ ; grep ::: website/dist/ → no rows
+```
+
+First integration attempt after N2 failed with `ReferenceError: targetPath is not defined` because
+the restore used a `const` bound inside `try`; hoisted `targetPath` before `try` and re-ran — green.
 
 ## Anti-instructions checklist
 
@@ -173,17 +195,37 @@ Given: plan + source + tests. **Not** given: these notes. Prompted to refute.
 
 ### Findings not treated as defects
 
-- **F2 high — untracked core files** — Not a defect for this turn: the user instructed **not to
-  commit**. Files exist on disk and are ready to stage; §11’s “notes committed” item awaits an
-  explicit commit request.
+- **F2 high — untracked core files** — **Superseded by commit `3d4a028`.** At self-review time the
+  user had instructed not to commit; the feature commit landed afterward. N3 (below) corrects the
+  stale "Not committed" status lines.
 
 ### Findings deferred
 
-None.
+None from the implementer's self-review.
 
 ### Gate re-run after fixes
 
 Full 14-leg gate re-run: all PASS. Counts unchanged at 31/383 unit, 34/497 integration.
+
+## External review (round 1) — `review.md`
+
+**Reviewer:** Claude Opus 5 (`write-review`) · **Reviewed:** `3d4a028` · **Verdict:** APPROVE WITH
+FIXES · **Artifact:** `docs/plans/issue-39-snapshot-metadata-detailed-listener/review.md` (no PR —
+branch was unpushed at review time).
+
+### Round-1 dispositions
+
+| Id | Severity | Disposition | What changed |
+| -- | -------- | ----------- | ------------ |
+| **M2** | Major | **Fixed** | `onSnapshotDetailed` maps `snapshot.docs` once into a path→`R` map and reuses those instances for non-`removed` `changes`; `removed` still maps via `toResult`. I-2#1–7 asserts `changes.find(c => c.doc === docs[0])` and `docs.indexOf(changes[0].doc) !== -1`. |
+| **M1** | Major (pre-existing) | **Deferred** | Not caused by #39. Opened [#73](https://github.com/reggieofarrell/firestore-orm/issues/73) to ignore `.claude/worktrees/` in prettier, jest, and `check-doc-links`. |
+| **N1** | Nit | **Fixed** | Restored the deleted "Complex query with multiple conditions" `@example` on `QueryBuilder.get()` above the new metadata example. |
+| **N2** | Nit | **Fixed** | I-3#4 fixture `set(...)` restore moved into `finally` (before `unsubscribe`), so a failed assertion cannot leave the shared seeded doc deleted. |
+| **N3** | Nit | **Fixed** | Status / F2 wording above corrected to reflect commit `3d4a028`. |
+
+### Gate re-run after round-1 remediation
+
+See **Run 3** under Gate results (below).
 
 ## Could-not-verify
 
@@ -196,4 +238,4 @@ Carried from plan §5:
 
 ## Open questions for the reviewer
 
-None — ready for external `review.md` once committed/PR’d.
+None — round-1 findings disposed; ready for follow-up commit when requested.

@@ -1527,11 +1527,23 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
     try {
       return this.query.onSnapshot(
         snapshot => {
+          // Map each present document once and reuse that instance for matching `changes` entries.
+          // `readConverter.fromFirestore` is not memoized (see mapManySnapshots): calling toResult for
+          // both `docs` and `docChanges()` would run the converter twice per document per emission,
+          // so a non-pure converter could stamp different values on `docs[i]` vs `changes[j].doc`
+          // for the same document, and reference equality (`docs.indexOf(change.doc)`) would fail.
+          // Removed documents are absent from `snapshot.docs`, so they still need their own mapping.
+          const byPath = new Map<string, R>();
+          const docs = snapshot.docs.map(doc => {
+            const mapped = this.toResult(doc);
+            byPath.set(doc.ref.path, mapped);
+            return mapped;
+          });
           callback({
-            docs: snapshot.docs.map(doc => this.toResult(doc)),
+            docs,
             changes: snapshot.docChanges().map(change => ({
               type: change.type,
-              doc: this.toResult(change.doc),
+              doc: byPath.get(change.doc.ref.path) ?? this.toResult(change.doc),
               metadata: buildDocumentMetadata(change.doc),
               oldIndex: change.oldIndex,
               newIndex: change.newIndex,
@@ -1629,6 +1641,16 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
    * // Simple query
    * const activeUsers = await userRepo.query()
    *   .where('status', '==', 'active')
+   *   .get();
+   *
+   * @example
+   * // Complex query with multiple conditions
+   * const results = await orderRepo.query()
+   *   .where('status', '==', 'pending')
+   *   .where('total', '>', 100)
+   *   .where('createdAt', '>=', startOfDay)
+   *   .orderBy('createdAt', 'desc')
+   *   .limit(50)
    *   .get();
    *
    * @example

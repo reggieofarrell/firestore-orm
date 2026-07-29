@@ -82,6 +82,11 @@ describe('detailed listeners (issue #39)', () => {
       expect(initial.changes.every(c => c.oldIndex === -1)).toBe(true);
       expect(initial.changes.map(c => c.newIndex)).toEqual([0, 1, 2]);
 
+      // M2: present documents must share one mapped instance between `docs` and `changes` so a
+      // non-memoized readConverter runs once per document and `docs.indexOf(change.doc)` works.
+      expect(initial.changes.find(c => c.doc === initial.docs[0])).toBeDefined();
+      expect(initial.docs.indexOf(initial.changes[0]!.doc)).not.toBe(-1);
+
       const plain = await userRepo
         .query()
         .where('email', '==', 'dl@example.com')

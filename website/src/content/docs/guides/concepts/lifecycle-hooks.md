@@ -38,6 +38,19 @@ these hooks wrap.
 - **Bulk operations**: `beforeBulkCreate`, `afterBulkCreate`, `beforeBulkUpdate`, `afterBulkUpdate`,
   `beforeBulkDelete`, `afterBulkDelete`
 
+### Operations that run **no** hooks
+
+Two write paths deliberately fire nothing:
+
+- **`bulkWrite`** — high-throughput, non-atomic BulkWriter path. If any bulk hook is registered on
+  the repository, the call **throws** unless you pass `{ skipHooks: true }` to acknowledge that those
+  hooks will not fire.
+- **`recursiveDelete`** — deletes a document and every descendant; no per-document or bulk delete
+  hooks run (the SDK streams name-only snapshots and descendants live in collections this repository
+  may not model).
+
+Do not assume every write goes through the hook table above.
+
 ## Hook payloads
 
 | Event                                  | Payload                                                                                               |
@@ -115,7 +128,9 @@ recursively.
 is validated and written, `afterBulkUpdate` receives `{ ids }` for the written documents, and the
 bulk-delete hooks receive `{ ids, documents }`. The per-document `before/afterUpdate` and
 `before/afterDelete` hooks do **not** run on query-level writes — use the single-document methods
-when you need those. See [Queries](/firestore-orm/guides/working-with-data/queries/).
+when you need those. Separately, `bulkWrite` and `recursiveDelete` run **no** hooks at all (see
+[above](#operations-that-run-no-hooks)). See
+[Queries](/firestore-orm/guides/working-with-data/queries/).
 
 ## When hooks do not run
 

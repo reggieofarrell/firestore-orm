@@ -50,6 +50,90 @@ export type UpdateOptions = {
 };
 
 /**
+ * The write verbs accepted by {@link FirestoreRepository.bulkWrite}.
+ *
+ * Each maps 1:1 onto a fixed-batch helper: `create` → {@link FirestoreRepository.bulkCreate} (or
+ * {@link FirestoreRepository.bulkCreateWithIds} when `id` is supplied), `set` → the create branch of
+ * {@link FirestoreRepository.upsert} minus its existence pre-read, `update` →
+ * {@link FirestoreRepository.bulkUpdate}, `patch` → {@link FirestoreRepository.bulkPatch}, `delete` →
+ * {@link FirestoreRepository.bulkDelete}.
+ */
+export type BulkWriteOperationKind = 'create' | 'set' | 'update' | 'patch' | 'delete';
+
+/**
+ * One entry in a {@link FirestoreRepository.bulkWrite} operation list.
+ *
+ * Discriminated on `op`, so each verb carries exactly the fields it supports: only `create` may omit
+ * `id` (one is generated), and only the update/delete verbs accept a `lastUpdateTime` precondition.
+ */
+export type BulkWriteOperation<W extends object> =
+  | { op: 'create'; id?: ID; data: CreateInput<W> }
+  | { op: 'set'; id: ID; data: CreateInput<W> }
+  | {
+      op: 'update';
+      id: ID;
+      data: UpdateInput<W>;
+      lastUpdateTime?: FirebaseFirestore.Timestamp;
+    }
+  | {
+      op: 'patch';
+      id: ID;
+      data: UpdateInput<W>;
+      lastUpdateTime?: FirebaseFirestore.Timestamp;
+    }
+  | { op: 'delete'; id: ID; lastUpdateTime?: FirebaseFirestore.Timestamp };
+
+/**
+ * Per-operation outcome from {@link FirestoreRepository.bulkWrite}, positional: `results[i]`
+ * describes `operations[i]`, and `index` repeats that position so a filtered subset stays traceable.
+ *
+ * Discriminate on `ok`. A `BulkWriter` batch is **not** atomic, so a mixed array of successes and
+ * failures is the normal outcome — never infer from one entry what happened to its siblings.
+ */
+export type BulkWriteResult =
+  | {
+      index: number;
+      id: ID;
+      op: BulkWriteOperationKind;
+      ok: true;
+      writeTime: FirebaseFirestore.Timestamp;
+    }
+  | {
+      index: number;
+      id: ID;
+      op: BulkWriteOperationKind;
+      ok: false;
+      /**
+       * Normalized library error — `ValidationError` for a schema/payload rejection,
+       * `InvalidDocumentIdError` for a malformed id, and the usual
+       * `NotFoundError` / `ConflictError` / `PreconditionFailedError` mapping for a backend refusal
+       * (gRPC 5 / 6 / 9). Anything unclassified is preserved as-is.
+       */
+      error: Error;
+      /**
+       * How many times the SDK attempted this write before giving up. Present only for a failure the
+       * backend reported (absent for a validation/id rejection, where no write was attempted).
+       */
+      failedAttempts?: number;
+    };
+
+/**
+ * Options for {@link FirestoreRepository.bulkWrite}.
+ */
+export type BulkWriteOptions = {
+  /**
+   * Acknowledge that this path runs **no lifecycle hooks**. Required when the repository has any
+   * bulk hook registered — without it `bulkWrite` throws rather than silently skipping them.
+   */
+  skipHooks?: boolean;
+  /**
+   * Forwarded verbatim to `db.bulkWriter({ throttling })`. Omit for the SDK default (ramping 500
+   * ops/second); `false` disables throttling.
+   */
+  throttling?: FirebaseFirestore.BulkWriterOptions['throttling'];
+};
+
+/**
  * Result of a non-throwing read-boundary validation via {@link FirestoreRepository.safeValidate}.
  *
  * Mirrors Zod's `safeParse` shape, but normalizes failures to the library's {@link ValidationError}
@@ -2150,7 +2234,7 @@ export class FirestoreRepository<
       lastUpdateTime?: FirebaseFirestore.Timestamp;
     }[],
   ): Promise<{ id: ID }[]> {
-    return this.bulkWrite(updates, false);
+    return this.runBulkBatchWrite(updates, false);
   }
 
   /**
@@ -2160,7 +2244,7 @@ export class FirestoreRepository<
    * order used by single-document `update`/`patch`, so the bulk and single-document variants stay
    * behaviorally identical.
    */
-  private async bulkWrite(
+  private async runBulkBatchWrite(
     updates: { id: ID; data: UpdateInput<W>; lastUpdateTime?: FirebaseFirestore.Timestamp }[],
     merge: boolean,
   ): Promise<{ id: ID }[]> {
@@ -2253,7 +2337,7 @@ export class FirestoreRepository<
     // keeps patch() and bulkPatch() consistent (a nested object is validated as a whole object, an
     // explicit dot-notation key is validated at its leaf) rather than validating a pre-flattened
     // payload.
-    return this.bulkWrite(updates, true);
+    return this.runBulkBatchWrite(updates, true);
   }
 
   /**
@@ -2533,6 +2617,322 @@ export class FirestoreRepository<
         Object.freeze({ ids: capturedIds, documents: docsData }),
       );
       return deletedCount;
+    } catch (error: any) {
+      throw parseFirestoreError(error);
+    }
+  }
+
+  /**
+   * Bulk hook events a fixed-batch helper would have run. {@link bulkWrite} runs none of them, so it
+   * refuses to start when any is registered unless the caller passes `{ skipHooks: true }`.
+   */
+  private static readonly BULK_HOOK_EVENTS: readonly BulkHookEvent[] = [
+    'beforeBulkCreate',
+    'afterBulkCreate',
+    'beforeBulkUpdate',
+    'afterBulkUpdate',
+    'beforeBulkDelete',
+    'afterBulkDelete',
+  ];
+
+  /**
+   * Refuses a {@link bulkWrite} on a repository whose bulk hooks would silently not fire.
+   *
+   * A hook bypass is exactly the failure the scope docs warn about for raw batches: audit trails and
+   * cache invalidation stop running with no error and no log. The fixed-batch helpers cannot be
+   * reused here — `afterBulkUpdate({ ids })` promises an all-or-nothing set, and BulkWriter is
+   * per-item — so the honest options are "no hooks, loudly" or "no hooks, silently". This is the loud
+   * one.
+   */
+  private assertNoBulkHooksRegistered(): void {
+    const registered = FirestoreRepository.BULK_HOOK_EVENTS.filter(
+      event => (this.hooks[event]?.length ?? 0) > 0,
+    );
+    if (registered.length === 0) return;
+    throw new Error(
+      `bulkWrite() runs no lifecycle hooks, but this repository has ${registered.join(', ')} ` +
+        'registered. Use bulkCreate/bulkCreateWithIds/bulkUpdate/bulkPatch/bulkDelete (fixed 500-op ' +
+        'batches, hooks run), or pass { skipHooks: true } to acknowledge that these hooks will not ' +
+        'fire for this call.',
+    );
+  }
+
+  /**
+   * Normalizes a per-item failure the same way every other write path normalizes a whole-call one: a
+   * raw `ZodError` becomes {@link ValidationError}, everything else goes through
+   * {@link parseFirestoreError}.
+   */
+  private toBulkWriteItemError(error: unknown): Error {
+    if (error instanceof z.ZodError) return new ValidationError(error.issues);
+    return parseFirestoreError(error);
+  }
+
+  /**
+   * High-throughput, **non-atomic** writes backed by the Admin SDK's `BulkWriter`, with a result per
+   * operation.
+   *
+   * This is a *separate contract* from the fixed-batch helpers
+   * (`bulkCreate`/`bulkCreateWithIds`/`bulkUpdate`/`bulkPatch`/`bulkDelete`), not a faster version of
+   * them. Pick deliberately:
+   *
+   * | | Fixed batch (`bulk*`) | `bulkWrite` |
+   * | --- | --- | --- |
+   * | Atomicity | atomic at or below 500 ops | **never** — each op succeeds or fails alone |
+   * | Failure | first failure throws; nothing after it is applied | per-item result; siblings still land |
+   * | Hooks | run | **none** (throws if any bulk hook is registered — see `skipHooks`) |
+   * | Retries | none | SDK default: transient statuses, up to 10 attempts per op |
+   * | Throughput | 500-op sequential commits | parallel, rate-limit ramped |
+   * | Duplicate ids | rejected | rejected (see below) |
+   *
+   * Duplicate ids are rejected here for a **stronger** reason than on the fixed-batch helpers. The
+   * SDK puts two writes to one document in separate batches, but those batches are dispatched
+   * concurrently and their commits race — `BulkWriter`'s internal ordering chain is global, not
+   * per-document — so which of the two lands last is genuinely undefined. Sequence such writes with
+   * separate `bulkWrite` calls (or a transaction) instead.
+   *
+   * Results are **positional**: `results[i]` describes `operations[i]`. Because a failure is a
+   * normal, expected outcome, nothing here throws for a bad *item* — a malformed id, a schema
+   * rejection, an empty update payload, or a backend refusal all land as that item's
+   * `{ ok: false, error }` while every other operation still writes. Only whole-call problems throw
+   * (registered hooks without `skipHooks`).
+   *
+   * Validation is unchanged per verb: `create` / `set` validate as a full create (dot-notation keys
+   * and `FieldValue.delete()` rejected, ADR-0019), `update` / `patch` as a partial update, and
+   * `patch` normalizes nested objects into field paths first — exactly as
+   * {@link bulkPatch} does.
+   *
+   * @param operations - Operations to apply, in enqueue order
+   * @param options - `{ skipHooks }` to acknowledge the no-hooks contract, `{ throttling }` to
+   *   override the SDK's rate-limit ramp
+   * @returns One {@link BulkWriteResult} per input operation, in input order
+   * @throws {Error} If a bulk hook is registered and `skipHooks` is not `true`, or if two operations
+   *   target the same explicit id
+   *
+   * @example
+   * // Mixed operations in one high-throughput pass
+   * const results = await userRepo.bulkWrite([
+   *   { op: 'create', data: { name: 'Ada' } },
+   *   { op: 'update', id: 'user-1', data: { status: 'active' } },
+   *   { op: 'delete', id: 'user-2' },
+   * ]);
+   *
+   * @example
+   * // A 10k-row import where one bad row must not cost the other 9,999
+   * const results = await userRepo.bulkWrite(rows.map(data => ({ op: 'create', data })));
+   * const failed = results.filter(result => !result.ok);
+   * console.log(`${results.length - failed.length} written, ${failed.length} rejected`);
+   * for (const failure of failed) console.error(failure.index, failure.error.message);
+   *
+   * @example
+   * // Cap the write rate, and acknowledge that hooks will not fire
+   * await userRepo.bulkWrite(operations, {
+   *   skipHooks: true,
+   *   throttling: { maxOpsPerSecond: 200 },
+   * });
+   */
+  async bulkWrite(
+    operations: BulkWriteOperation<W>[],
+    options?: BulkWriteOptions,
+  ): Promise<BulkWriteResult[]> {
+    if (options?.skipHooks !== true) this.assertNoBulkHooksRegistered();
+    // Whole-call input misuse, checked before any I/O: two writes to one document commit in an
+    // undefined order here (the SDK's ordering chain is global, not per-document), so an ambiguous
+    // call is refused rather than resolved by a coin flip. Generated `create` ids cannot collide and
+    // are excluded.
+    this.assertNoDuplicateIds(
+      operations.flatMap(operation => (operation.id === undefined ? [] : [operation.id])),
+      'bulkWrite',
+    );
+    // Short-circuit before `db.bulkWriter()` so an empty call allocates nothing (and cannot leave an
+    // unclosed writer behind, which would block `db.terminate()` forever).
+    if (operations.length === 0) return [];
+
+    const writeCol = this.writeCol();
+    const writer =
+      options?.throttling === undefined
+        ? this.db.bulkWriter()
+        : this.db.bulkWriter({ throttling: options.throttling });
+
+    const results = new Array<BulkWriteResult>(operations.length);
+    // Every settlement is a `.then(onOk, onErr)` chain that always fulfills, so no per-op rejection
+    // ever escapes unhandled (the SDK's raw per-op promise DOES reject, and an unobserved one takes
+    // the process down under Node's default `--unhandled-rejections=throw`).
+    const settlements: Promise<void>[] = [];
+
+    const fail = (index: number, id: ID, op: BulkWriteOperationKind, error: unknown): void => {
+      results[index] = { index, id, op, ok: false, error: this.toBulkWriteItemError(error) };
+    };
+
+    const enqueue = (
+      index: number,
+      id: ID,
+      op: BulkWriteOperationKind,
+      run: () => Promise<FirebaseFirestore.WriteResult>,
+    ): void => {
+      let pending: Promise<FirebaseFirestore.WriteResult>;
+      try {
+        // `writer.create/set/update` throw SYNCHRONOUSLY on data the SDK cannot serialize (and on a
+        // closed writer), so the call itself has to be guarded, not just its promise.
+        pending = run();
+      } catch (error) {
+        fail(index, id, op, error);
+        return;
+      }
+      settlements.push(
+        pending.then(
+          writeResult => {
+            results[index] = { index, id, op, ok: true, writeTime: writeResult.writeTime };
+          },
+          (error: unknown) => {
+            const failedAttempts = (error as { failedAttempts?: unknown })?.failedAttempts;
+            results[index] = {
+              index,
+              id,
+              op,
+              ok: false,
+              error: this.toBulkWriteItemError(error),
+              ...(typeof failedAttempts === 'number' ? { failedAttempts } : {}),
+            };
+          },
+        ),
+      );
+    };
+
+    try {
+      operations.forEach((operation, index) => {
+        // Resolve the id first: it is the one field a failure result still needs, and `validateId`
+        // must run before any ref is built (a slash-bearing id would address another collection).
+        // Across the union `operation.id` is `ID | undefined` — only `create` can leave it out.
+        const rawId: ID | undefined = operation.id;
+        let id: ID;
+        try {
+          id = rawId === undefined ? writeCol.doc().id : this.validateId(rawId);
+        } catch (error) {
+          fail(index, typeof rawId === 'string' ? rawId : '', operation.op, error);
+          return;
+        }
+
+        const docRef = writeCol.doc(id);
+
+        try {
+          switch (operation.op) {
+            case 'create': {
+              const validData = this.validateCreateData(operation.data);
+              enqueue(index, id, 'create', () => writer.create(docRef, validData as any));
+              return;
+            }
+            case 'set': {
+              const validData = this.validateCreateData(operation.data);
+              enqueue(index, id, 'set', () => writer.set(docRef, validData as any));
+              return;
+            }
+            case 'update':
+            case 'patch': {
+              // `patch` normalizes nested objects into field paths BEFORE validating, so each leaf is
+              // validated independently — the same order as `patch()` / `bulkPatch()`.
+              const normalized =
+                operation.op === 'patch'
+                  ? this.normalizeUpdateDataForMerge(operation.data)
+                  : operation.data;
+              const validData = this.validateUpdateData(normalized);
+              const writePayload = this.sanitizeUpdateData(validData);
+              this.assertNonEmptyUpdatePayload(writePayload as Record<string, any>);
+              const precondition = this.toPrecondition(operation.lastUpdateTime);
+              enqueue(index, id, operation.op, () =>
+                precondition
+                  ? writer.update(docRef, writePayload as any, precondition)
+                  : writer.update(docRef, writePayload as any),
+              );
+              return;
+            }
+            case 'delete': {
+              const precondition = this.toPrecondition(operation.lastUpdateTime);
+              enqueue(index, id, 'delete', () =>
+                precondition ? writer.delete(docRef, precondition) : writer.delete(docRef),
+              );
+              return;
+            }
+            default: {
+              // Typed callers cannot reach this arm — the union is exhaustive — but a JavaScript
+              // caller (or a TypeScript `as any` bypass) can still pass a typo'd verb. Without a
+              // default, that index stays an unassigned hole in `results`, and the documented
+              // `results.filter(r => !r.ok)` idiom silently under-reports it as a success.
+              const unknownOp = (operation as { op: unknown }).op;
+              fail(
+                index,
+                id,
+                // Preserve whatever string arrived so the caller can still inspect `result.op`.
+                (operation as { op: BulkWriteOperationKind }).op,
+                new Error(
+                  `bulkWrite() received an unknown operation "${String(unknownOp)}" at index ${index}.`,
+                ),
+              );
+              return;
+            }
+          }
+        } catch (error) {
+          fail(index, id, operation.op, error);
+        }
+      });
+    } finally {
+      // ALWAYS close, on every path: a per-op promise stays pending until flush/close (below 20
+      // enqueued ops nothing is even scheduled), and an unclosed BulkWriter makes `db.terminate()`
+      // reject forever. `close()` itself never rejects and is safe to call twice.
+      await writer.close().catch(() => {});
+    }
+
+    await Promise.all(settlements);
+    return results;
+  }
+
+  /**
+   * **Destructive.** Permanently deletes the document at `id` **and every descendant** — all
+   * subcollections, at any depth — via the Admin SDK's `Firestore.recursiveDelete()`.
+   *
+   * Separate from {@link delete} on purpose. `delete(id)` removes one document and *orphans* its
+   * subcollections (they survive, unreachable through the parent); this removes the whole subtree and
+   * cannot be undone. Nothing outside the subtree is touched: siblings survive, and so does a
+   * collection whose id merely shares a prefix with one being deleted.
+   *
+   * Three contract differences from every other write on this class:
+   *
+   * 1. **No lifecycle hooks run** — not `beforeDelete`/`afterDelete` for the target, and nothing for
+   *    the descendants. The SDK streams name-only snapshots (`select(__name__)`), so there is no
+   *    document data to hand a hook, and descendants live in collections this repository does not
+   *    model. If your delete hooks are load-bearing, read + delete through concrete repositories
+   *    instead.
+   * 2. **No count is returned.** The SDK reports none, and one cannot be synthesized honestly: a
+   *    delete of an already-absent document *succeeds*, so any tally would count delete operations
+   *    rather than documents that existed.
+   * 3. **Partial failure is possible and is reported as a whole-call error.** Deletes are issued in
+   *    parallel with no atomicity across the subtree, so a rejection means "some deletes failed" —
+   *    the SDK's error states how many, and carries the *last* failure's status code. Documents
+   *    already deleted stay deleted; re-running is safe and idempotent.
+   *
+   * A missing document is **not** an error: there is simply nothing to delete, and the call resolves.
+   *
+   * @param id - Id of the document whose subtree is deleted
+   * @throws {InvalidDocumentIdError} If `id` is not a single valid path segment
+   * @throws {Error} If any delete in the subtree failed (message states the count; status code is the
+   *   last failure's)
+   *
+   * @example
+   * // Delete a user and everything beneath them (posts, posts' comments, …)
+   * await userRepo.recursiveDelete('user-123');
+   *
+   * @example
+   * // Works from a subcollection repository too — the subtree is scoped to that document
+   * const postRepo = userRepo.subcollection('user-123', 'posts', postSchema);
+   * await postRepo.recursiveDelete('post-1'); // deletes post-1 and its comments
+   */
+  async recursiveDelete(id: ID): Promise<void> {
+    this.validateId(id);
+    try {
+      // Deliberately NOT passing our own BulkWriter: `recursiveDelete` only ever `flush()`es a
+      // supplied writer (never closes it), and an unclosed writer blocks `db.terminate()`. The SDK's
+      // own lazily-created writer is closed by `terminate()`, so letting it own the lifecycle is the
+      // option with no leak to manage. We return `void`, so there is no count to collect either.
+      await this.db.recursiveDelete(this.writeCol().doc(id));
     } catch (error: any) {
       throw parseFirestoreError(error);
     }

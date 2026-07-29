@@ -59,7 +59,8 @@ Raw Firestore errors (for example a missing composite index) are normalized into
 ### `ValidationError`
 
 Thrown when Zod schema validation fails on a write (`create`, `bulkCreate`, `update`, `patch`,
-`upsert`, and their transaction/query-builder equivalents).
+`upsert`, and their transaction/query-builder equivalents). On `bulkWrite`, the same failure arrives
+**inside** `BulkWriteResult.error` for that item rather than rejecting the whole call.
 
 Properties:
 
@@ -74,7 +75,9 @@ Properties:
 Thrown when a document id is malformed. Every id-taking surface validates its id before touching
 Firestore — `repo.id(raw)`, `getById`, `update`, `patch`, `upsert`, `delete`, the `bulk*` methods,
 their `*InTransaction` equivalents, `whereId`, and `whereFilter`'s `f.whereId` — and rejects an id
-that contains `/`, is `.` or `..`, is wrapped in `__…__`, is empty, or exceeds 1500 bytes. See
+that contains `/`, is `.` or `..`, is wrapped in `__…__`, is empty, or exceeds 1500 bytes. On
+`bulkWrite`, a malformed id is reported per item in `BulkWriteResult.error` (siblings still write);
+`recursiveDelete` still throws this error for a bad `id`. See
 [Document Identity](/firestore-orm/guides/concepts/document-identity/).
 
 Properties:
@@ -91,7 +94,9 @@ Thrown when a document that must exist is missing. Specifically:
 - `delete(id)` on a document that does not exist — including when a `lastUpdateTime` precondition
   was supplied, because the existence pre-read runs before the guarded write
 
-It is also the normalized form of a raw Firestore `not-found` error (see `parseFirestoreError`).
+It is also the normalized form of a raw Firestore `not-found` error (see `parseFirestoreError`). On
+`bulkWrite`, a backend `not-found` (e.g. `update` on a missing id) lands in that item's
+`BulkWriteResult.error` rather than throwing for the whole call.
 
 Properties:
 
@@ -109,7 +114,8 @@ Thrown when:
   exactly one.
 
 It is also a convenient error to throw yourself when enforcing uniqueness or other business rules in
-application code.
+application code. On `bulkWrite`, a colliding `create` / `set` surfaces as that item's
+`BulkWriteResult.error` (`ConflictError`) while siblings may still land.
 
 Properties:
 
@@ -125,6 +131,7 @@ concurrency, and it is the normalized form of a raw Firestore `failed-preconditi
 The rejected write is never applied, so the stored document is exactly what the other writer left —
 a retry against a freshly-read token is always safe. See
 [Conditional writes](/firestore-orm/guides/working-with-data/crud-operations/#conditional-writes).
+On `bulkWrite`, the same error arrives inside `BulkWriteResult.error` for that item.
 
 Two neighbouring cases are deliberately **not** this error:
 

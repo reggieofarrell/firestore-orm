@@ -200,6 +200,36 @@ await userRepo.bulkPatch([
 const deletedCount = await userRepo.bulkDelete(['user-1', 'user-2', 'user-3']);
 ```
 
+### High-throughput `bulkWrite` (separate contract)
+
+`bulkWrite` is **not** a faster `bulkCreate`/`bulkUpdate`/`bulkDelete`. It uses the Admin SDK's
+`BulkWriter` and trades atomicity + hooks for parallelism and per-item results:
+
+| | Fixed batch (`bulk*`) | `bulkWrite` |
+| --- | --- | --- |
+| Atomicity | atomic at or below 500 ops | **never** — each op succeeds or fails alone |
+| Failure | first failure throws; nothing after it is applied | per-item result; siblings still land |
+| Hooks | run | **none** (throws if any bulk hook is registered — see `skipHooks`) |
+| Retries | none | SDK default: transient statuses, up to 10 attempts per op |
+| Throughput | 500-op sequential commits | parallel, rate-limit ramped |
+| Duplicate ids | rejected | rejected (same-document commit order is undefined) |
+
+```typescript
+const results = await userRepo.bulkWrite([
+  { op: 'create', data: { name: 'Ada', email: 'ada@example.com' } },
+  { op: 'update', id: 'user-1', data: { status: 'active' } },
+  { op: 'delete', id: 'user-2' },
+]);
+
+const failed = results.filter(result => !result.ok);
+console.log(`${results.length - failed.length} written, ${failed.length} rejected`);
+for (const failure of failed) console.error(failure.index, failure.error.message);
+```
+
+Pass `{ skipHooks: true }` when the repository has bulk hooks registered and you deliberately want
+them not to fire. For a document subtree (not a single doc), use `recursiveDelete(id)` — separate
+from `delete(id)`, which orphans subcollections.
+
 **Performance Tip**: For simple bulk updates on query results, use `query().update()` instead:
 
 ```typescript
@@ -214,5 +244,6 @@ await orderRepo.bulkUpdate(orders.map(o => ({ id: o.id, data: { status: 'shipped
 Note that `query().update()` and `query().delete()` run the **bulk** lifecycle hooks
 (`beforeBulkUpdate`/`afterBulkUpdate` and `beforeBulkDelete`/`afterBulkDelete` respectively), not
 the per-document `before/afterUpdate` / `before/afterDelete` hooks. Use the single-document methods
-if you need per-document hooks. See
+if you need per-document hooks. **`bulkWrite` and `recursiveDelete` run no hooks** — `bulkWrite`
+throws when bulk hooks are registered unless you pass `{ skipHooks: true }`. See
 [lifecycle hooks](/firestore-orm/guides/concepts/lifecycle-hooks/).

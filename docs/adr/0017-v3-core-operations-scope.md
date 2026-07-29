@@ -113,6 +113,15 @@ server-side Firestore parity. Concretely:
    > (#38–#41) are unchanged, as is the decision not to pursue full server-side or Enterprise
    > Pipeline parity. Rationale and contract: ADR-0031.
 
+   > Amendment (3.0.0, issue #38): BulkWriter high-throughput writes and explicit recursive delete
+   > are **no longer deferred** — they ship in 3.0.0 as `bulkWrite(operations, options?)` (mixed
+   > verbs, positional per-item results, no lifecycle hooks — throws if any bulk hook is registered
+   > unless `{ skipHooks: true }`) and document-scoped `recursiveDelete(id)` (document +
+   > descendants, no hooks, no count). A collection-wide recursive delete stays deferred
+   > ([#69](https://github.com/reggieofarrell/firestore-orm/issues/69)). So #38 leaves this list.
+   > The remaining deferrals (#39–#41) are unchanged, as is the decision not to pursue full
+   > server-side or Enterprise Pipeline parity. Rationale and contract: ADR-0032.
+
 We explicitly do **not** block v3 on any of the deferred items.
 
 ## Consequences
@@ -140,10 +149,11 @@ capability matrix is the honest middle ground.
 
 - The v3 release review and its round-2 response — "Server-side Firestore feature parity follow-up"
   (maintainer-local review records under `reviews/`, not committed to the repo).
-- GitHub issues #38–#41 (labels `parity`, `v3.x`); #30 is closed by the 3.0.0 `whereFilter` API
+- GitHub issues #39–#41 (labels `parity`, `v3.x`); #30 is closed by the 3.0.0 `whereFilter` API
   (ADR-0023), #31 by the 3.0.0 `collectionGroup()` API (ADR-0024), #32 by the 3.0.0 transaction
   options / `runReadOnlyAt` / `getInTransaction` rename (ADR-0025), #33 by the 3.0.0 conditional
   writes / `lastUpdateTime` preconditions API (ADR-0026), #34 by the 3.0.0 `aggregate(spec)` API
   (ADR-0027), #35 by the 3.0.0 `getMany(ids)` / `getManyInTransaction` API (ADR-0029), #36 by the
-  3.0.0 typed bounds / `offset` / `limitToLast` API (ADR-0030), and #37 by the 3.0.0 `explain()` API
-  (ADR-0031; `explainStream` remains tracked separately).
+  3.0.0 typed bounds / `offset` / `limitToLast` API (ADR-0030), #37 by the 3.0.0 `explain()` API
+  (ADR-0031; `explainStream` remains tracked separately), and #38 is closed by the 3.0.0 `bulkWrite`
+  / `recursiveDelete` API (ADR-0032; collection-wide recursive delete remains tracked as #69).

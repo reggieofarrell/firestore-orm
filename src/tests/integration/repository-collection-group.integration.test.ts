@@ -361,6 +361,56 @@ describe('FirestoreRepository collectionGroup()', () => {
     expect(statuses.sort()).toEqual(['draft', 'published']);
   });
 
+  it('I-4a: distinctValues merges equal maps across different group depths (issue #40 / T9)', async () => {
+    // Two documents at different depths carry semantically equal maps (opposite key order). The
+    // collection-group path must still collapse them to one value (T4 / T9).
+    const paths = {
+      shallow: `${USERS}/u5/${GROUP_ID}/eq_a`,
+      deep: `${USERS}/u5/${GROUP_ID}/p1/${GROUP_ID}/eq_b`,
+    };
+    await Promise.all([
+      db.doc(paths.shallow).set({ title: 'EQPAIR', status: 'eq', views: 1, meta: { x: 1, y: 2 } }),
+      db.doc(paths.deep).set({ title: 'EQPAIR', status: 'eq', views: 1, meta: { y: 2, x: 1 } }),
+    ]);
+
+    try {
+      expect(
+        await postGroup
+          .query()
+          .where('title', '==', 'EQPAIR')
+          .distinctValues('meta' as any),
+      ).toHaveLength(1);
+    } finally {
+      const batch = db.batch();
+      Object.values(paths).forEach(path => batch.delete(db.doc(path)));
+      await batch.commit();
+    }
+  });
+
+  it('I-4b: distinctValues keeps different maps distinct across the group (issue #40 / T9)', async () => {
+    const paths = {
+      a: `${USERS}/u6/${GROUP_ID}/diff_a`,
+      b: `${GROUP_ID}/diff_b`,
+    };
+    await Promise.all([
+      db.doc(paths.a).set({ title: 'DIFFMAP', status: 'eq', views: 1, meta: { x: 1 } }),
+      db.doc(paths.b).set({ title: 'DIFFMAP', status: 'eq', views: 1, meta: { x: 2 } }),
+    ]);
+
+    try {
+      expect(
+        await postGroup
+          .query()
+          .where('title', '==', 'DIFFMAP')
+          .distinctValues('meta' as any),
+      ).toHaveLength(2);
+    } finally {
+      const batch = db.batch();
+      Object.values(paths).forEach(path => batch.delete(db.doc(path)));
+      await batch.commit();
+    }
+  });
+
   // -------------------------------------------------------------------------
   // Projection, streaming, listeners
   // -------------------------------------------------------------------------

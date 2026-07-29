@@ -1,10 +1,16 @@
 /**
  * Strategy: emulator integration tests for QueryBuilder pagination and query helpers.
  * Verifies paginate, offsetPaginate, exists, distinctValues, getOne, and query delete.
+ *
+ * Issue #40 (I-1 / I-2): also proves `distinctValues` applies Firestore-aware semantic equality on
+ * values the SDK actually decoded — maps with different written key order, arrays, Timestamp,
+ * GeoPoint, DocumentReference, and Bytes — and that genuinely different structured values stay
+ * distinct (promotes probe N-instanceof-across-read-path.mjs).
  */
+import { GeoPoint, Timestamp } from 'firebase-admin/firestore';
 import { createTestUserInput } from '../shared/factories/user.factory.js';
 import { resetTestFactoryCounters } from '../shared/factories/counters.js';
-import { createUserRepoHarness } from './helpers/firestoreIntegrationHarness.js';
+import { createUserRepoHarness, getIntegrationDb } from './helpers/firestoreIntegrationHarness.js';
 
 type CatalogUser = {
   id: string;
@@ -121,6 +127,101 @@ describe('FirestoreRepository QueryBuilder', () => {
     expect(tiers).toContain(null);
     expect(tiers).not.toContain(undefined);
     expect(tiers).toHaveLength(2);
+  });
+
+  it('I-1: distinctValues dedupes structured/reference values by semantic equality (issue #40)', async () => {
+    // Writes two documents carrying semantically equal structured fields via the raw Admin SDK
+    // (bulkCreate's sentinel walker stack-overflows on DocumentReference's circular Firestore
+    // client). Map keys are written in opposite order so the emulator's preserved key order cannot
+    // accidentally make identity dedupe look correct. Each field's distinctValues must return
+    // length 1 — the only integration proof that `instanceof` holds on values the SDK decoded
+    // (N10 / N11 / T4 / T8 / P1).
+    const db = getIntegrationDb();
+    const col = userRepo.getCollectionPath();
+    const idA = `sem_eq_a_${Date.now()}`;
+    const idB = `sem_eq_b_${Date.now()}`;
+    trackUser(idA);
+    trackUser(idB);
+
+    const targetRef = db.doc('issue40_targets/t1');
+    const ts = new Timestamp(1700000000, 123456789);
+    const gp = new GeoPoint(1.5, -2.25);
+    const bytes = Buffer.from([1, 2, 3]);
+
+    await Promise.all([
+      db
+        .collection(col)
+        .doc(idA)
+        .set({
+          name: 'sem-eq-a',
+          map: { x: 1, y: 2 },
+          arr: [1, 'two', { k: 3 }],
+          ts,
+          gp,
+          ref: targetRef,
+          bytes,
+        }),
+      db
+        .collection(col)
+        .doc(idB)
+        .set({
+          name: 'sem-eq-b',
+          map: { y: 2, x: 1 },
+          arr: [1, 'two', { k: 3 }],
+          ts: new Timestamp(1700000000, 123456789),
+          gp: new GeoPoint(1.5, -2.25),
+          ref: db.doc('issue40_targets/t1'),
+          bytes: Buffer.from([1, 2, 3]),
+        }),
+    ]);
+
+    const scoped = userRepo.query().where('name', 'in', ['sem-eq-a', 'sem-eq-b'] as any);
+    expect(await scoped.distinctValues('map' as any)).toHaveLength(1);
+    expect(await scoped.distinctValues('arr' as any)).toHaveLength(1);
+    expect(await scoped.distinctValues('ts' as any)).toHaveLength(1);
+    expect(await scoped.distinctValues('gp' as any)).toHaveLength(1);
+    expect(await scoped.distinctValues('ref' as any)).toHaveLength(1);
+    expect(await scoped.distinctValues('bytes' as any)).toHaveLength(1);
+  });
+
+  it('I-2: distinctValues keeps genuinely different structured values distinct (issue #40)', async () => {
+    // Over-merge guard: different maps, Timestamps a full second apart (see the note below), and
+    // different refs must each report length 2 (T1 / T8). Written via the raw SDK for the same
+    // reason as I-1.
+    const db = getIntegrationDb();
+    const col = userRepo.getCollectionPath();
+    const idA = `diff_a_${Date.now()}`;
+    const idB = `diff_b_${Date.now()}`;
+    trackUser(idA);
+    trackUser(idB);
+
+    await Promise.all([
+      db
+        .collection(col)
+        .doc(idA)
+        .set({
+          name: 'diff-a',
+          map: { x: 1 },
+          // Nanosecond-scale deltas of 1–2 do not survive emulator round-trip (both come back as
+          // `_nanoseconds: 0`). Use a full-second difference so the over-merge guard is observable.
+          ts: new Timestamp(1700000000, 0),
+          ref: db.doc('issue40_targets/a'),
+        }),
+      db
+        .collection(col)
+        .doc(idB)
+        .set({
+          name: 'diff-b',
+          map: { x: 2 },
+          ts: new Timestamp(1700000001, 0),
+          ref: db.doc('issue40_targets/b'),
+        }),
+    ]);
+
+    const scoped = userRepo.query().where('name', 'in', ['diff-a', 'diff-b'] as any);
+    expect(await scoped.distinctValues('map' as any)).toHaveLength(2);
+    expect(await scoped.distinctValues('ts' as any)).toHaveLength(2);
+    expect(await scoped.distinctValues('ref' as any)).toHaveLength(2);
   });
 
   it('should return getOne for first match', async () => {

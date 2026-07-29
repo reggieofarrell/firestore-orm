@@ -35,7 +35,9 @@ reach the raw Admin SDK for anything not yet wrapped.
 | Multi-aggregation `aggregate(spec)`              | Aliased count/sum/average in one request; max 5; sparse-field caveat (see queries guide)                                                                                                                                                  |
 | Native query streaming (`stream`)                | Backed by the SDK's `Query.stream()`                                                                                                                                                                                                      |
 | Transactions (read-write + read-only / PITR)     | `runInTransaction(fn, options?)`, `runReadOnlyAt(readTime, fn)`; `maxAttempts` on RW; RO callback is `ReadOnlyTransactionalRepository`                                                                                                    |
-| Fixed batch writes (`bulkCreate/Update/Delete`)  | 500-op chunks, non-atomic above 500 (documented)                                                                                                                                                                                          |
+| Fixed batch writes (`bulkCreate/Update/Delete`)  | 500-op chunks, atomic at or below 500; hooks run; first failure throws                                                                                                                                                                    |
+| High-throughput writes (`bulkWrite`)             | Non-atomic BulkWriter path; positional per-item results; **no hooks** (throws if any bulk hook is registered unless `{ skipHooks: true }`); duplicate ids rejected                                                                       |
+| Recursive delete (`recursiveDelete`)             | Document + all descendants; **no hooks**, no count; missing target resolves. Collection-wide variant deferred ([#69](https://github.com/reggieofarrell/firestore-orm/issues/69)).                                                         |
 | Conditional writes (create-only + preconditions) | `createWithId` / `bulkCreateWithIds` / `createWithIdInTransaction`; `lastUpdateTime` on update/delete; `getByIdWithUpdateTime`. General snapshot/write metadata remains [#39](https://github.com/reggieofarrell/firestore-orm/issues/39). |
 | `getMany(ids)` multi-document reads              | One batched `BatchGetDocuments` read; results in **input order**; `null` marks missing ids in position; optional `fieldMask`; transaction variant `getManyInTransaction`. Prefer over `whereId('in', …)` for id lookups.                    |
 | Field transforms / sentinels                     | Strict per-field approval by default                                                                                                                                                                                                      |
@@ -50,7 +52,6 @@ issue labeled `parity` / `v3.x`. Until then, use the [raw-SDK escape hatch](#raw
 | Capability                                         | Issue                                                            |
 | -------------------------------------------------- | ---------------------------------------------------------------- |
 | Query `explainStream` (Core only)                  | [#65](https://github.com/reggieofarrell/firestore-orm/issues/65) |
-| BulkWriter high-throughput API + recursive delete  | [#38](https://github.com/reggieofarrell/firestore-orm/issues/38) |
 | Snapshot/write metadata + detailed listeners       | [#39](https://github.com/reggieofarrell/firestore-orm/issues/39) |
 | Server-side / structured-equality `distinctValues` | [#40](https://github.com/reggieofarrell/firestore-orm/issues/40) |
 | Experimental Enterprise Pipeline subpath           | [#41](https://github.com/reggieofarrell/firestore-orm/issues/41) |
@@ -98,8 +99,9 @@ for (const [parentPath, rows] of byParent) {
 
 You always own the `Firestore` instance you pass into a repository, so you can drop down to the
 Admin SDK for anything the ORM does not wrap — you lose the ORM's
-validation/conversion/result-shaping for that operation, but nothing is blocked. For example,
-`BulkWriter` (until [#38](https://github.com/reggieofarrell/firestore-orm/issues/38) lands):
+validation/conversion/result-shaping for that operation, but nothing is blocked. For cases
+`bulkWrite` does not cover — for example streaming input larger than memory — use a raw
+`BulkWriter`:
 
 ```typescript
 // `db` is the same Firestore instance you passed to your repositories.

@@ -31,8 +31,10 @@ Firestore charges for:
 | `query().aggregate(spec)`  | 1 aggregation request (up to 5 aliases)      | One round trip for count+sum+average      |
 | `create()`                 | 1 write                                      | Single write operation                    |
 | `bulkCreate(100)`          | 100 writes                                   | Batched but still counts as 100 writes    |
+| `bulkWrite(N ops)`         | N writes                                     | Still 1 write per op; win is parallelism + per-item failure isolation, not cost |
 | `update()`                 | 1 write                                      | Even if updating one field                |
 | `delete()`                 | 1 delete                                     | Permanently removes document              |
+| `recursiveDelete(id)`      | 1 delete per document in the subtree         | Target + all descendants                  |
 | `query().update()`         | 1 write per match                            | Efficient batch update                    |
 | `onSnapshot()`             | 1 read per doc initially + 1 read per change | Real-time listener costs                  |
 
@@ -95,6 +97,17 @@ await userRepo.bulkCreate(users); // 500 users
 2. Splits into batches of 500 operations (Firestore limit)
 3. Commits each batch sequentially
 4. **Cost**: 500 writes
+
+**Bulk Write (`bulkWrite`)**
+
+```typescript
+await userRepo.bulkWrite(ops); // e.g. 600 mixed create/update/delete
+```
+
+1. Validates each operation independently; failures become per-item results
+2. Enqueues through one Admin SDK `BulkWriter`, then closes it
+3. **Cost**: still 1 write per operation — the win is parallelism, retries on transient statuses, and
+   failure isolation (one bad row does not abort the rest), not a lower write bill
 
 **Query Update**
 
@@ -220,6 +233,7 @@ Based on testing with Firebase Admin SDK:
 | `bulkCreate()`        | 100                | ~300ms | Batched writes                     |
 | `bulkCreate()`        | 500                | ~800ms | Single batch                       |
 | `bulkCreate()`        | 1000               | ~1.6s  | Split into 2 batches               |
+| `bulkWrite()`         | large mixed set    | —      | Parallel BulkWriter; still 1 write/op (no production timing claimed here) |
 | `getById()`           | 1                  | ~30ms  | Cached locally after first read    |
 | `query().get()`       | 100                | ~100ms | Includes network + deserialization |
 | `query().count()`     | 10,000             | ~200ms | Aggregation query                  |

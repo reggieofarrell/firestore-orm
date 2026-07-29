@@ -236,6 +236,22 @@ Permanently delete multiple documents. Resolves to the count of documents that *
 are already gone are filtered out by the existence pre-read, so an entry with a `lastUpdateTime`
 whose document no longer exists is skipped rather than raising.
 
+**`bulkWrite(operations: BulkWriteOperation<W>[], options?: BulkWriteOptions): Promise<BulkWriteResult[]>`**
+
+High-throughput, **non-atomic** writes backed by the Admin SDK's `BulkWriter`, with a positional
+result per operation. This is a *separate contract* from the fixed-batch helpers: each op succeeds
+or fails alone; lifecycle hooks do **not** run (throws if any bulk hook is registered unless
+`{ skipHooks: true }`); duplicate explicit ids are rejected because same-document commit order is
+undefined. Validation failures and backend refusals land as `{ ok: false, error }` for that item
+while siblings still write. Optional `throttling` is forwarded to `db.bulkWriter`.
+
+**`recursiveDelete(id: ID): Promise<void>`**
+
+**Destructive.** Permanently deletes the document at `id` **and every descendant** (all
+subcollections, any depth). No lifecycle hooks run; no count is returned. A missing document
+resolves (idempotent). Partial failure is reported as a whole-call error — already-deleted docs stay
+deleted; re-running is safe. Separate from `delete(id)`, which orphans subcollections.
+
 ## Identity
 
 **`id(raw: string): ID`**
@@ -298,7 +314,9 @@ Payload notes: `beforeCreate` / `beforeUpdate` receive the mutable write payload
 receive the full persisted document as a `FirestoreDocument<T>` at runtime. `query().update()` /
 `query().delete()` run the **bulk** hooks (`beforeBulkUpdate`/`afterBulkUpdate`,
 `beforeBulkDelete`/`afterBulkDelete`), not the per-document hooks; inside transactions only
-`before*` hooks run, via the transaction-scoped repo passed to `runInTransaction`. See
+`before*` hooks run, via the transaction-scoped repo passed to `runInTransaction`. **`bulkWrite` and
+`recursiveDelete` run no hooks** — `bulkWrite` throws when any bulk hook is registered unless
+`{ skipHooks: true }` is passed. See
 [Lifecycle hooks](/firestore-orm/guides/concepts/lifecycle-hooks/) for full detail.
 
 **`subcollection<RS extends ZodObject, WS extends ZodObject = RS, SS extends ZodObject = RS>(parentId: ID, subcollectionName: string, readSchema: RS, options?: { writeSchema?: WS; storedSchema?: SS; readConverter?: ReadConverter<z.output<RS>>; sentinelPolicy?: SentinelPolicy; allowLegacyDatastoreIds?: boolean }): FirestoreRepository<z.output<RS>, z.input<WS>, z.output<SS>, z.output<WS>>`**

@@ -30,6 +30,16 @@ these types describe, see [FirestoreRepository](/firestore-orm/reference/reposit
   it with the extractors to name a row: `CollectionGroupDocument<DataOf<typeof postRepo>>`. Both
   `FirestoreDocument` and `CollectionGroupDocument` distribute `Omit` over union read models
   (ADR-0028).
+- **`DocumentMetadata`** — snapshot provenance paired with reads and detailed listeners: `ref`
+  (live `DocumentReference` — not JSON-serializable), `path`, `parentPath`, `createTime`,
+  `updateTime`, `readTime`. Delivered as a **sibling** of the document, never overlaid onto it.
+- **`WithMetadata<D>`** — `{ doc: D; metadata: DocumentMetadata }`, returned by any read called with
+  `{ withMetadata: true }`. `doc` stays JSON-serializable; `metadata.ref` does not.
+- **`DetailedDocumentChange<R>`** — one mapped `docChanges()` entry: `type`, `doc`, `metadata`,
+  `oldIndex`, `newIndex`. For `type: 'removed'`, `doc` and `metadata` describe the document as it
+  last was — branch on `type`, not on `exists`.
+- **`DetailedQuerySnapshot<R>`** — detailed listener payload: `docs`, `changes`, `size`, `empty`,
+  `readTime`.
 - **`InvalidDocumentIdReason`** — machine-readable cause carried by `InvalidDocumentIdError` (the
   error class is documented in [Error Handling](/firestore-orm/reference/errors/)).
 - **`HookEvent`** — union of supported lifecycle hook names.

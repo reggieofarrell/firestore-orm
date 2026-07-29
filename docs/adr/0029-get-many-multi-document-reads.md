@@ -10,6 +10,10 @@
   [issue #39](https://github.com/reggieofarrell/firestore-orm/issues/39) (still owns snapshot /
   write metadata including a future `getManyWithUpdateTime`)
 
+> Amendment (3.0.0, issue #39): `getMany(ids, { withMetadata: true })` now supersedes the deferred
+> `getManyWithUpdateTime` idea (ADR-0033). Pair-shaped `{ doc, metadata }` is the general opt-in
+> read-metadata shape.
+
 ## Context
 
 Issue #35 asked for a multi-ID read that **preserves order**, **marks missing docs**, and **supports
@@ -124,7 +128,8 @@ the wrong return type. The established `create(data, options)` pair has the iden
 - Plan / probes (maintainer-local): `tmp/plans/issue-35-get-many.md`, `tmp/probes/issue-35/`
 
 This record **amends ADR-0017**: multi-document `getMany` reads are no longer deferred. The
-remaining deferrals (#39–#41) and the decision not to pursue full server-side or Enterprise Pipeline
-parity are unchanged. (#36 typed bounds / `limitToLast`, #37 `explain()`, and #38 `bulkWrite` /
-`recursiveDelete` have since shipped — see ADR-0030 / ADR-0031 / ADR-0032; this footer is a living
-index of remaining ADR-0017 deferrals — see [`docs/adr/README.md`](README.md) Conventions.)
+remaining deferrals (#40–#41) and the decision not to pursue full server-side or Enterprise Pipeline
+parity are unchanged. (#36 typed bounds / `limitToLast`, #37 `explain()`, #38 `bulkWrite` /
+`recursiveDelete`, and #39 snapshot read metadata / detailed listeners have since shipped — see
+ADR-0030 / ADR-0031 / ADR-0032 / ADR-0033; this footer is a living index of remaining ADR-0017
+deferrals — see [`docs/adr/README.md`](README.md) Conventions.)

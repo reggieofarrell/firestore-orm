@@ -83,9 +83,21 @@ There is no options / config / debug / logger bag anywhere in the constructor �
 
 Get document by ID. Resolves to `null` when the document does not exist.
 
+**`getById(id: ID, options: { withMetadata: true }): Promise<WithMetadata<FirestoreDocument<T>> | null>`**
+
+Same as `getById(id)`, but each result is `{ doc, metadata }` — the document under `doc` (unchanged
+from the default read) plus sibling `DocumentMetadata` under `metadata`. Pass the flag inline; a
+hoisted `const opts = { withMetadata: true }` widens to `{ withMetadata: boolean }` and matches no
+overload.
+
 **`getByIdOrThrow(id: ID): Promise<FirestoreDocument<T>>`**
 
 Get document by ID; throws `NotFoundError` when missing.
+
+**`getByIdOrThrow(id: ID, options: { withMetadata: true }): Promise<WithMetadata<FirestoreDocument<T>>>`**
+
+Throws `NotFoundError` when missing; otherwise returns `{ doc, metadata }` like
+`getById(id, { withMetadata: true })`.
 
 **`getByIdWithUpdateTime(id: ID): Promise<{ doc: FirestoreDocument<T>; updateTime: Timestamp } | null>`**
 
@@ -93,12 +105,16 @@ Get a document together with its Firestore `updateTime` — the token for optimi
 writes. Resolves to `null` when the document does not exist. The result is a **pair**, not an
 overlay, so a stored field named `updateTime` is never shadowed. Pass `updateTime` back as
 `lastUpdateTime` on `update` / `patch` / `delete` (or their bulk and transaction variants). A
-configured `readConverter` applies to `doc`. **Not** on `ReadOnlyTransactionalRepository` — it
-performs non-transactional I/O. See
+configured `readConverter` applies to `doc`. For the general read-metadata shape (all provenance
+fields, not just `updateTime`), use `getById(id, { withMetadata: true })` instead — this method
+remains the narrow CAS-token accessor. **Not** on `ReadOnlyTransactionalRepository` — it performs
+non-transactional I/O. See
 [Conditional writes](/firestore-orm/guides/working-with-data/crud-operations/#conditional-writes).
 
 **`getMany(ids: ID[]): Promise<(FirestoreDocument<T> | null)[]>`** /
-**`getMany(ids: ID[], options: { fieldMask: … }): Promise<(FirestoreDocument<DeepPartial<T>> | null)[]>`**
+**`getMany(ids: ID[], options: { fieldMask: … }): Promise<(FirestoreDocument<DeepPartial<T>> | null)[]>`** /
+**`getMany(ids: ID[], options: { withMetadata: true }): Promise<(WithMetadata<FirestoreDocument<T>> | null)[]>`** /
+**`getMany(ids: ID[], options: { withMetadata: true; fieldMask: … }): Promise<(WithMetadata<FirestoreDocument<DeepPartial<T>>> | null)[]>`**
 
 Batched multi-document read via one `BatchGetDocuments` RPC (`db.getAll`). Results are in **input
 order** (SDK client-side re-sort). Missing documents are `null` in position (`ids[i]` is the missing
@@ -138,19 +154,23 @@ Non-throwing variant of `validate`. Returns `{ success: true, data }` or
 `{ success: false, error: ValidationError }` (array form: one result per element). Still throws a
 plain `Error` when no schema is configured.
 
-**`getAll(): Promise<FirestoreDocument<T>[]>`**
+**`getAll(): Promise<FirestoreDocument<T>[]>`** /
+**`getAll(options: { withMetadata: true }): Promise<WithMetadata<FirestoreDocument<T>>[]>`**
 
-Get all documents in the collection.
+Get all documents in the collection. Pass `{ withMetadata: true }` for `{ doc, metadata }` rows.
 
-**`findByField(field: FieldPaths<OmitId<S>> | FieldPath, value: unknown): Promise<FirestoreDocument<T>[]>`**
+**`findByField(field: FieldPaths<OmitId<S>> | FieldPath, value: unknown): Promise<FirestoreDocument<T>[]>`** /
+**`findByField(field, value, options: { withMetadata: true }): Promise<WithMetadata<FirestoreDocument<T>>[]>`**
 
 Find all documents whose `field` (a stored field path) equals `value`.
 
-**`getOneByField(field: FieldPaths<OmitId<S>> | FieldPath, value: unknown): Promise<FirestoreDocument<T> | null>`**
+**`getOneByField(field: FieldPaths<OmitId<S>> | FieldPath, value: unknown): Promise<FirestoreDocument<T> | null>`** /
+**`getOneByField(field, value, options: { withMetadata: true }): Promise<WithMetadata<FirestoreDocument<T>> | null>`**
 
 Find the first document by field value. Returns `null` when no document matches.
 
 **`getOneByFieldOrThrow(field: FieldPaths<OmitId<S>> | FieldPath, value: unknown): Promise<FirestoreDocument<T>>`**
+**`getOneByFieldOrThrow(field, value, options: { withMetadata: true }): Promise<WithMetadata<FirestoreDocument<T>>>`**
 
 Find exactly one document by field value. Throws `NotFoundError` when none match and `ConflictError`
 when multiple documents match.
@@ -159,6 +179,14 @@ when multiple documents match.
 
 Subscribe to real-time updates for a single document by ID. Returns an unsubscribe function. See
 [Real-time & Listeners](/firestore-orm/guides/advanced/real-time/).
+
+**`listenOneDetailed(id: ID, callback: (item: WithMetadata<FirestoreDocument<T>>) => void, onError?: (error: Error) => void): () => void`**
+
+Subscribe to a single document and deliver `{ doc, metadata }` on every change — same provenance
+fields as `{ withMetadata: true }` reads. Returns an unsubscribe function synchronously. When the
+document is **deleted**, routes to `onError(new NotFoundError(...))` (mirrors `listenOne`) rather
+than invoking the callback with a nullable document — the underlying deletion snapshot has no
+`createTime` / `updateTime` to build metadata from.
 
 ## Writes
 

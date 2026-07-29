@@ -12,9 +12,10 @@ walkthrough of these methods, see [Queries](/firestore-orm/guides/working-with-d
 
 `class FirestoreQueryBuilder<T, W, S = T, R = FirestoreDocument<T>>` — obtained from `repo.query()`.
 `R` is the result shape of terminal reads (`get`, `getOne`, `stream`, `paginate`, …); it defaults to
-`FirestoreDocument<T>` and is narrowed to `FirestoreDocument<DeepPartial<T>>` by `select()`.
-Chainable clause methods (`where`, `whereFilter`, `whereId`, `orderBy`, `orderById`, `limit`) return
-`this`; `select()` returns a **new** builder (see below).
+`FirestoreDocument<T>` and is narrowed to `FirestoreDocument<DeepPartial<T>>` by `select()`. Pass
+`{ withMetadata: true }` on a terminal to receive `WithMetadata<R>` (or an array of pairs) instead —
+`R` itself is unchanged. Chainable clause methods (`where`, `whereFilter`, `whereId`, `orderBy`,
+`orderById`, `limit`) return `this`; `select()` returns a **new** builder (see below).
 
 ## Clauses
 
@@ -133,7 +134,8 @@ For forward opaque paging, keep using `paginate(pageSize, cursor?)`. For reverse
 
 ## Terminal reads
 
-**`get(): Promise<R[]>`**
+**`get(): Promise<R[]>`** /
+**`get(options: { withMetadata: true }): Promise<WithMetadata<R>[]>`**
 
 Execute the query and return all matching documents. `R` is `FirestoreDocument<T>` by default, or
 `FirestoreDocument<DeepPartial<T>>` after `select(...)`.
@@ -154,7 +156,8 @@ Plans this query and optionally executes it (Admin SDK Query Explain). Returns
 `Error: No explain results`. Real plan/execution stats require production Firestore.
 `explainStream` is deferred ([#65](https://github.com/reggieofarrell/firestore-orm/issues/65)).
 
-**`getOne(): Promise<R | null>`**
+**`getOne(): Promise<R | null>`** /
+**`getOne(options: { withMetadata: true }): Promise<WithMetadata<R> | null>`**
 
 Return the first matching document, or `null`.
 
@@ -207,20 +210,24 @@ collection group `distinctValues('path')` returns the values of a _stored_ field
 the document paths `get()` reports as `row.path`. That is intentional — it is the only surface that
 can read a field the identity overlay shadows.
 
-**`paginate(pageSize: number, cursor?: string | null): Promise<{ items: R[]; nextCursor: string | null; hasMore: boolean }>`**
+**`paginate(pageSize: number, cursor?: string | null): Promise<{ items: R[]; nextCursor: string | null; hasMore: boolean }>`** /
+**`paginate(pageSize, cursor, options: { withMetadata: true }): Promise<{ items: WithMetadata<R>[]; nextCursor: string | null; hasMore: boolean }>`**
 
 Cursor-based pagination (recommended for large datasets). Requires at least one prior `orderBy(...)`
 call and throws unless `pageSize` is a positive integer.
 
-**`offsetPaginate(page: number, pageSize: number): Promise<{ items: R[]; page: number; pageSize: number; total: number; totalPages: number }>`**
+**`offsetPaginate(page: number, pageSize: number): Promise<{ items: R[]; page: number; pageSize: number; total: number; totalPages: number }>`** /
+**`offsetPaginate(page, pageSize, options: { withMetadata: true }): Promise<{ items: WithMetadata<R>[]; page: number; pageSize: number; total: number; totalPages: number }>`**
 
 Offset-based pagination. `page` and `pageSize` must be positive integers.
 
-**`paginateWithCount(pageSize: number, cursor?: string | null): Promise<{ items: R[]; nextCursor: string | null; hasMore: boolean; total: number }>`**
+**`paginateWithCount(pageSize: number, cursor?: string | null): Promise<{ items: R[]; nextCursor: string | null; hasMore: boolean; total: number }>`** /
+**`paginateWithCount(pageSize, cursor, options: { withMetadata: true }): Promise<{ items: WithMetadata<R>[]; nextCursor: string | null; hasMore: boolean; total: number }>`**
 
 Cursor pagination combined with a total count.
 
-**`stream(): AsyncGenerator<R>`**
+**`stream(): AsyncGenerator<R>`** /
+**`stream(options: { withMetadata: true }): AsyncGenerator<WithMetadata<R>>`**
 
 Stream matching documents as an async generator (for large datasets), backed by the SDK's native
 `Query.stream()`.
@@ -229,6 +236,16 @@ Stream matching documents as an async generator (for large datasets), backed by 
 
 Subscribe to real-time updates for the query. Resolves to an unsubscribe function. Throws if the
 query has a `select(...)` field mask (Firestore forbids listeners on projected queries).
+
+**`onSnapshotDetailed(callback: (snapshot: DetailedQuerySnapshot<R>) => void, onError?: (error: Error) => void): Promise<() => void>`**
+
+Subscribe with the full mapped result set **plus** `docChanges()` semantics. The callback receives
+`DetailedQuerySnapshot<R>`: `docs`, `changes` (each entry is `DetailedDocumentChange<R>` with
+`type`, `doc`, `metadata`, `oldIndex`, `newIndex`), `size`, `empty`, and `readTime`. The first
+emission reports every match as `type: 'added'` with `oldIndex: -1`. For a `removed` change, `doc`
+and `metadata` describe the document **as it last was** — branch on `type`, not on `exists` on the
+change doc. Same `select()` rejection as `onSnapshot`. See
+[Real-time & Listeners](/firestore-orm/guides/advanced/real-time/).
 
 ## Query-level writes
 
@@ -249,7 +266,9 @@ Delete all matching documents; returns the matched (deleted) count. Runs the bul
 from `repo.collectionGroup().query()`. It queries every collection sharing the repository's
 collection id, at any depth. Both builders extend the same internal read base, so **everything in
 [Clauses](#clauses) and [Terminal reads](#terminal-reads) above behaves identically** except for the
-differences below. For the narrative walkthrough see
+differences below — including every `{ withMetadata: true }` terminal overload and
+`onSnapshotDetailed()`. On collection-group rows, `metadata.path` equals the row's own `path` (not a
+separate spelling). For the narrative walkthrough see
 [collection-group queries](/firestore-orm/guides/working-with-data/queries/#collection-group-queries).
 
 | Single collection                 | Collection group             | Why                                                 |

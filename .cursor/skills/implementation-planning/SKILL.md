@@ -86,7 +86,8 @@ that is a calibration, not a target.
    - **Every code block in §6 goes through `tsc` before handoff.** Paste it into a scratch file
      under `src/`, run `npm run test:types`, delete the file. This is **not** a prototype — no real
      edit, no gate, no revert — and unlike a prototype it is **never optional on a handoff**. Record
-     the result in §12.
+     the result in §12. (If a gated prototype produced the code, its own `test:types` leg **is** this
+     check — record which legs ran in §12 instead of staging the same code twice.)
    - **"Exported in some `.d.ts`" ≠ "importable from the module specifier in §6."** The §3 row must
      cite the exact `from '…'` string §6 will use and show that import compiling — or failing, when
      the failure _is_ the finding. A probe aimed one artifact to the left of the claim reads as
@@ -135,9 +136,27 @@ answer the question:
 
 **Scope the prototype to the unknown, not the change.** You do not need a gate-green implementation
 to learn a blast radius — you need the type or signature edit plus `npm run test:types`. Tests, JSDoc
-and docs are never part of a prototype. When you do go further and gate it, say in §3 exactly which
-legs you ran, and save the reverted diff as `prototype.patch` so §6 can be copy-verbatim; mark the
-source `PROTOTYPE (#NN)` and require the implementer to replace every marker with real JSDoc.
+and docs are never part of a prototype.
+
+**Tripwire — if you have written a test or a JSDoc block, you have stopped prototyping and started
+implementing.** Notice it out loud when it happens. It is not automatically the wrong call: #38's
+36 %-inversion commit-order race was only findable by writing real tests and running the full suite
+repeatedly, and it overturned a decision the owner had already approved. But it means the collapse
+condition below now governs, and you must resolve it *before* writing more plan.
+
+**Collapse condition — a gate-green prototype means the plan is no longer the deliverable.** A
+verified implementation and a plan for producing one are alternatives, not a sequence. Reverting green
+code so an implementer can re-derive it from prose describing that same code throws away the gate run
+and turns a finished change into a transcription exercise. Being invoked through `write-plan` settles
+that a **handoff** was wanted; it does not settle **which artifact** the handoff should carry. So stop
+and put it to the owner in one message: _"this is built and passing N legs — do you want the PR, or
+still the plan?"_ They may genuinely still want the plan: a cloud agent to do the §9 docs sweep, a
+teammate who needs the reasoning, a review boundary they want preserved. Asking costs one message.
+Not asking cost #38 a build-then-revert-then-transcribe cycle.
+
+When the owner does want a plan on top of a gated prototype, say in §3 exactly which legs you ran and
+save the reverted diff as `prototype.patch`. If any source in it is scaffolding rather than the real
+thing, mark it `PROTOTYPE (#NN)` and require the implementer to replace every marker with real JSDoc.
 
 If you skip the prototype, say so in §5 and name what is consequently unverified. An unprototyped
 plan is fine; an unprototyped plan that reads as if it were verified is not.
@@ -156,9 +175,13 @@ A cloud agent clones the branch onto a fresh VM. It gets `AGENTS.md`, `.cursor/r
 `.cursor/skills/` and the plan directory — and **nothing** from your working tree. Three consequences
 for how you write:
 
-1. **§6 must be executable from its own text.** Inline the code. A §6 that says "apply
-   `prototype.patch`" is fine only because that patch is committed alongside — never point at
-   anything outside the plan directory.
+1. **§6 must be executable from its own text** — but _executable_ is not _transcribed_. Inline the
+   code when there is no prototype patch. When `prototype.patch` **is** committed beside the plan it
+   is already self-contained branch content, so §6 should carry the **contract** — signatures, the new
+   types, the invariants that must not be refactored away, and a pointer to the patch — rather than a
+   second copy of the method bodies. Two copies of the same code in one directory is a maintenance
+   hazard with no stated winner, and it is how #38's §6 reached ~400 duplicated lines. Either way,
+   never point at anything outside the plan directory.
 2. **Every command in §0 and §10 must run on a clean clone.** Reference probes by their in-repo path
    (`docs/plans/issue-NN-<slug>/probes/…`), and remember the environment: Node 24 per `.nvmrc` (the
    hooks hard-fail otherwise) and a JDK for `test:integration:emulator`. If a leg cannot run remotely,
@@ -216,7 +239,7 @@ Number sections `§0`…`§12` and cross-reference by number.
 | 3   | Verified facts            | One subsection per probe, tables of ids → expression → observed result. Includes the **authoritative site enumeration** with current line numbers, and a "deliberately NOT changed" list where **every entry cites the fact id proving it is safe to leave alone** — an unproven entry is a decision wearing a fact's clothes, and these are the silent-omission class |
 | 4   | Traps                     | `T1…Tn` ordered by _how badly a reasonable implementer gets it wrong_. Each names the evidence id proving it, and the silent-failure mode                                                |
 | 5   | Could not verify / bounds | Honest limits. Anything carried over from a prior issue and deliberately still deferred                                                                                                  |
-| 6   | API specification         | Copy-verbatim code blocks, per file, with the JSDoc each new symbol owes — **every block compile-checked as written** (rule 7). End with a size estimate (files / ±lines)                |
+| 6   | API specification         | Copy-verbatim code blocks, per file, with the JSDoc each new symbol owes — **every block compile-checked as written** (rule 7). Signatures + invariants + a patch pointer instead, when `prototype.patch` carries the bodies. End with a size estimate (files / ±lines) |
 | 7   | Implementation sequence   | Ordered steps where order matters (and _why_ it matters), then **Anti-instructions** — an explicit "do NOT" list                                                                         |
 | 8   | Test specification        | Per suite, per id, what each asserts, **the observable that differs when it fails**, and which trap it guards. Plus the trap-coverage matrix and measured gate headroom (below)           |
 | 9   | Docs and ADR bookkeeping  | Every edit, by file and line. See the map below — this is where partial sweeps happen                                                                                                    |
@@ -335,7 +358,7 @@ Keep it to a short table — what you ran, and what came back:
 
 | Check | Command / method | Result |
 | ----- | ---------------- | ------ |
-| §6 blocks compile as written | temp file under `src/` + `npm run test:types` (removed after) | clean / diagnostics + how §6 was fixed |
+| §6 blocks compile as written | temp file under `src/` + `npm run test:types` (removed after), or the gated prototype's own `test:types` leg | clean / diagnostics + how §6 was fixed |
 | Every `from '…'` specifier §6 uses | same compile, importing that exact specifier | resolved / TS2305 and what replaced it |
 | Declaration emit, if a new type is public | `tsc --declaration --emitDeclarationOnly` | no undeclared package in the emitted `.d.ts` |
 | Every §9 / §10 shell command | ran each one | output, and the expected result for checks that pass by matching nothing |
@@ -372,3 +395,7 @@ If a row cannot be filled, that is a §5 entry, not a blank cell.
   the `.d.ts` shape, the `/vector` subpath re-export, and the living-index footers.
 - Surface open decisions to the owner **before** writing §1 — §1 is for settled calls, so an
   unresolved fork belongs in a question, not in the plan.
+- **Did the prototype outgrow the plan?** If the change is built, gated and green, the collapse
+  condition applies and the owner owes you an answer before this handoff happens at all. Reaching this
+  list with a finished implementation in `prototype.patch` and a §6 that restates it means the
+  tripwire fired and went unheard.

@@ -44,12 +44,17 @@ type Leaf =
 /** `true` for the `string`/`number` index-signature key, `false` for a literal key. */
 type IsIndexKey<K extends PropertyKey> = string extends K ? true : number extends K ? true : false;
 
+/** Removes string/number index signatures while retaining explicitly declared properties. */
+type LiteralOnly<T> = {
+  [K in keyof T as IsIndexKey<K> extends true ? never : K]: T[K];
+};
+
 /**
- * The literal string keys of `T` only — index signatures and symbol keys are dropped. This keeps
- * `FieldPaths` from collapsing to `string` when `T` contains a `Record<string, X>` field (which
- * would destroy typo protection for every sibling field).
+ * The literal string keys of `T` only — index signatures and symbol keys are dropped. The
+ * intermediate key-remapped type is load-bearing: `keyof ({ name: string } &
+ * Record<string, unknown>)` is only `string`, but key remapping recovers the explicit `name`.
  */
-type LiteralKeys<T> = keyof T extends infer K
+type LiteralKeys<T> = keyof LiteralOnly<T> extends infer K
   ? K extends string
     ? IsIndexKey<K> extends true
       ? never
@@ -173,14 +178,18 @@ export type DeepPartial<T> = T extends Leaf
     : T;
 
 /**
- * Distributive `Omit<_, 'id'>` — strips the synthetic repository `id` from each member of a union
- * stored/read model without collapsing branch-specific keys to their intersection.
+ * Distributive synthetic-`id` removal for stored/read models. Each union member is handled
+ * independently. When a member explicitly declares a literal `id`, the helper omits it; otherwise
+ * it returns that member unchanged instead of applying `Omit` needlessly.
  *
  * Plain `Omit<Union, 'id'>` is defined via `keyof`, and `keyof (A | B)` is the key **intersection**,
  * so a discriminated union like `{ kind: 'a'; onlyOnA: string } | { kind: 'b'; onlyOnB: number }`
- * incorrectly yields only `'kind'` as a queryable path. The `S extends unknown` wrapper makes the
- * conditional **distributive**: each union member is processed independently, then re-unioned, so
- * `FieldPaths<OmitId<S>>` agrees with {@link PathValue}'s own distributivity contract.
+ * incorrectly yields only `'kind'` as a queryable path. `Omit` also flattens an intersection such
+ * as `{ name: string } & Record<string, unknown>` to the index signature alone. Avoiding `Omit` when
+ * there is no explicit `id` preserves both the literal key and the index signature. The
+ * `S extends unknown` wrapper makes the conditional **distributive**: each union member is processed
+ * independently, then re-unioned, so `FieldPaths<OmitId<S>>` agrees with {@link PathValue}'s own
+ * distributivity contract.
  *
  * **Inlining does not work** — `FieldPaths<Union extends unknown ? Omit<Union, 'id'> : never>` still
  * resolves to the collapsed key set because distribution requires a naked type parameter at the use
@@ -190,11 +199,17 @@ export type DeepPartial<T> = T extends Leaf
  * For a `keyof` position, {@link KeysOf} is required: `keyof OmitId<S>` re-collapses for the same
  * reason plain `keyof (A | B)` does. Compose as `KeysOf<OmitId<S>>`.
  *
- * Non-union models are a no-op — `OmitId<Plain>` is byte-identical to `Omit<Plain, 'id'>`.
+ * A model with no explicit `id` is returned exactly; a model that declares `id` still has that
+ * property omitted. Index signatures remain available in value positions such as
+ * `StoredDataOf<typeof repo>`.
  *
  * @see ADR-0028
  */
-export type OmitId<S> = S extends unknown ? Omit<S, 'id'> : never;
+export type OmitId<S> = S extends unknown
+  ? 'id' extends keyof LiteralOnly<S>
+    ? Omit<S, 'id'>
+    : S
+  : never;
 
 /**
  * Distributive `keyof` — the union of each member's keys rather than their intersection.

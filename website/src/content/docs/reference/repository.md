@@ -194,13 +194,16 @@ than invoking the callback with a nullable document — the underlying deletion 
 **`create(data: CreateInput<W>, options?: { returnDoc?: false }): Promise<{ id: ID }>`**
 
 Create a new document with an auto-generated Firestore ID. Returns `{ id }` by default; pass
-`{ returnDoc: true }` to resolve to the created `FirestoreDocument<T>`.
+`{ returnDoc: true }` to resolve to the created `FirestoreDocument<T>`. A postcommit read/converter
+failure after a successful write throws `WriteOutcomeError` with `phase: 'read-back'` (document is
+persisted).
 
 **`bulkCreate(data: CreateInput<W>[], options: { returnDoc: true }): Promise<FirestoreDocument<T>[]>`**
 **`bulkCreate(data: CreateInput<W>[], options?: { returnDoc?: false }): Promise<{ id: ID }[]>`**
 
 Create multiple documents, committed in batches of 500. Returns `{ id }[]` by default; pass
-`{ returnDoc: true }` for the created documents.
+`{ returnDoc: true }` for the created documents. Above 500 ops, a later-chunk failure throws
+`WriteOutcomeError` (`partially-committed`) with exact `committedWrites` / `totalWrites`.
 
 **`createWithId(id: ID, data: CreateInput<W>, options: { returnDoc: true }): Promise<FirestoreDocument<T>>`**
 **`createWithId(id: ID, data: CreateInput<W>, options?: { returnDoc?: false }): Promise<{ id: ID }>`**
@@ -208,14 +211,16 @@ Create multiple documents, committed in batches of 500. Returns `{ id }[]` by de
 **Create-only** write under a caller-supplied ID — the counterpart to `upsert`, which overwrites.
 Throws `ConflictError` when a document already exists at that ID. The existence check happens on the
 backend as part of the write, so two concurrent calls cannot both succeed. Fires `beforeCreate` /
-`afterCreate` with the caller's id.
+`afterCreate` with the caller's id. A postcommit `{ returnDoc: true }` converter/read failure throws
+`WriteOutcomeError` with `phase: 'read-back'`.
 
 **`bulkCreateWithIds(entries: { id: ID; data: CreateInput<W> }[], options: { returnDoc: true }): Promise<FirestoreDocument<T>[]>`**
 **`bulkCreateWithIds(entries: { id: ID; data: CreateInput<W> }[], options?: { returnDoc?: false }): Promise<{ id: ID }[]>`**
 
 Batched create-only writes under caller-supplied IDs. Throws `ConflictError` if any ID exists — at
-or below 500 operations the batch is atomic, so **no sibling lands**. Duplicate IDs in the input are
-rejected before any I/O.
+or below 500 operations the batch is atomic, so **no sibling lands**. Above 500, a later-chunk
+failure throws `WriteOutcomeError` (`partially-committed`) with exact counts. Duplicate IDs in the
+input are rejected before any I/O. `{ returnDoc: true }` read-back failures are `phase: 'read-back'`.
 
 **`update(id: ID, data: UpdateInput<W>, options: UpdateOptions & { returnDoc: true }): Promise<FirestoreDocument<T>>`**
 **`update(id: ID, data: UpdateInput<W>, options?: UpdateOptions & { returnDoc?: false }): Promise<{ id: ID }>`**
@@ -224,7 +229,8 @@ Update a document with partial data. Supports dot notation for nested updates. P
 `{ merge: true }` to normalize nested objects to dot paths before writing. Pass `{ lastUpdateTime }`
 (from `getByIdWithUpdateTime`) to make the write conditional — it commits only if the document is
 still at that version, and otherwise throws `PreconditionFailedError`. Returns `{ id }` by default;
-pass `{ returnDoc: true }` to resolve to the updated `FirestoreDocument<T>`.
+pass `{ returnDoc: true }` to resolve to the updated `FirestoreDocument<T>` (postcommit converter
+failures are `WriteOutcomeError` / `phase: 'read-back'`).
 
 **`patch(id: ID, data: UpdateInput<W>, options: { returnDoc: true; lastUpdateTime?: Timestamp }): Promise<FirestoreDocument<T>>`**
 **`patch(id: ID, data: UpdateInput<W>, options?: { returnDoc?: false; lastUpdateTime?: Timestamp }): Promise<{ id: ID }>`**
@@ -237,17 +243,20 @@ and `{ lastUpdateTime }` guards the write exactly as on `update`.
 
 Update multiple documents in a batch. Supports dot notation. Each entry may carry its own
 `lastUpdateTime`; at or below 500 operations one failed precondition rejects the whole batch and
-changes nothing.
+changes nothing. Above 500, a later-chunk failure throws `WriteOutcomeError` (`partially-committed`)
+with exact `committedWrites` / `totalWrites`.
 
 **`bulkPatch(updates: { id: ID; data: UpdateInput<W>; lastUpdateTime?: Timestamp }[]): Promise<{ id: ID }[]>`**
 
 Merge-style batch update. Each payload is normalized like `patch(...)` before the batched writes.
+Same partial-batch `WriteOutcomeError` contract as `bulkUpdate` above 500 ops.
 
 **`upsert(id: ID, data: CreateInput<W>, options: { returnDoc: true }): Promise<FirestoreDocument<T>>`**
 **`upsert(id: ID, data: CreateInput<W>, options?: { returnDoc?: false }): Promise<{ id: ID }>`**
 
 Create or overwrite the document with the given ID. Returns `{ id }` by default; pass
-`{ returnDoc: true }` to resolve to the final persisted `FirestoreDocument<T>`. Use `createWithId`
+`{ returnDoc: true }` to resolve to the final persisted `FirestoreDocument<T>` (postcommit
+converter/read failures are `WriteOutcomeError` / `phase: 'read-back'`). Use `createWithId`
 instead when the document must **not** already exist.
 
 **`delete(id: ID, options?: { lastUpdateTime?: Timestamp }): Promise<void>`**
@@ -324,9 +333,13 @@ Collection-group queries also need explicitly created collection-group-scoped in
 See
 [collection-group queries](/firestore-orm/guides/working-with-data/queries/#collection-group-queries).
 
-**`on(event: HookEvent, fn: HookFn): void`**
+**`on(event: HookEvent, fn: (data, context: HookContext) => void | Promise<void>): void`**
 
-Register a lifecycle hook. Supported events:
+Register a lifecycle hook. Every callback receives a second `HookContext` argument (`event`,
+`execution`, `retryable`, and on transaction before-hooks a diagnostic `attempt`). One-argument
+callbacks remain source-compatible. Hooks run in registration order and fail-fast.
+
+Supported events:
 
 - `beforeCreate`, `afterCreate`
 - `beforeUpdate`, `afterUpdate`
@@ -342,9 +355,10 @@ Payload notes: `beforeCreate` / `beforeUpdate` receive the mutable write payload
 receive the full persisted document as a `FirestoreDocument<T>` at runtime. `query().update()` /
 `query().delete()` run the **bulk** hooks (`beforeBulkUpdate`/`afterBulkUpdate`,
 `beforeBulkDelete`/`afterBulkDelete`), not the per-document hooks; inside transactions only
-`before*` hooks run, via the transaction-scoped repo passed to `runInTransaction`. **`bulkWrite` and
-`recursiveDelete` run no hooks** — `bulkWrite` throws when any bulk hook is registered unless
-`{ skipHooks: true }` is passed. See
+`before*` hooks run, via the transaction-scoped repo passed to `runInTransaction` (with
+`execution: 'transaction'` and an observed `attempt`, or `null` for caller-managed raw
+transactions). **`bulkWrite` and `recursiveDelete` run no hooks** — `bulkWrite` throws when any bulk
+hook is registered unless `{ skipHooks: true }` is passed. See
 [Lifecycle hooks](/firestore-orm/guides/concepts/lifecycle-hooks/) for full detail.
 
 **`subcollection<RS extends ZodObject, WS extends ZodObject = RS, SS extends ZodObject = RS>(parentId: ID, subcollectionName: string, readSchema: RS, options?: { writeSchema?: WS; storedSchema?: SS; readConverter?: ReadConverter<z.output<RS>>; sentinelPolicy?: SentinelPolicy; allowLegacyDatastoreIds?: boolean }): FirestoreRepository<z.output<RS>, z.input<WS>, z.output<SS>, z.output<WS>>`**

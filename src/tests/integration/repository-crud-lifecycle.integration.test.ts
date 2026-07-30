@@ -68,6 +68,7 @@ describe('FirestoreRepository CRUD lifecycle', () => {
 
     expect(afterCreate).toHaveBeenCalledWith(
       expect.objectContaining({ id: created.id, name: 'Hook Create' }),
+      expect.objectContaining({ event: 'afterCreate', execution: 'direct', retryable: false }),
     );
   });
 

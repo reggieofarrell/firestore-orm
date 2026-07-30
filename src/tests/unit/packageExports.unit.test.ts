@@ -4,6 +4,7 @@
  * the core type graph).
  */
 import * as orm from '../../index.js';
+import { WriteOutcomeError as CoreWriteOutcomeError } from '../../core/Errors.js';
 import { errorHandler } from '../../express/index.js';
 
 describe('package exports', () => {
@@ -18,6 +19,9 @@ describe('package exports', () => {
     expect(orm.ConflictError).toBeDefined();
     expect(orm.FirestoreIndexError).toBeDefined();
     expect(orm.PreconditionFailedError).toBeDefined();
+    expect(orm.WriteOutcomeError).toBeDefined();
+    // Runtime export is the same constructor as the core class (U4).
+    expect(orm.WriteOutcomeError).toBe(CoreWriteOutcomeError);
     expect(orm.parseFirestoreError).toBeDefined();
   });
 

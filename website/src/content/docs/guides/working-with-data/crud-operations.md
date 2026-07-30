@@ -196,6 +196,22 @@ raises `PreconditionFailedError` instead (Firestore reports the absent document 
 Bulk operations use Firestore batch writes and commit in batches of 500 operations. The ORM
 automatically chunks operations if you exceed this limit, so you can pass arrays of any size.
 
+**Above 500 operations the write is not globally atomic.** Each 500-op chunk commits independently.
+If a later chunk fails, earlier chunks remain committed, the after-hook does not run, and the call
+rejects with `WriteOutcomeError` (`state: 'partially-committed'`, `phase: 'commit'`) carrying exact
+`committedWrites` and `totalWrites`. A failure with zero successful writes (e.g. a first-chunk
+collision) remains the ordinary top-level error (`ConflictError`, etc.).
+
+```typescript
+try {
+  await userRepo.bulkCreateWithIds(entries); // entries.length > 500
+} catch (error) {
+  if (error instanceof WriteOutcomeError && error.outcome.state === 'partially-committed') {
+    console.log(error.outcome.committedWrites, error.outcome.totalWrites);
+  }
+}
+```
+
 ```typescript
 // Bulk create — returns [{ id }, ...] by default; pass { returnDoc: true } for read models
 const created = await userRepo.bulkCreate([

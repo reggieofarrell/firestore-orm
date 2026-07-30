@@ -10,6 +10,8 @@ import {
   NotFoundError,
   PreconditionFailedError,
   ValidationError,
+  WriteOutcomeError,
+  type WriteOutcome,
 } from '../../core/Errors.js';
 import { errorHandler } from '../../express/index.js';
 
@@ -112,6 +114,45 @@ describe('errorHandler', () => {
     expect(res.json).toHaveBeenCalledWith({
       error: 'InternalServerError',
       message: 'Something went wrong',
+    });
+  });
+
+  describe('WriteOutcomeError (issue #46)', () => {
+    const outcomes: WriteOutcome[] = [
+      {
+        state: 'not-committed',
+        phase: 'before-hook',
+        hook: { event: 'beforeCreate', execution: 'direct', retryable: false },
+      },
+      {
+        state: 'partially-committed',
+        phase: 'commit',
+        committedWrites: 500,
+        totalWrites: 501,
+      },
+      {
+        state: 'committed',
+        phase: 'after-hook',
+        hook: { event: 'afterUpdate', execution: 'direct', retryable: false },
+      },
+      { state: 'committed', phase: 'read-back' },
+    ];
+
+    it.each(outcomes)('maps outcome %# to HTTP 500 without leaking cause', outcome => {
+      const res = createMockResponse();
+      const cause = new Error('SENSITIVE_CAUSE_MESSAGE');
+      errorHandler(new WriteOutcomeError(outcome, cause), req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'WriteOutcomeError',
+        outcome,
+      });
+      const body = (res.json as jest.Mock).mock.calls[0][0];
+      const serialized = JSON.stringify(body);
+      expect(serialized).not.toContain('cause');
+      expect(serialized).not.toContain('SENSITIVE_CAUSE_MESSAGE');
+      expect(serialized).not.toContain('stack');
     });
   });
 });

@@ -30,8 +30,11 @@ you are implementing it directly, you do not need this — but the skill's gate,
 3. **Re-run the probes** in `probes/` for any §3 row you doubt. §3 outranks the issue body.
 4. **Implement in §7's order** — where it says order matters, it matters. Record every deviation in
    `notes.md` at the moment you decide it, not afterwards.
-5. **Write the tests from §8**, then **mutation-check the load-bearing ones**: revert the fix, confirm
-   the test fails, restore. Record test / mutation / observed failure.
+5. **Write the tests from §8**, then **mutation-check the load-bearing ones**:
+   temporarily break the fix, confirm the test fails, restore via file backup
+   (or a scoped patch reverse) — **not** `git checkout` / `git restore` on a
+   dirty tree. Record test / mutation / observed failure. See the skill for
+   the full restore rule.
 6. **Do the §9 bookkeeping**, reading current values out of the tree rather than copying them from the
    plan — claim the next free ADR number, and grep the live `(#N–#41)` range rather than trusting a
    file list.

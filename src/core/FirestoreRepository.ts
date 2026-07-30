@@ -16,7 +16,8 @@ import {
   Validator,
 } from './Validation.js';
 import { z } from 'zod';
-import { ConflictError, NotFoundError, ValidationError } from './Errors.js';
+import { ConflictError, NotFoundError, ValidationError, WriteOutcomeError } from './Errors.js';
+import { buildHookContext, type HookContext, type HookEvent, type HookExecution } from './Hooks.js';
 import { FirestoreQueryBuilder } from './QueryBuilder.js';
 import { parseFirestoreError } from './ErrorParser.js';
 import { flattenToDotNotation, hasDotNotationKeys, isDotNotation } from '../utils/dotNotation.js';
@@ -239,18 +240,7 @@ export interface ReadOnlyTransactionalRepository<T extends object, S extends obj
  */
 export type ReadConverter<T> = (snapshot: QueryDocumentSnapshot) => T;
 
-type SingleHookEvent =
-  'beforeCreate' | 'afterCreate' | 'beforeUpdate' | 'afterUpdate' | 'beforeDelete' | 'afterDelete';
-
-type BulkHookEvent =
-  | 'beforeBulkCreate'
-  | 'afterBulkCreate'
-  | 'beforeBulkUpdate'
-  | 'afterBulkUpdate'
-  | 'beforeBulkDelete'
-  | 'afterBulkDelete';
-
-export type HookEvent = SingleHookEvent | BulkHookEvent;
+export type { HookEvent } from './Hooks.js';
 
 // Hooks are typed by the model they actually observe at runtime (review D9): "before" create/update
 // hooks by the write INPUT `W`, "after" create hooks by the parsed write OUTPUT `WO` (transforms/
@@ -258,42 +248,99 @@ export type HookEvent = SingleHookEvent | BulkHookEvent;
 // Identity is repository-owned: every `id` / `ids` / event array is `readonly` so a hook can mutate
 // documented DATA fields but cannot repoint identity, membership, ordering, or accounting (review A1;
 // the runtime additionally builds a stable pre-hook work list and never trusts the handed value).
-type BeforeCreateHookFn<W> = (data: CreateInput<W> & { readonly id?: ID }) => Promise<void> | void;
+// Every callback may accept an optional second {@link HookContext} argument correlated to the event.
+type BeforeCreateHookFn<W> = (
+  data: CreateInput<W> & { readonly id?: ID },
+  context: HookContext<'beforeCreate'>,
+) => Promise<void> | void;
 type AfterCreateHookFn<WO extends object> = (
   data: CreateOutput<WO> & { readonly id: ID },
+  context: HookContext<'afterCreate'>,
 ) => Promise<void> | void;
-type BeforeUpdateHookFn<W> = (data: UpdateInput<W> & { readonly id: ID }) => Promise<void> | void;
-type AfterUpdateHookFn = (data: { readonly id: ID }) => Promise<void> | void;
-type DeleteHookFn<T extends object> = (data: FirestoreDocument<T>) => Promise<void> | void;
+type BeforeUpdateHookFn<W> = (
+  data: UpdateInput<W> & { readonly id: ID },
+  context: HookContext<'beforeUpdate'>,
+) => Promise<void> | void;
+type AfterUpdateHookFn = (
+  data: { readonly id: ID },
+  context: HookContext<'afterUpdate'>,
+) => Promise<void> | void;
+type BeforeDeleteHookFn<T extends object> = (
+  data: FirestoreDocument<T>,
+  context: HookContext<'beforeDelete'>,
+) => Promise<void> | void;
+type AfterDeleteHookFn<T extends object> = (
+  data: FirestoreDocument<T>,
+  context: HookContext<'afterDelete'>,
+) => Promise<void> | void;
 type BeforeBulkCreateHookFn<W> = (
   data: readonly (CreateInput<W> & { readonly id: ID })[],
+  context: HookContext<'beforeBulkCreate'>,
 ) => Promise<void> | void;
 type AfterBulkCreateHookFn<WO extends object> = (
   data: readonly (CreateOutput<WO> & { readonly id: ID })[],
+  context: HookContext<'afterBulkCreate'>,
 ) => Promise<void> | void;
 type BeforeBulkUpdateHookFn<W> = (
   // `data` is readonly: a hook may mutate FIELDS of the update payload in place (`entry.data.x = …`)
   // but may NOT replace the whole `data` object — replacement is silently dropped by the write on the
   // repository bulk path, so it is rejected on both surfaces for a consistent contract (review S3).
   data: readonly { readonly id: ID; readonly data: UpdateInput<W> }[],
+  context: HookContext<'beforeBulkUpdate'>,
 ) => Promise<void> | void;
-type AfterBulkUpdateHookFn = (data: { readonly ids: readonly ID[] }) => Promise<void> | void;
-type BulkDeleteHookFn<T extends object> = (data: {
-  readonly ids: readonly ID[];
-  readonly documents: readonly FirestoreDocument<T>[];
-}) => Promise<void> | void;
+type AfterBulkUpdateHookFn = (
+  data: { readonly ids: readonly ID[] },
+  context: HookContext<'afterBulkUpdate'>,
+) => Promise<void> | void;
+type BeforeBulkDeleteHookFn<T extends object> = (
+  data: {
+    readonly ids: readonly ID[];
+    readonly documents: readonly FirestoreDocument<T>[];
+  },
+  context: HookContext<'beforeBulkDelete'>,
+) => Promise<void> | void;
+type AfterBulkDeleteHookFn<T extends object> = (
+  data: {
+    readonly ids: readonly ID[];
+    readonly documents: readonly FirestoreDocument<T>[];
+  },
+  context: HookContext<'afterBulkDelete'>,
+) => Promise<void> | void;
 
-type AnyHookFn<T extends object, W extends object, WO extends object> =
-  | BeforeCreateHookFn<W>
-  | AfterCreateHookFn<WO>
-  | BeforeUpdateHookFn<W>
-  | AfterUpdateHookFn
-  | DeleteHookFn<T>
-  | BeforeBulkCreateHookFn<W>
-  | AfterBulkCreateHookFn<WO>
-  | BeforeBulkUpdateHookFn<W>
-  | AfterBulkUpdateHookFn
-  | BulkDeleteHookFn<T>;
+/** Event-to-callback map for correlated hook typing and the typed dispatcher. */
+type HookFnMap<T extends object, W extends object, WO extends object> = {
+  beforeCreate: BeforeCreateHookFn<W>;
+  afterCreate: AfterCreateHookFn<WO>;
+  beforeUpdate: BeforeUpdateHookFn<W>;
+  afterUpdate: AfterUpdateHookFn;
+  beforeDelete: BeforeDeleteHookFn<T>;
+  afterDelete: AfterDeleteHookFn<T>;
+  beforeBulkCreate: BeforeBulkCreateHookFn<W>;
+  afterBulkCreate: AfterBulkCreateHookFn<WO>;
+  beforeBulkUpdate: BeforeBulkUpdateHookFn<W>;
+  afterBulkUpdate: AfterBulkUpdateHookFn;
+  beforeBulkDelete: BeforeBulkDeleteHookFn<T>;
+  afterBulkDelete: AfterBulkDeleteHookFn<T>;
+};
+
+/**
+ * Payload type for hook event `E`, derived from the registered callback's first parameter.
+ *
+ * Exported so {@link FirestoreQueryBuilder}'s bound `RunHook` stays event-correlated with the
+ * repository dispatcher (review N1). Not part of the public package barrel — deep-import only.
+ */
+export type HookDataFor<
+  E extends HookEvent,
+  T extends object,
+  W extends object = T,
+  WO extends object = W,
+> = Parameters<HookFnMap<T, W, WO>[E]>[0];
+
+type AnyHookFn<T extends object, W extends object, WO extends object> = HookFnMap<
+  T,
+  W,
+  WO
+>[HookEvent];
 
 /**
  * Type-safe Firestore repository with validation and lifecycle hooks.
@@ -360,6 +407,13 @@ export class FirestoreRepository<
   WO extends object = W,
 > {
   private hooks: { [K in HookEvent]?: AnyHookFn<T, W, WO>[] } = {};
+  /**
+   * 1-based count of how many times the enclosing `runInTransaction` wrapper has entered the Admin
+   * SDK callback for this per-invocation clone, or unset on repositories outside that wrapper.
+   * Diagnostic only — not an idempotency key. Public `*InTransaction` helpers on a repo without this
+   * field pass `attempt: null` to before-hooks.
+   */
+  private transactionAttempt?: number | null;
   private db: Firestore;
   private collectionPath: string;
   private validator?: Validator<W, WO>;
@@ -999,20 +1053,86 @@ export class FirestoreRepository<
   on(event: 'afterCreate', fn: AfterCreateHookFn<WO>): void;
   on(event: 'beforeUpdate', fn: BeforeUpdateHookFn<W>): void;
   on(event: 'afterUpdate', fn: AfterUpdateHookFn): void;
-  on(event: 'beforeDelete' | 'afterDelete', fn: DeleteHookFn<T>): void;
+  on(event: 'beforeDelete', fn: BeforeDeleteHookFn<T>): void;
+  on(event: 'afterDelete', fn: AfterDeleteHookFn<T>): void;
   on(event: 'beforeBulkCreate', fn: BeforeBulkCreateHookFn<W>): void;
   on(event: 'afterBulkCreate', fn: AfterBulkCreateHookFn<WO>): void;
   on(event: 'beforeBulkUpdate', fn: BeforeBulkUpdateHookFn<W>): void;
   on(event: 'afterBulkUpdate', fn: AfterBulkUpdateHookFn): void;
-  on(event: 'beforeBulkDelete' | 'afterBulkDelete', fn: BulkDeleteHookFn<T>): void;
+  on(event: 'beforeBulkDelete', fn: BeforeBulkDeleteHookFn<T>): void;
+  on(event: 'afterBulkDelete', fn: AfterBulkDeleteHookFn<T>): void;
   on(event: HookEvent, fn: AnyHookFn<T, W, WO>): void {
     if (!this.hooks[event]) this.hooks[event] = [];
     this.hooks[event]!.push(fn);
   }
 
-  private async runHooks(event: HookEvent, data: any) {
-    const fns = this.hooks[event] || [];
-    for (const fn of fns) await fn(data);
+  /**
+   * Sequential, fail-fast hook dispatcher. Builds an event-correlated {@link HookContext} and wraps
+   * hook failures as {@link WriteOutcomeError} with before/after outcome metadata owned by **this**
+   * call's control-flow phase. A nested {@link WriteOutcomeError} from another repository call is
+   * never returned as-is — it becomes `cause` of the outer phase outcome (review B1 / trap T2).
+   */
+  private async runHooks<E extends HookEvent>(
+    event: E,
+    data: HookDataFor<E, T, W, WO>,
+    execution: HookExecution = { kind: 'direct' },
+  ): Promise<void> {
+    const context = buildHookContext(event, execution);
+
+    try {
+      const hooks = (this.hooks[event] ?? []) as HookFnMap<T, W, WO>[E][];
+      for (const hook of hooks) {
+        // TypeScript cannot prove HookFnMap[E] accepts HookDataFor<E,…> when E is an *open*
+        // type parameter (it widens the callback parameter to an intersection of every event's
+        // payload). The cast restores the correlated pair that HookDataFor already enforced at
+        // each concrete emit site (review N1).
+        await (
+          hook as (payload: HookDataFor<E, T, W, WO>, ctx: HookContext<E>) => Promise<void> | void
+        )(data, context);
+      }
+    } catch (error) {
+      throw this.writeOutcomeFromHookFailure(event, context, error);
+    }
+  }
+
+  /**
+   * Classify a hook failure by **this** call's control-flow position (before vs after), not by the
+   * cause's class. Nested {@link WriteOutcomeError} instances are preserved as `cause` via
+   * {@link parseFirestoreError} so the outer outcome still describes the outer write.
+   */
+  private writeOutcomeFromHookFailure<E extends HookEvent>(
+    event: E,
+    context: HookContext<E>,
+    error: unknown,
+  ): WriteOutcomeError {
+    // Always allocate the outer phase outcome. parseFirestoreError preserves an existing
+    // WriteOutcomeError as the cause identity — returning that nested error unchanged would lie
+    // about whether THIS write committed (review B1).
+    const cause = parseFirestoreError(error);
+    const isBefore = event.startsWith('before');
+    return new WriteOutcomeError(
+      isBefore
+        ? { state: 'not-committed', phase: 'before-hook', hook: context }
+        : { state: 'committed', phase: 'after-hook', hook: context },
+      cause,
+    );
+  }
+
+  /**
+   * Postcommit read-back for `{ returnDoc: true }` paths. The write has already committed; only the
+   * converter/read model can fail here. Nested {@link WriteOutcomeError} values are re-wrapped so
+   * the outer outcome stays `committed` / `read-back` (review B1).
+   */
+  private async readAfterCommit<R>(read: () => Promise<R>): Promise<R> {
+    try {
+      return await read();
+    } catch (error) {
+      // Same rule as writeOutcomeFromHookFailure: phase ownership wins over cause class.
+      throw new WriteOutcomeError(
+        { state: 'committed', phase: 'read-back' },
+        parseFirestoreError(error),
+      );
+    }
   }
 
   // Typed after-create emitters (review R4). Dispatching through these — instead of calling the
@@ -1022,13 +1142,26 @@ export class FirestoreRepository<
   // after-hook cannot mutate identity/accounting (review R2); the `id` is added here so the frozen
   // payload never round-trips a generic `Omit` through a spread at the call site.
   private async emitAfterCreate(data: CreateOutput<WO>, id: ID): Promise<void> {
-    await this.runHooks('afterCreate', Object.freeze({ ...data, id }));
+    // Object.freeze widens to Readonly<…>, which is not assignable to CreateOutput<WO> under
+    // generic WO; the runtime shape matches AfterCreateHookFn (review N1 / R2).
+    await this.runHooks(
+      'afterCreate',
+      Object.freeze({ ...data, id }) as HookDataFor<'afterCreate', T, W, WO>,
+    );
   }
 
   private async emitAfterBulkCreate(
     data: readonly (CreateOutput<WO> & { id: ID })[],
   ): Promise<void> {
-    await this.runHooks('afterBulkCreate', Object.freeze(data.map(doc => Object.freeze(doc))));
+    await this.runHooks(
+      'afterBulkCreate',
+      Object.freeze(data.map(doc => Object.freeze(doc))) as HookDataFor<
+        'afterBulkCreate',
+        T,
+        W,
+        WO
+      >,
+    );
   }
 
   /**
@@ -1301,7 +1434,7 @@ export class FirestoreRepository<
   ): Promise<{ id: ID } | FirestoreDocument<T>> {
     try {
       const docToCreate = { ...(data as Record<string, any>) } as Record<string, any>;
-      await this.runHooks('beforeCreate', docToCreate);
+      await this.runHooks('beforeCreate', docToCreate as HookDataFor<'beforeCreate', T, W, WO>);
       const validData = this.validateCreateData(docToCreate as CreateInput<W>);
 
       const docRef = await this.writeCol().add(validData as any);
@@ -1312,7 +1445,7 @@ export class FirestoreRepository<
       await this.emitAfterCreate(validData, docRef.id);
 
       if (options?.returnDoc === true) {
-        return await this.getByIdOrThrow(docRef.id);
+        return await this.readAfterCommit(() => this.getByIdOrThrow(docRef.id));
       }
       return { id: docRef.id };
     } catch (err: any) {
@@ -1391,7 +1524,7 @@ export class FirestoreRepository<
         { ...(data as Record<string, any>) },
         id,
       );
-      await this.runHooks('beforeCreate', docToCreate);
+      await this.runHooks('beforeCreate', docToCreate as HookDataFor<'beforeCreate', T, W, WO>);
       // No standalone dot-notation guard here (unlike `upsert`): that guard exists only because
       // upsert's behavior is existence-dependent. `createWithId` is always a create, so
       // validateCreateData's own dotted-key rejection is both sufficient and correct.
@@ -1407,7 +1540,7 @@ export class FirestoreRepository<
       await this.emitAfterCreate(validData, id);
 
       if (options?.returnDoc === true) {
-        return await this.getByIdOrThrow(id);
+        return await this.readAfterCommit(() => this.getByIdOrThrow(id));
       }
       return { id };
     } catch (err: any) {
@@ -1503,7 +1636,9 @@ export class FirestoreRepository<
       await this.emitAfterBulkCreate(validatedDocs);
 
       if (options?.returnDoc === true) {
-        return await Promise.all(validatedDocs.map(doc => this.getByIdOrThrow(doc.id)));
+        return await Promise.all(
+          validatedDocs.map(doc => this.readAfterCommit(() => this.getByIdOrThrow(doc.id))),
+        );
       }
       return validatedDocs.map(doc => ({ id: doc.id }));
     } catch (error: any) {
@@ -1610,7 +1745,9 @@ export class FirestoreRepository<
       await this.emitAfterBulkCreate(validatedDocs);
 
       if (options?.returnDoc === true) {
-        return await Promise.all(validatedDocs.map(doc => this.getByIdOrThrow(doc.id)));
+        return await Promise.all(
+          validatedDocs.map(doc => this.readAfterCommit(() => this.getByIdOrThrow(doc.id))),
+        );
       }
       return validatedDocs.map(doc => ({ id: doc.id }));
     } catch (error: any) {
@@ -2204,7 +2341,7 @@ export class FirestoreRepository<
       // When returnDoc is enabled, we re-read the document after write completion.
       // This guarantees callers receive the persisted document shape from Firestore.
       if (options?.returnDoc === true) {
-        return await this.getByIdOrThrow(id);
+        return await this.readAfterCommit(() => this.getByIdOrThrow(id));
       }
 
       return { id };
@@ -2343,7 +2480,10 @@ export class FirestoreRepository<
       ),
     );
     try {
-      await this.runHooks('beforeBulkUpdate', hookView);
+      await this.runHooks(
+        'beforeBulkUpdate',
+        hookView as HookDataFor<'beforeBulkUpdate', T, W, WO>,
+      );
       const actions: ((batch: FirebaseFirestore.WriteBatch) => void)[] = [];
       const ids: ID[] = [];
 
@@ -2484,7 +2624,7 @@ export class FirestoreRepository<
         { ...(data as Record<string, any>) },
         id,
       );
-      await this.runHooks('beforeCreate', docToCreate);
+      await this.runHooks('beforeCreate', docToCreate as HookDataFor<'beforeCreate', T, W, WO>);
       const validData = this.validateCreateData(docToCreate as CreateInput<W>);
 
       const docRef = this.writeCol().doc(id);
@@ -2493,7 +2633,7 @@ export class FirestoreRepository<
       // After-create hooks observe the parsed output + id in a frozen envelope (review R4/R2).
       await this.emitAfterCreate(validData, id);
       if (shouldReturnDoc) {
-        return await this.getByIdOrThrow(id);
+        return await this.readAfterCommit(() => this.getByIdOrThrow(id));
       }
       return { id };
     } catch (error: any) {
@@ -2557,7 +2697,10 @@ export class FirestoreRepository<
       // the other (or an audit log) observes; after-delete gets a SEPARATE top-level object over the
       // same deeply-frozen data. Delete payloads are observe-only (no data-mutation contract).
       const docData = deepFreeze({ ...(snapshot.data() as T), id: snapshot.id });
-      await this.runHooks('beforeDelete', docData);
+      await this.runHooks(
+        'beforeDelete',
+        asFirestoreDocument<T>(docData) as HookDataFor<'beforeDelete', T, W, WO>,
+      );
       // T1 branch: `delete(undefined)` happens to be tolerated by the SDK, but every write site
       // branches identically so there is one rule to remember. See toPrecondition().
       const precondition = this.toPrecondition(options?.lastUpdateTime);
@@ -2566,7 +2709,10 @@ export class FirestoreRepository<
       } else {
         await docRef.delete();
       }
-      await this.runHooks('afterDelete', deepFreeze({ ...docData }));
+      await this.runHooks(
+        'afterDelete',
+        asFirestoreDocument<T>(deepFreeze({ ...docData })) as HookDataFor<'afterDelete', T, W, WO>,
+      );
     } catch (error: any) {
       throw parseFirestoreError(error);
     }
@@ -2698,7 +2844,7 @@ export class FirestoreRepository<
    * Bulk hook events a fixed-batch helper would have run. {@link bulkWrite} runs none of them, so it
    * refuses to start when any is registered unless the caller passes `{ skipHooks: true }`.
    */
-  private static readonly BULK_HOOK_EVENTS: readonly BulkHookEvent[] = [
+  private static readonly BULK_HOOK_EVENTS: readonly HookEvent[] = [
     'beforeBulkCreate',
     'afterBulkCreate',
     'beforeBulkUpdate',
@@ -3447,22 +3593,48 @@ export class FirestoreRepository<
    */
   private async commitInChunks(
     actions: ((batch: FirebaseFirestore.WriteBatch) => void)[],
-  ): Promise<void> {
+  ): Promise<number> {
+    let committedWrites = 0;
     let batch = this.db.batch();
     let counter = 0;
+    let writesInCurrentBatch = 0;
 
-    for (const action of actions) {
-      action(batch);
-      counter++;
+    try {
+      for (const action of actions) {
+        action(batch);
+        counter++;
+        writesInCurrentBatch++;
 
-      if (counter === 500) {
-        await batch.commit();
-        batch = this.db.batch();
-        counter = 0;
+        if (counter === 500) {
+          await batch.commit();
+          committedWrites += writesInCurrentBatch;
+          batch = this.db.batch();
+          counter = 0;
+          writesInCurrentBatch = 0;
+        }
       }
-    }
 
-    if (counter > 0) await batch.commit();
+      if (counter > 0) {
+        await batch.commit();
+        committedWrites += writesInCurrentBatch;
+      }
+
+      return committedWrites;
+    } catch (error) {
+      const cause = parseFirestoreError(error);
+      if (committedWrites === 0) {
+        throw cause;
+      }
+      throw new WriteOutcomeError(
+        {
+          state: 'partially-committed',
+          phase: 'commit',
+          committedWrites,
+          totalWrites: actions.length,
+        },
+        cause,
+      );
+    }
   }
 
   /**
@@ -3545,9 +3717,13 @@ export class FirestoreRepository<
       FirebaseFirestore.ReadOnlyTransactionOptions | FirebaseFirestore.ReadWriteTransactionOptions,
   ): Promise<R> {
     try {
+      // Closure-local attempt counter: incremented on every Admin SDK callback entry so each
+      // per-invocation transaction repo reports a diagnostic 1-based attempt (issue #46 / ADR-0035).
+      let observedAttempt = 0;
       // Forward options verbatim to the Admin SDK — including `undefined` when the caller omitted
       // the second argument, so existing one-arg callers keep the SDK default retry behavior.
       return await this.db.runTransaction(async tx => {
+        observedAttempt++;
         // Clone this repository for the transaction. The args cast mirrors `raw()`:
         // `RepositoryConstructorArgs<T, W, WO>` is a deferred conditional under generic params, and
         // this clone is sound by construction — a `WO !== W` repository necessarily already has a
@@ -3571,6 +3747,7 @@ export class FirestoreRepository<
         txRepo.hooks = Object.fromEntries(
           Object.entries(this.hooks).map(([event, handlers]) => [event, [...(handlers ?? [])]]),
         ) as { [K in HookEvent]?: AnyHookFn<T, W, WO>[] };
+        txRepo.transactionAttempt = observedAttempt;
         // txRepo is a full instance: its readCol()/writeCol() already resolve the same
         // converter-wrapped read ref and raw write ref. Transaction semantics come from tx.*.
         return await fn(tx, txRepo);
@@ -3782,7 +3959,10 @@ export class FirestoreRepository<
         id,
       ) as UpdateInput<W> & { readonly id: ID };
 
-      await this.runHooks('beforeUpdate', toUpdate);
+      await this.runHooks('beforeUpdate', toUpdate, {
+        kind: 'transaction',
+        attempt: this.transactionAttempt ?? null,
+      });
       // In merge mode, normalize nested objects into field paths BEFORE validating so each leaf is
       // validated independently (a partial nested object doesn't require its siblings).
       const normalizedData =
@@ -3865,7 +4045,10 @@ export class FirestoreRepository<
         docRef.id,
       );
 
-      await this.runHooks('beforeCreate', docData);
+      await this.runHooks('beforeCreate', docData as HookDataFor<'beforeCreate', T, W, WO>, {
+        kind: 'transaction',
+        attempt: this.transactionAttempt ?? null,
+      });
       const validData = this.validateCreateData(docData as CreateInput<W>);
 
       // NOTE: after* hooks intentionally do not run inside a transaction (the write is not committed
@@ -3921,7 +4104,10 @@ export class FirestoreRepository<
       // Non-writable `id` on the before-hook payload (review R2); the write target is `docRef`.
       const docData = FirestoreRepository.withReadonlyId({ ...(data as Record<string, any>) }, id);
 
-      await this.runHooks('beforeCreate', docData);
+      await this.runHooks('beforeCreate', docData as HookDataFor<'beforeCreate', T, W, WO>, {
+        kind: 'transaction',
+        attempt: this.transactionAttempt ?? null,
+      });
       const validData = this.validateCreateData(docData as CreateInput<W>);
 
       // `tx.create` — create-only semantics inside the transaction. NOTE: after* hooks intentionally
@@ -3974,7 +4160,14 @@ export class FirestoreRepository<
       // Deep-freeze the delete envelope (review R2) so the hook cannot forge the observed id or
       // nested data. Delete payloads are observe-only.
       const docData = deepFreeze({ ...(snapshot.data() as T), id: snapshot.id });
-      await this.runHooks('beforeDelete', docData);
+      await this.runHooks(
+        'beforeDelete',
+        asFirestoreDocument<T>(docData) as HookDataFor<'beforeDelete', T, W, WO>,
+        {
+          kind: 'transaction',
+          attempt: this.transactionAttempt ?? null,
+        },
+      );
       // T1 branch, applied for consistency with every other write site. See toPrecondition().
       const precondition = this.toPrecondition(options?.lastUpdateTime);
       if (precondition) {

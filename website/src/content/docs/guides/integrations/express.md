@@ -185,10 +185,27 @@ Maps errors to HTTP status codes and JSON bodies:
 | `FirestoreIndexError`     | 503    | `{ error: 'Query needs an index', message }`                        |
 | `ConflictError`           | 409    | `{ error: 'ConflictError', message }`                               |
 | `PreconditionFailedError` | 412    | `{ error: 'PreconditionFailedError', message }`                     |
+| `WriteOutcomeError`       | 500    | `{ error: 'WriteOutcomeError', outcome }` (cause is server-side only) |
 | Anything else             | 500    | `{ error: 'InternalServerError', message: 'Something went wrong' }` |
 
 The generic 500 branch intentionally hides the underlying message so internal details are not leaked
-to clients.
+to clients. `WriteOutcomeError` exposes only the safe discriminated `outcome` — never `cause`,
+stack, or cause message.
+
+```json
+{
+  "error": "WriteOutcomeError",
+  "outcome": {
+    "state": "committed",
+    "phase": "after-hook",
+    "hook": {
+      "event": "afterCreate",
+      "execution": "direct",
+      "retryable": false
+    }
+  }
+}
+```
 
 ## See also
 

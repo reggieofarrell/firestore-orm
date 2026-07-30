@@ -119,6 +119,20 @@ contracts tightened:
   single-document `patch`. In v2 it saw pre-flattened dot-notation keys. A hook that read
   `update.data['profile.verified']` should read `update.data.profile?.verified` (or handle both).
 
+### Hook context and write-outcome errors
+
+Lifecycle callbacks may accept a second `HookContext` argument (one-argument callbacks remain
+source-compatible). Transaction `before*` hooks were already supported; v3 makes retry execution
+observable via `execution: 'transaction'` and a diagnostic `attempt` (or `null` for caller-managed
+raw transactions). Do not use `attempt` as an idempotency key.
+
+Outcome-sensitive failures (hook throw, partial fixed batch after prior success, postcommit
+`{ returnDoc: true }` read-back) now surface as `WriteOutcomeError` with a discriminated `outcome`
+and the original error as `cause`. Ordinary validation / conflict / precondition errors remain
+top-level when no write committed and no hook is the failed phase. See
+[Error Handling](/firestore-orm/reference/errors/) and
+[Lifecycle Hooks](/firestore-orm/guides/concepts/lifecycle-hooks/).
+
 New type helpers `FieldPaths<T>` and `PathValue<T, P>` are exported from the package root.
 
 ### 5. `zod` peer floor raised to `^4.0.0`
@@ -501,7 +515,12 @@ Details: [Schema Validation](/firestore-orm/guides/concepts/schema-validation/) 
 - [ ] Rename `converter` → `readConverter`; pass only the `fromFirestore` mapper, and add the now-
       required `storedSchema`
 - [ ] Convert `addHook(event, fn)` to `repo.on(event, fn)`; make before-hooks **mutate** the payload
-      in place (no return value)
+      in place (no return value). Callbacks may accept a second `HookContext` argument (one-argument
+      callbacks remain source-compatible). Audit side-effect idempotency — transaction `before*`
+      hooks may re-run under contention; `attempt` is diagnostic only.
+- [ ] Branch on `WriteOutcomeError.outcome` for hook / partial-batch / `{ returnDoc: true }`
+      read-back failures (original error is `cause`). Ordinary validation/conflict/etc. remain
+      top-level.
 - [ ] Move any `toFirestore` create-time logic into `beforeCreate` / `beforeUpdate` (etc.)
 - [ ] Capture `create` / `bulkCreate` results as `{ id }` (or pass `{ returnDoc: true }`); rename
       `totalCount()` → `collectionCount()`; rename `getForUpdateInTransaction()` →

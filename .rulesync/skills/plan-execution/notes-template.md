@@ -46,7 +46,7 @@ if it is true.]
 
 ## Mutation checks
 
-[Revert the fix, confirm the test fails, restore. A test that passes both ways guards nothing.]
+[Temporarily break the fix, confirm the test fails, restore via file backup (or scoped reverse) — never `git checkout` / `git restore` on a dirty tree. A test that passes both ways guards nothing.]
 
 | Test | Mutation | Result |
 | ---- | -------- | ------ |

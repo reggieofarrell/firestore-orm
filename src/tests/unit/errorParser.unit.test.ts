@@ -14,6 +14,7 @@ import {
   FirestoreIndexError,
   NotFoundError,
   PreconditionFailedError,
+  WriteOutcomeError,
 } from '../../core/Errors.js';
 import { parseFirestoreError } from '../../core/ErrorParser.js';
 
@@ -165,6 +166,20 @@ describe('parseFirestoreError', () => {
 
   it('preserves the original Error instance for a plain object that is an Error', () => {
     const original = new Error('boom');
+    expect(parseFirestoreError(original)).toBe(original);
+  });
+
+  it('preserves WriteOutcomeError unchanged (issue #46)', () => {
+    // Nested repository/query catches call parseFirestoreError; unwrapping would erase the outcome.
+    const cause = new Error('after hook failed');
+    const original = new WriteOutcomeError(
+      {
+        state: 'committed',
+        phase: 'after-hook',
+        hook: { event: 'afterCreate', execution: 'direct', retryable: false },
+      },
+      cause,
+    );
     expect(parseFirestoreError(original)).toBe(original);
   });
 });

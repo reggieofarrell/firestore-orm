@@ -1,5 +1,6 @@
 /**
  * Strategy: unit tests for custom error classes and formatted diagnostics.
+ * Issue #46: WriteOutcomeError contract — four outcome variants, stable name/message, cause identity.
  */
 import { z } from 'zod';
 import {
@@ -8,6 +9,8 @@ import {
   NotFoundError,
   PreconditionFailedError,
   ValidationError,
+  WriteOutcomeError,
+  type WriteOutcome,
 } from '../../core/Errors.js';
 
 describe('ORM error classes', () => {
@@ -54,5 +57,51 @@ describe('ORM error classes', () => {
     expect(formatted).toContain('FIRESTORE INDEX REQUIRED');
     expect(formatted).toContain('status, createdAt');
     expect(formatted).toContain('https://example.com/index');
+  });
+
+  describe('WriteOutcomeError (issue #46)', () => {
+    const cause = new Error('hook boom');
+
+    const variants: WriteOutcome[] = [
+      {
+        state: 'not-committed',
+        phase: 'before-hook',
+        hook: { event: 'beforeCreate', execution: 'direct', retryable: false },
+      },
+      {
+        state: 'partially-committed',
+        phase: 'commit',
+        committedWrites: 500,
+        totalWrites: 501,
+      },
+      {
+        state: 'committed',
+        phase: 'after-hook',
+        hook: { event: 'afterCreate', execution: 'direct', retryable: false },
+      },
+      {
+        state: 'committed',
+        phase: 'read-back',
+      },
+    ];
+
+    it.each(variants)('should expose stable name, message, and cause for %#', outcome => {
+      const error = new WriteOutcomeError(outcome, cause);
+      expect(error).toBeInstanceOf(Error);
+      expect(error).toBeInstanceOf(WriteOutcomeError);
+      expect(error.name).toBe('WriteOutcomeError');
+      expect(error.cause).toBe(cause);
+      expect(error.outcome).toEqual(outcome);
+      // Messages are stable and must not embed the cause text (HTTP/log safety).
+      expect(error.message).not.toContain('hook boom');
+      expect(error.message.length).toBeGreaterThan(0);
+    });
+
+    it('should keep cause outside outcome so JSON of outcome cannot leak it', () => {
+      const error = new WriteOutcomeError(variants[0], cause);
+      const serialized = JSON.stringify(error.outcome);
+      expect(serialized).not.toContain('cause');
+      expect(serialized).not.toContain('hook boom');
+    });
   });
 });

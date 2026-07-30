@@ -1,5 +1,6 @@
 import { parseFirestoreError } from './ErrorParser.js';
-import { HookEvent, ID } from './FirestoreRepository.js';
+import { ID, type HookDataFor } from './FirestoreRepository.js';
+import type { HookEvent, HookExecution } from './Hooks.js';
 import { FirestoreDocument, asFirestoreDocument } from './DocumentId.js';
 import { ValidationError } from './Errors.js';
 import { UpdateInput } from './Validation.js';
@@ -34,10 +35,24 @@ import {
 } from 'firebase-admin/firestore';
 import { z } from 'zod';
 
+// Bound repository helpers. commitInChunks now returns the successful write count; callers that
+// ignore the number (query update/delete) remain correct. runHooks accepts an optional third
+// execution argument — query writes always use the dispatcher default (direct).
 type FirestoreWriteBatch = (
   actions: ((batch: FirebaseFirestore.WriteBatch) => void)[],
+) => Promise<number>;
+/**
+ * Event-correlated bound signature matching {@link FirestoreRepository}'s dispatcher (review N1).
+ * Payload type comes from {@link HookDataFor} so a wrong shape at a query emit site fails to compile
+ * the same way a wrong repository emit payload does.
+ */
+type RunHook<T extends object = object, W extends object = T, WO extends object = W> = <
+  E extends HookEvent,
+>(
+  event: E,
+  data: HookDataFor<E, T, W, WO>,
+  execution?: HookExecution,
 ) => Promise<void>;
-type RunHook = (event: HookEvent, data: any) => Promise<void>;
 type ValidateUpdate<W> = (data: UpdateInput<W>) => UpdateInput<W>;
 
 /**
@@ -1754,7 +1769,7 @@ export class FirestoreQueryBuilder<
     private collectionRef: CollectionReference<any>,
     db: Firestore,
     private commitInChunks: FirestoreWriteBatch,
-    private runHooks: RunHook,
+    private runHooks: RunHook<T, W>,
     private validateUpdate?: ValidateUpdate<W>,
     allowLegacyDatastoreIds = false,
   ) {

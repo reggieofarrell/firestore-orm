@@ -13,10 +13,42 @@ Hooks let you observe and shape writes as they flow through the repository. Regi
 event can carry multiple listeners, and they run in registration order.
 
 ```typescript
-userRepo.on('afterCreate', async user => {
+userRepo.on('afterCreate', async (user, context) => {
+  // context.event === 'afterCreate'; context.execution === 'direct'
   await auditLog.record('user_created', user);
 });
 ```
+
+## Hook context (`HookContext`)
+
+Every callback receives a second argument: a typed `HookContext` correlated with the
+registration event.
+
+| Field         | Meaning                                                                                                                                 |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `event`       | The registration event (useful for shared multi-event handlers).                                                                        |
+| `execution`   | `'direct'` for normal repository/query writes; `'transaction'` only on `before*` hooks fired from `*InTransaction` helpers.             |
+| `retryable`   | `false` for direct; `true` for transaction before-hooks (the Admin SDK may re-run the callback under contention).                       |
+| `attempt`     | Present only on the transaction branch: a 1-based count of how many times `runInTransaction` entered the Admin SDK callback, or `null` when the caller owns a raw Admin SDK transaction. **Diagnostic only — never an idempotency key.** |
+
+One-argument callbacks remain source-compatible (TypeScript allows fewer parameters).
+
+### Delivery rules
+
+- Hooks run **in registration order**, each `await`ed sequentially.
+- The **first thrown/rejected hook stops later hooks** for that event (fail-fast). There is no
+  best-effort or aggregate delivery.
+- Transaction `before*` hooks may run **once per callback attempt** under contention. Key side
+  effects by a business / write identity stored atomically with the data — not by `attempt`.
+- `after*` hooks are **postcommit**, in-process, and **not durable** across process crash. Prefer
+  idempotent side effects, or a durable outbox when available (tracked separately as
+  [#80](https://github.com/reggieofarrell/firestore-orm/issues/80)).
+
+When an outcome-sensitive failure occurs (before-hook, after-hook, partial fixed batch, or
+postcommit `{ returnDoc: true }` read-back), the repository throws `WriteOutcomeError` with a
+discriminated `outcome` and the original failure as `cause`. Ordinary validation / conflict /
+precondition errors remain top-level when no write committed and no hook is the failed phase. See
+[Error Handling](/firestore-orm/reference/errors/).
 
 ## Hook execution order
 

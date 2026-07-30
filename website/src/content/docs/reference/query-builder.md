@@ -22,10 +22,13 @@ walkthrough of these methods, see [Queries](/firestore-orm/guides/working-with-d
 **`where(field: FieldPaths<OmitId<S>> | FieldPath, op: WhereFilterOp, value: unknown): this`**
 
 Add a where clause. `field` is a typed stored field path — a top-level key or a nested dot-notation
-path (`'address.city'`) derived from `S` — or a `FieldPath` for dynamic names. Operators: `==`,
-`!=`, `>`, `>=`, `<`, `<=`, `in`, `not-in`, `array-contains`, `array-contains-any`. `where('id', …)`
-does **not** compile — the synthetic `id` is not a stored field path; query the document name with
-`whereId(...)`. Chained `where()` clauses are AND-only; for a disjunction use `whereFilter(...)`.
+path (`'address.city'`) derived from `S` — or a `FieldPath` for dynamic names. Declared fields
+beside an index signature (for example `{ name: string } & Record<string, unknown>`) are included
+in the typed path union; arbitrary dynamic map keys are not — pass a `FieldPath` for those.
+Operators: `==`, `!=`, `>`, `>=`, `<`, `<=`, `in`, `not-in`, `array-contains`,
+`array-contains-any`. `where('id', …)` does **not** compile — the synthetic `id` is not a stored
+field path; query the document name with `whereId(...)`. Chained `where()` clauses are AND-only;
+for a disjunction use `whereFilter(...)`.
 
 **`whereId(op: '<' | '<=' | '==' | '!=' | '>=' | '>', value: string): this`**
 **`whereId(op: 'in' | 'not-in', value: readonly string[]): this`**

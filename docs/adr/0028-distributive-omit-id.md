@@ -5,8 +5,9 @@
 - **Deciders:** maintainer
 - **Related:** Issue [#54](https://github.com/reggieofarrell/firestore-orm/issues/54); amends
   [ADR-0018](0018-document-identity-and-data-model.md); pointer in
-  [ADR-0024](0024-collection-group-queries.md); follow-up
-  [#58](https://github.com/reggieofarrell/firestore-orm/issues/58)
+  [ADR-0024](0024-collection-group-queries.md); resolved for no-explicit-`id` intersections by
+  [#58](https://github.com/reggieofarrell/firestore-orm/issues/58) (explicit-`id`+index bound:
+  [#82](https://github.com/reggieofarrell/firestore-orm/issues/82))
 
 ## Context
 
@@ -93,6 +94,12 @@ composable type helpers and one construction seam.
 path-only key-remapping helper can recover `"name"`, but using it in value positions strips index
 signatures from `StoredDataOf`. Pinned by `union-model-paths.type-test.ts` (U-6).
 
+Amendment (3.0.0, issue #58): the reported no-explicit-`id` intersection is now supported. `OmitId`
+avoids applying `Omit` when no literal `id` is declared, preserving both explicit keys and the
+value-position index signature; `FieldPaths` key remapping recovers declared keys recursively. Pure
+index keys remain excluded, and an explicit `id` combined with a string index remains outside this
+fix (D4/P19) — tracked by [#82](https://github.com/reggieofarrell/firestore-orm/issues/82).
+
 ## Alternatives considered
 
 - **Query-only fix** — rejected: union models were not writable at all (P-W1).
@@ -106,9 +113,11 @@ signatures from `StoredDataOf`. Pinned by `union-model-paths.type-test.ts` (U-6)
 
 ## References
 
-- Issue [#54](https://github.com/reggieofarrell/firestore-orm/issues/54)
-- Follow-up [#58](https://github.com/reggieofarrell/firestore-orm/issues/58) (index-signature
-  collapse)
+- Issue [#54](https://github.com/reggieofarrell/firestore-orm/issues/54) (historical origin)
+- Issue [#58](https://github.com/reggieofarrell/firestore-orm/issues/58) (index-signature collapse
+  resolution — no-explicit-`id` intersections)
+- Bound [#82](https://github.com/reggieofarrell/firestore-orm/issues/82) (explicit `id` + string
+  index still unsupported)
 - [ADR-0018](0018-document-identity-and-data-model.md) (identity and data-model split)
 - [ADR-0024](0024-collection-group-queries.md) (`CollectionGroupDocument` distribution)
 - [`src/utils/pathTypes.ts`](../../src/utils/pathTypes.ts),

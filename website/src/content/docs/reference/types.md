@@ -43,6 +43,11 @@ these types describe, see [FirestoreRepository](/firestore-orm/reference/reposit
 - **`InvalidDocumentIdReason`** — machine-readable cause carried by `InvalidDocumentIdError` (the
   error class is documented in [Error Handling](/firestore-orm/reference/errors/)).
 - **`HookEvent`** — union of supported lifecycle hook names.
+- **`HookContext<E>`** — second argument to every lifecycle hook: `event`, `execution`
+  (`'direct'` | `'transaction'`), `retryable`, and (on the transaction branch only) diagnostic
+  `attempt: number | null`. See [Lifecycle Hooks](/firestore-orm/guides/concepts/lifecycle-hooks/).
+- **`WriteOutcome`** — discriminated persistence outcome carried by `WriteOutcomeError` (see
+  [Error Handling](/firestore-orm/reference/errors/)).
 - **`UpdateOptions`** — `{ merge?: boolean; returnDoc?: boolean }`.
 - **`ReadConverter<T>`** — read-only converter: the `fromFirestore(snapshot) => T` mapper passed as
   `readConverter` (the repository builds the full `FirestoreDataConverter` internally). See

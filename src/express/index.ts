@@ -6,13 +6,14 @@ import {
   NotFoundError,
   PreconditionFailedError,
   ValidationError,
+  WriteOutcomeError,
 } from '../core/Errors.js';
 
 /**
  * Express middleware that maps repository errors to appropriate HTTP responses.
  * Automatically handles ValidationError (400), InvalidDocumentIdError (400), NotFoundError (404),
- * FirestoreIndexError (503), ConflictError (409), PreconditionFailedError (412), and generic errors
- * (500).
+ * FirestoreIndexError (503), ConflictError (409), PreconditionFailedError (412),
+ * WriteOutcomeError (500 with safe outcome metadata), and generic errors (500).
  *
  * Imported from the optional `@reggieofarrell/firestore-orm/express` subpath so `express` stays out
  * of the core package's type graph. `express` is declared as an optional peer dependency — install
@@ -123,6 +124,17 @@ export function errorHandler(err: any, req: Request, res: Response, _next: NextF
     return res.status(412).json({
       error: 'PreconditionFailedError',
       message: err.message,
+    });
+  }
+
+  if (err instanceof WriteOutcomeError) {
+    // Outcome-sensitive write failure (hook / partial batch / read-back). Return only the
+    // discriminated outcome — never serialize `cause`, stack, or cause message (trap T14).
+    // `cause` lives on the Error instance outside `outcome`, so JSON of outcome is already safe;
+    // we still pass `err.outcome` explicitly rather than spreading the error.
+    return res.status(500).json({
+      error: 'WriteOutcomeError',
+      outcome: err.outcome,
     });
   }
 

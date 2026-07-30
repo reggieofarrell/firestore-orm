@@ -23,6 +23,27 @@ Call `runInTransaction` on a repository. The callback receives two arguments:
   `repo` is narrowed to `ReadOnlyTransactionalRepository` so those methods are absent from the type;
   a read-write callback still receives the full repository and relies on you not calling them.
 
+  Prefer `*InTransaction` helpers so `before*` hooks and validation still run. Raw `tx.set` /
+  `tx.update` / `tx.delete` bypass repository validation and hooks entirely.
+
+### Transaction hook context and retries
+
+`before*` hooks fired from `*InTransaction` receive `HookContext` with
+`execution: 'transaction'`, `retryable: true`, and an `attempt` field:
+
+- Inside `runInTransaction`, `attempt` is a **1-based** count of how many times the ORM wrapper has
+  entered the Admin SDK callback for this logical call (contention may re-enter).
+- When you call `*InTransaction` with a **caller-managed** raw `db.runTransaction` handle, `attempt`
+  is `null` — the ORM cannot observe the outer callback.
+- `attempt` is **diagnostic only**. Do not use it as an idempotency or deduplication key.
+
+`after*` hooks do **not** run inside a transaction (the write is not committed until the callback
+returns). For non-durable side effects, return data from the callback and run them after success —
+or use a durable outbox when available ([#80](https://github.com/reggieofarrell/firestore-orm/issues/80)).
+
+Calling a normal `create()` / `update()` on the transaction-scoped `repo` is still a **direct**
+write (outside the transaction); its hooks report `execution: 'direct'`.
+
 ```typescript
 await accountRepo.runInTransaction(async (tx, repo) => {
   const from = await repo.getInTransaction(tx, 'account-1');

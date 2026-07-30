@@ -1,7 +1,6 @@
 export { FirestoreRepository } from './core/FirestoreRepository.js';
 export type {
   ID,
-  HookEvent,
   UpdateOptions,
   ReadConverter,
   SafeResult,
@@ -14,6 +13,7 @@ export type {
   StoredDataOf,
   DocumentOf,
 } from './core/FirestoreRepository.js';
+export type { HookEvent, HookContext } from './core/Hooks.js';
 export type { FirestoreDocument, CollectionGroupDocument } from './core/DocumentId.js';
 export { FirestoreQueryBuilder } from './core/QueryBuilder.js';
 export type {
@@ -48,8 +48,9 @@ export {
   FirestoreIndexError,
   InvalidDocumentIdError,
   PreconditionFailedError,
+  WriteOutcomeError,
 } from './core/Errors.js';
-export type { InvalidDocumentIdReason } from './core/Errors.js';
+export type { InvalidDocumentIdReason, WriteOutcome } from './core/Errors.js';
 
 export { parseFirestoreError } from './core/ErrorParser.js';
 // NOTE: `errorHandler` is intentionally NOT exported from the root — it lives in the optional

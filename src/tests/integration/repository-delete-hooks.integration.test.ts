@@ -34,9 +34,11 @@ describe('FirestoreRepository delete hooks', () => {
 
     expect(beforeDelete).toHaveBeenCalledWith(
       expect.objectContaining({ id: created.id, name: 'Delete Hooks' }),
+      expect.objectContaining({ event: 'beforeDelete', execution: 'direct', retryable: false }),
     );
     expect(afterDelete).toHaveBeenCalledWith(
       expect.objectContaining({ id: created.id, name: 'Delete Hooks' }),
+      expect.objectContaining({ event: 'afterDelete', execution: 'direct', retryable: false }),
     );
   });
 
@@ -51,20 +53,26 @@ describe('FirestoreRepository delete hooks', () => {
 
     await userRepo.bulkDelete([a.id, b.id]);
 
-    expect(beforeBulkDelete).toHaveBeenCalledWith({
-      ids: expect.arrayContaining([a.id, b.id]),
-      documents: expect.arrayContaining([
-        expect.objectContaining({ id: a.id, name: 'Bulk Del A' }),
-        expect.objectContaining({ id: b.id, name: 'Bulk Del B' }),
-      ]),
-    });
+    expect(beforeBulkDelete).toHaveBeenCalledWith(
+      {
+        ids: expect.arrayContaining([a.id, b.id]),
+        documents: expect.arrayContaining([
+          expect.objectContaining({ id: a.id, name: 'Bulk Del A' }),
+          expect.objectContaining({ id: b.id, name: 'Bulk Del B' }),
+        ]),
+      },
+      expect.objectContaining({ event: 'beforeBulkDelete', execution: 'direct' }),
+    );
 
-    expect(afterBulkDelete).toHaveBeenCalledWith({
-      ids: expect.arrayContaining([a.id, b.id]),
-      documents: expect.arrayContaining([
-        expect.objectContaining({ id: a.id }),
-        expect.objectContaining({ id: b.id }),
-      ]),
-    });
+    expect(afterBulkDelete).toHaveBeenCalledWith(
+      {
+        ids: expect.arrayContaining([a.id, b.id]),
+        documents: expect.arrayContaining([
+          expect.objectContaining({ id: a.id }),
+          expect.objectContaining({ id: b.id }),
+        ]),
+      },
+      expect.objectContaining({ event: 'afterBulkDelete', execution: 'direct' }),
+    );
   });
 });

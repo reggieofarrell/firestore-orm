@@ -3,6 +3,7 @@ import {
   FirestoreIndexError,
   NotFoundError,
   PreconditionFailedError,
+  WriteOutcomeError,
 } from './Errors.js';
 
 /**
@@ -16,6 +17,13 @@ export function parseFirestoreError(error: unknown): Error {
   // instances — normalize to a plain Error without dereferencing.
   if (!error || typeof error !== 'object') {
     return new Error(String(error ?? 'Unknown error'));
+  }
+
+  // Preserve WriteOutcomeError unchanged before any SDK-code normalization. Nested repository /
+  // query catch sites call this helper; unwrapping here would erase the discriminated outcome that
+  // callers branch on (issue #46 / ADR-0035).
+  if (error instanceof WriteOutcomeError) {
+    return error;
   }
 
   const err = error as { code?: unknown; message?: unknown; details?: unknown };

@@ -72,6 +72,12 @@ describe('FirestoreRepository transaction lifecycle', () => {
 
     expect(beforeDelete).toHaveBeenCalledWith(
       expect.objectContaining({ id: created.id, name: 'Tx Delete Hooks' }),
+      expect.objectContaining({
+        event: 'beforeDelete',
+        execution: 'transaction',
+        retryable: true,
+        attempt: 1,
+      }),
     );
     expect(afterDelete).not.toHaveBeenCalled();
   });

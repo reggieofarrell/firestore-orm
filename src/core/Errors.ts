@@ -1,4 +1,109 @@
 import z from 'zod';
+import type { HookContext, HookEvent } from './Hooks.js';
+
+/**
+ * Discriminated persistence outcome carried by {@link WriteOutcomeError}.
+ *
+ * Outcome is derived from **control-flow position** at the failure site (before-hook, commit
+ * chunking, after-hook, or postcommit read-back) — never inferred from the cause's class. Ordinary
+ * precommit failures (validation, malformed id, first-chunk conflict, SDK errors with zero
+ * successful writes) remain their existing top-level error classes and are not wrapped here.
+ *
+ * - `not-committed` / `before-hook` — a `before*` hook threw; no write was applied for this call.
+ * - `partially-committed` / `commit` — one or more fixed-batch chunks committed, then a later chunk
+ *   (or action-building after prior success) failed. `committedWrites` counts successful document
+ *   write actions; `totalWrites` is the call's action count.
+ * - `committed` / `after-hook` — the write committed, then an `after*` hook threw. Side effects are
+ *   in-process and not durable across process crash.
+ * - `committed` / `read-back` — the write committed, then a `{ returnDoc: true }` converter/read
+ *   failed. The document is persisted; only the returned model is unavailable.
+ */
+export type WriteOutcome =
+  | {
+      readonly state: 'not-committed';
+      readonly phase: 'before-hook';
+      readonly hook: HookContext<HookEvent>;
+    }
+  | {
+      readonly state: 'partially-committed';
+      readonly phase: 'commit';
+      readonly committedWrites: number;
+      readonly totalWrites: number;
+    }
+  | {
+      readonly state: 'committed';
+      readonly phase: 'after-hook';
+      readonly hook: HookContext<HookEvent>;
+    }
+  | {
+      readonly state: 'committed';
+      readonly phase: 'read-back';
+    };
+
+/**
+ * Stable, non-cause-derived messages for each {@link WriteOutcome} variant so HTTP adapters and
+ * logs can surface a predictable string without embedding sensitive cause text.
+ */
+function messageForWriteOutcome(outcome: WriteOutcome): string {
+  switch (outcome.state) {
+    case 'not-committed':
+      return `Write did not commit: before-hook '${outcome.hook.event}' failed`;
+    case 'partially-committed':
+      return (
+        `Write partially committed: ${outcome.committedWrites} of ${outcome.totalWrites} ` +
+        'document writes succeeded before commit failure'
+      );
+    case 'committed':
+      if (outcome.phase === 'after-hook') {
+        return `Write committed but after-hook '${outcome.hook.event}' failed`;
+      }
+      return 'Write committed but postcommit read-back failed';
+  }
+}
+
+/**
+ * Outcome-sensitive write failure: a hook threw, a later fixed-batch chunk failed after earlier
+ * chunks committed, or a postcommit `{ returnDoc: true }` read/converter failed.
+ *
+ * The original failure is preserved as {@link cause} (normalized through {@link parseFirestoreError}
+ * at construction sites). `cause` lives on the Error instance — **not** inside {@link outcome} —
+ * so Express/JSON serialization of `outcome` cannot leak sensitive cause details.
+ *
+ * @example
+ * try {
+ *   await userRepo.create(data);
+ * } catch (error) {
+ *   if (error instanceof WriteOutcomeError) {
+ *     switch (error.outcome.state) {
+ *       case 'not-committed':
+ *         // safe to retry the whole create
+ *         break;
+ *       case 'partially-committed':
+ *         // inspect error.outcome.committedWrites / totalWrites
+ *         break;
+ *       case 'committed':
+ *         // data is persisted; handle after-hook / read-back separately
+ *         break;
+ *     }
+ *   }
+ * }
+ */
+export class WriteOutcomeError extends Error {
+  readonly outcome: WriteOutcome;
+  /**
+   * Original failure (normalized through {@link parseFirestoreError} at construction sites).
+   * Declared explicitly because this package targets ES2020 lib, which does not yet type
+   * `Error.cause` / `ErrorOptions`.
+   */
+  readonly cause: Error;
+
+  constructor(outcome: WriteOutcome, cause: Error) {
+    super(messageForWriteOutcome(outcome));
+    this.name = 'WriteOutcomeError';
+    this.outcome = outcome;
+    this.cause = cause;
+  }
+}
 
 /**
  * Error thrown when a requested document is not found in Firestore.

@@ -1,5 +1,6 @@
 import { parseFirestoreError } from './ErrorParser.js';
-import { HookEvent, ID } from './FirestoreRepository.js';
+import { ID } from './FirestoreRepository.js';
+import type { HookEvent, HookExecution } from './Hooks.js';
 import { FirestoreDocument, asFirestoreDocument } from './DocumentId.js';
 import { ValidationError } from './Errors.js';
 import { UpdateInput } from './Validation.js';
@@ -34,10 +35,18 @@ import {
 } from 'firebase-admin/firestore';
 import { z } from 'zod';
 
+// Bound repository helpers. commitInChunks now returns the successful write count; callers that
+// ignore the number (query update/delete) remain correct. runHooks accepts an optional third
+// execution argument — query writes always use the dispatcher default (direct).
 type FirestoreWriteBatch = (
   actions: ((batch: FirebaseFirestore.WriteBatch) => void)[],
+) => Promise<number>;
+type RunHook = (
+  event: HookEvent,
+  // Matches the repository dispatcher boundary; consumer `on()` callbacks stay strictly typed.
+  data: any,
+  execution?: HookExecution,
 ) => Promise<void>;
-type RunHook = (event: HookEvent, data: any) => Promise<void>;
 type ValidateUpdate<W> = (data: UpdateInput<W>) => UpdateInput<W>;
 
 /**

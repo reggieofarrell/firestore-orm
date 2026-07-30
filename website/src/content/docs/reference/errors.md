@@ -21,6 +21,7 @@ import {
   PreconditionFailedError,
   FirestoreIndexError,
   InvalidDocumentIdError,
+  WriteOutcomeError,
 } from '@reggieofarrell/firestore-orm';
 
 try {
@@ -157,6 +158,51 @@ Properties:
 - `fields: string[]` — the fields that require indexing
 - `toString(): string` — returns a formatted, human-readable message with the index URL and setup
   instructions
+
+## Write outcomes (`WriteOutcomeError`)
+
+Outcome-sensitive write failures — a `before*` / `after*` hook threw, a later fixed-batch chunk
+failed after earlier chunks committed, or a postcommit `{ returnDoc: true }` read/converter failed —
+surface as **`WriteOutcomeError`**. The original failure is preserved as `cause`. Ordinary
+validation, malformed-id, not-found, conflict, and precondition errors remain their existing
+top-level classes when no write committed and no hook is the failed phase.
+
+`outcome` is a discriminated union (cause is **not** inside `outcome`, so HTTP serialization stays
+safe):
+
+| `state`               | `phase`        | Meaning                                                               |
+| --------------------- | -------------- | --------------------------------------------------------------------- |
+| `not-committed`       | `before-hook`  | A `before*` hook failed; no write for this call                       |
+| `partially-committed` | `commit`       | Some fixed-batch writes committed (`committedWrites` / `totalWrites`) |
+| `committed`           | `after-hook`   | Write committed; an `after*` hook failed                              |
+| `committed`           | `read-back`    | Write committed; `{ returnDoc: true }` converter/read failed          |
+
+```typescript
+try {
+  await userRepo.create(data);
+} catch (error) {
+  if (error instanceof WriteOutcomeError) {
+    switch (error.outcome.state) {
+      case 'not-committed':
+        // safe to retry the whole create
+        break;
+      case 'partially-committed':
+        console.log(error.outcome.committedWrites, error.outcome.totalWrites);
+        break;
+      case 'committed':
+        // data is persisted — handle after-hook / read-back separately
+        break;
+    }
+  }
+}
+```
+
+Key side effects by a business / write identity stored atomically with the data — not by
+`HookContext.attempt` (diagnostic only). Durable after-hook delivery is tracked as
+[#80](https://github.com/reggieofarrell/firestore-orm/issues/80).
+
+`parseFirestoreError` **preserves** an existing `WriteOutcomeError` unchanged before SDK
+normalization.
 
 ## Normalizing raw Firestore errors
 

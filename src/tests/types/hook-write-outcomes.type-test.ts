@@ -8,10 +8,11 @@
  * - one-argument hooks still register (T12);
  * - two-argument hooks can narrow by event/execution;
  * - WriteOutcome exhaustive switching correlates count/hook fields;
- * - root public module exports HookContext, HookEvent, WriteOutcome, WriteOutcomeError.
+ * - root public module exports HookContext, HookEvent, WriteOutcome, WriteOutcomeError;
+ * - HookDataFor rejects a wrong dispatcher payload (review N1).
  */
 import type { HookContext, HookEvent, WriteOutcome, WriteOutcomeError } from '../../index.js';
-import { FirestoreRepository } from '../../index.js';
+import { FirestoreRepository, type HookDataFor } from '../../core/FirestoreRepository.js';
 
 declare const db: FirebaseFirestore.Firestore;
 declare const repo: FirestoreRepository<{ name: string }>;
@@ -111,3 +112,21 @@ type _Exports = {
 };
 const _exportsOk: _Exports | undefined = undefined;
 void _exportsOk;
+
+// ---------------------------------------------------------------------------
+// N1 — dispatcher payload correlation (HookDataFor rejects a wrong shape)
+// ---------------------------------------------------------------------------
+
+/** Stand-in for the typed runHooks dispatcher boundary. */
+declare function dispatchHookData<E extends HookEvent>(
+  event: E,
+  data: HookDataFor<E, { name: string }>,
+): void;
+
+export function dispatcherRejectsWrongPayload() {
+  dispatchHookData('beforeUpdate', { name: 'ok', id: 'doc-1' });
+  // @ts-expect-error beforeUpdate payload must be the update document shape, not a bare number
+  dispatchHookData('beforeUpdate', 42);
+  // @ts-expect-error beforeBulkDelete requires documents alongside ids
+  dispatchHookData('beforeBulkDelete', { ids: ['a'] });
+}

@@ -7,9 +7,9 @@
 
 ## Status
 
-Done-pending-external-review. D1–D6 implemented (ADR-0035), core source + Express + docs + I1–I7 /
-U1–U5 tests. Full §10 gate green (two runs: pre- and post-self-review fixes). Plan directory left in
-place. **Not committed** (user instruction).
+Implementation committed (`72def39`). External review round 1 (`review.md`) findings **B1, B2, M1,
+N1, N2** addressed in the working tree (not yet committed — user instruction). Full §10 gate
+re-run after remediation recorded below.
 
 ## Ambiguities resolved
 
@@ -24,39 +24,42 @@ place. **Not committed** (user instruction).
 
 ## Deviations from the plan
 
-1. **`HookDataFor` type alias removed** — plan §6.3 suggested it; `HookFnMap` already correlates
-   event→callback. Unused alias failed eslint `no-unused-vars`. Equivalent map kept.
+1. **`HookDataFor` restored (review N1)** — initial implementation dropped the alias because eslint
+   flagged it unused when only `HookFnMap` typed registration. External review proved dispatch still
+   accepted `data: any`. Restored as `export type HookDataFor<E,T,W,WO> =
+   Parameters<HookFnMap…>[E]>[0]` on the dispatcher + QueryBuilder `RunHook`.
 2. **`WriteOutcomeError` / `ErrorOptions`** — see Ambiguities; ES2020 target constraint.
 3. **Bulk `returnDoc` read-backs** wrap each `getByIdOrThrow` in `readAfterCommit` inside
    `Promise.all` (rather than one wrapper around the whole `Promise.all`). Same classification;
-   slightly finer-grained failure attribution.
-4. **Commit deferred** — user explicitly forbade committing; Conventional Commits subject recorded
-   below for the eventual commit.
+   slightly finer-grained failure attribution. Nested-error early-return inside the helper was wrong
+   (B1) and is removed.
+4. **Commit of remediation deferred** — user forbade committing this remediation pass.
 
 ## Files touched and why
 
 | File | Change | Plan reference |
 | ---- | ------ | -------------- |
 | `src/core/Hooks.ts` | New: `HookEvent`, `HookContext`, `buildHookContext` | §6.1, §7.3 |
-| `src/core/Errors.ts` | `WriteOutcome`, `WriteOutcomeError` | §6.2, §7.4 |
+| `src/core/Errors.ts` | `WriteOutcome`, `WriteOutcomeError`; M1 retry guidance | §6.2, §7.4 |
 | `src/core/ErrorParser.ts` | Preserve `WriteOutcomeError` | §6.6, §7.5 |
-| `src/core/FirestoreRepository.ts` | Context dispatcher, attempt, commit counts, read-back | §6.3–§6.5, §7.6–10 |
-| `src/core/QueryBuilder.ts` | Bound `RunHook` / `commitInChunks` signatures | §7.7, T13 |
+| `src/core/FirestoreRepository.ts` | Context dispatcher, attempt, commit counts, read-back; B1 wrap; N1 HookDataFor | §6.3–§6.5 |
+| `src/core/QueryBuilder.ts` | Bound event-correlated `RunHook` | §7.7, T13, N1 |
 | `src/index.ts` | Export new symbols | §6.6 |
 | `src/express/index.ts` | HTTP 500 + safe `outcome` | §6.6, §7.11 |
 | `docs/adr/0035-*.md` + README | ADR D1–D6 | §9.1 |
 | `website/src/content/docs/**` | Hooks, txs, errors, express, migration, repo, CRUD, types, scope | §9.2–§9.6 |
-| `src/tests/integration/repository-write-outcomes.integration.test.ts` | I1–I7 | §8.1 |
+| `src/tests/integration/repository-write-outcomes.integration.test.ts` | I1–I7 + B1 + strengthened I4 | §8.1 |
 | `src/tests/unit/errors|errorParser|errorHandler|packageExports` | U1–U4 | §8.2 |
-| `src/tests/types/hook-write-outcomes.type-test.ts` | U5 | §8.2 |
+| `src/tests/types/hook-write-outcomes.type-test.ts` | U5 + N1 compile-fail | §8.2 |
 | Existing hook assertion tests | Second-arg `HookContext` | §8 |
+| `docs/design/transactional-outbox.md` | **Removed** from tree (N2 / #80) | §2.5, §7 |
 
 ## Edge cases / traps handled
 
 | Trap | Handled by | Pinned by |
 | ---- | ---------- | --------- |
 | T1 wrap-only outcome-sensitive | `commitInChunks` zero→cause; ordinary precommit classes | I6 + unit |
-| T2 control-flow outcome | dispatcher / helpers set phase from site | I1–I7 |
+| T2 control-flow outcome | dispatcher / helpers always allocate outer phase (B1) | I1–I7 + B1 nested |
 | T3 increment after commit | `committedWrites +=` only post-`await commit` | I5 mutation B |
 | T4 action-building after success | try/catch around chunk loop | commitInChunks structure |
 | T5 exact totals | `totalWrites: actions.length` | I5 |
@@ -67,7 +70,7 @@ place. **Not committed** (user instruction).
 | T10 after direct-only | types + runtime `startsWith('before')` guard | U5 + Hooks.ts |
 | T11 split delete aliases | before/after delete overloads | types + I1/I2 |
 | T12 one-arg hooks | TS fewer-params | U5 |
-| T13 QueryBuilder bound | signature widen only | query I2 |
+| T13 QueryBuilder bound | event-correlated HookDataFor | N1 type-test |
 | T14 no HTTP cause | Express body `{ error, outcome }` | U3 |
 | T15 fail-fast sequential | for-await loop | I2 laterCalls=0 |
 | T16 no durable promise | docs + ADR | lifecycle-hooks.md |
@@ -81,12 +84,13 @@ place. **Not committed** (user instruction).
 | I1 | integration write-outcomes | all 6 before families full outcome | not-committed |
 | I2 | integration | afterCreate/Update/Delete/BulkCreate + query bulk | committed/fail-fast |
 | I3 | integration | tx attempt 1, null raw, direct-on-clone, tx failure hook | T8/T9 |
-| I4 | integration | contention attempts ≥1 and max≥2 | diagnostic |
+| I4 | integration | **per-worker** attempts begin at 1, consecutive, match callbacks | B2 |
 | I5 | integration | 501 partial 500/501 | T1/T3/T5 |
 | I6 | integration | first-chunk ConflictError | T1 |
 | I7 | integration | six returnDoc read-backs | T7 |
+| B1 | integration | nested WOE reclassified at before/after/read-back | T2 |
 | U1–U4 | unit | Errors / parser / Express / exports | contracts |
-| U5 | type-test | narrowing + one-arg + exhaust + never-tx-after | T10/T12 |
+| U5 | type-test | narrowing + one-arg + exhaust + never-tx-after + N1 | T10/T12/N1 |
 
 ## Mutation checks
 
@@ -95,6 +99,7 @@ place. **Not committed** (user instruction).
 | I1 beforeCreate | `runHooks` catch rethrows raw error | **Fails** — expected WriteOutcomeError objectContaining, received bare Error |
 | I5 partial 501 | `commitInChunks` always `throw cause` | **Fails** — expected WriteOutcomeError, received ConflictError |
 | U2 parser preserve | early branch returns `new Error(message)` | **Fails** — expected same WriteOutcomeError instance, received plain Error |
+| I4 per-worker (B2) | module-global shared `__ormObservedAttempt` | **Fails** — `Expected: 2, Received: 3` on consecutive attempt assert; restored via backup; I4 green again |
 
 Restored via file backups (not `git checkout`) after each check.
 
@@ -117,14 +122,24 @@ Restored via file backups (not `git checkout`) after each check.
 - both coverage gates passed; build/package/consumer (admin 14)/check:docs/docs:build passed
 - built HTML `:::` count: **0**
 
+**Run 3** (after external review B1/B2/M1/N1/N2 remediation): all 14 §10 legs passed under Node `v24.18.0`
+(temp `npm_config_cache`).
+
+- unit: **32 suites / 417 tests**
+- integration: **35 suites / 532 tests** (+3 B1 nested-outcome tests vs Run 2’s 529)
+- unit coverage gates: utils 98.93 / 94.47 / 100; error-validation 98.42 / 92.92 / 100; index 100 / 100 / 75.76
+- integration coverage: repository 98.00 / 92.28 / 93.33; query 96.91 / 88.26 / 100; others above thresholds
+- build / package (98 files) / consumer (admin 14) / check:docs / docs:build passed
+- built HTML literal `:::` files: **0**
+
 ### Gate re-run after fixes
 
-Run 2 is the post-remediation full gate (recorded above). Fixing F3–F10 did not regress other legs.
+Run 2 is the post-self-review full gate. Run 3 is the post-external-review remediation gate (green).
 
 | Anti-instruction | Confirmed |
 | ---------------- | --------- |
 | Do not re-litigate §1 | ✓ |
-| No outbox (#80) | ✓ |
+| No outbox (#80) | ✓ — N2 deleted `docs/design/transactional-outbox.md` from tree |
 | No #79 prose fix | ✓ |
 | No CHANGELOG hand-edit | ✓ |
 | No frozen 2.0 docs | ✓ |
@@ -143,12 +158,12 @@ Run 2 is the post-remediation full gate (recorded above). Fixing F3–F10 did no
 | I1–I7 / U1–U5 | PASS | write-outcomes suite + unit/type tests |
 | Persistence backs outcomes | PASS | emulator assertions |
 | Ordinary precommit classes | PASS | I6 |
-| attempt owned/null, not dedupe key | PASS | I3 + docs/ADR |
+| attempt owned/null, not dedupe key | PASS | I3 + docs/ADR + strengthened I4 |
 | Coverage gates | PASS | gate logs |
 | 14 §10 legs | PASS | gate runs |
 | Docs build + links | PASS | check:docs / docs:build |
 | notes.md present | PASS | this file |
-| Breaking Conventional Commit subject ready | PASS | below (not committed) |
+| Breaking Conventional Commit subject ready | PASS | shipped as `72def39`; remediation uncommitted |
 
 ## Independent adversarial review
 
@@ -172,7 +187,7 @@ notes) · **Verdict:** pass with fixes
 - **F7 low — missing after+transaction `@ts-expect-error`** — TS emits property errors that do not
   pair cleanly with `@ts-expect-error`; `Extract<…> extends never` pins the contract.
 - **F8 low — I4 weaker monotonicity** — Plan forbids asserting exact `[2,2]`; strengthened min/max
-  and presence of attempt 1.
+  and presence of attempt 1. **Superseded by external B2** (per-worker sequences).
 - **F11 low — I5 create-only** — Plan allows I5 + shared helper as minimum.
 - **F12 low — no ErrorOptions** — ES2020 lib constraint; explicit `cause` field is the public API.
 
@@ -180,9 +195,23 @@ notes) · **Verdict:** pass with fixes
 
 - (none)
 
-### Gate re-run after fixes
+## External review round 1 (`review.md`) — dispositions
 
-Recorded in next section when Run 2 completes.
+**Reviewer:** Codex (GPT-5) · **Reviewed:** `HEAD` `ce6b027` + then-uncommitted tree · **Verdict was
+BLOCKED**. Remediation applied against committed `72def39` working tree.
+
+| Id | Severity | Disposition | Evidence |
+| -- | -------- | ----------- | -------- |
+| **B1** | blocker | **fixed** | Removed early returns in `writeOutcomeFromHookFailure` / `readAfterCommit`; always allocate outer phase with `parseFirestoreError(error)` as cause. Added 3 integration tests under `B1 — nested WriteOutcomeError reclassification`. |
+| **B2** | blocker | **fixed** | I4 now records attempts per worker via `AsyncLocalStorage`; asserts each sequence starts at 1, is consecutive, matches callback count, and at least one worker retries. Shared-counter mutation fails I4 (`Expected: 2, Received: 3`); restored via backup. |
+| **M1** | major | **fixed** | Replaced “safe to retry” in `Errors.ts` JSDoc and `website/.../errors.md` with guidance that DB write did not commit but earlier hook side effects may have delivered — retry only with idempotent business/write identity. |
+| **N1** | minor | **fixed** | Restored `HookDataFor` from `Parameters<HookFnMap…>[0]`; typed `runHooks` + QueryBuilder `RunHook`. Type-test `@ts-expect-error` for `beforeUpdate`/`42` and incomplete `beforeBulkDelete`. |
+| **N2** | nit | **fixed** | Deleted `docs/design/transactional-outbox.md` from the working tree (was incorrectly included in `72def39`). Belongs with #80. Next commit should record the deletion. |
+
+### Verified and holding (from review — not re-litigated)
+
+Parser preserve at generic catch boundaries remains correct; B1 is phase-owning helpers only.
+Contention must not require exact `[2,2]`. After+transaction `Extract` pin remains valid.
 
 ## Could-not-verify
 
@@ -192,5 +221,5 @@ Recorded in next section when Run 2 completes.
 
 ## Open questions for the reviewer
 
-- Whether per-doc `readAfterCommit` inside `Promise.all` for bulk `returnDoc` is preferred over a
-  single wrapper (deviation 3).
+- (none remaining from implementer) Whether per-doc `readAfterCommit` inside `Promise.all` for bulk
+  `returnDoc` is preferred was accepted by review for ordinary failures; nested bypass fixed under B1.

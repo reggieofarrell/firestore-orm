@@ -184,7 +184,9 @@ try {
   if (error instanceof WriteOutcomeError) {
     switch (error.outcome.state) {
       case 'not-committed':
-        // safe to retry the whole create
+        // Firestore write did not commit. Earlier before-hooks may still have
+        // delivered external side effects — retry only with an idempotent
+        // business/write identity.
         break;
       case 'partially-committed':
         console.log(error.outcome.committedWrites, error.outcome.totalWrites);

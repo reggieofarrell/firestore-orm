@@ -188,3 +188,45 @@ hook-outcome change, expanding review scope and contradicting the plan's anti-in
 regressions; close B2 by strengthening I4 and proving the shared-counter mutation fails. Also correct
 M1, type the dispatcher for N1, and keep N2 out of the issue commit. Then disposition every id in
 `notes.md` and rerun the complete §10 gate before round 2.
+
+---
+
+## Round 2
+
+**Reviewed:** `HEAD` `8810566` (`docs(agents): ban git checkout restores during mutation checks`)
+plus the uncommitted remediation working tree · **Dispositions checked against `notes.md`:** B1,
+B2, M1, N1, N2 · **Tree:** remediation unchanged by this review; all temporary mutations restored
+byte-for-byte; this section is the reviewer's only persistent edit.
+
+### Disposition verification
+
+| Finding | Implementer disposition | Reviewer check |
+| ------- | ----------------------- | -------------- |
+| **B1** | fixed — phase-owning hook/read-back helpers always construct a new outer `WriteOutcomeError`; three nested-error integration tests added | **Confirmed.** `src/core/FirestoreRepository.ts:1103–1134` now derives the outer outcome from the current control-flow phase and preserves the nested error as `cause`. All three tests at `src/tests/integration/repository-write-outcomes.integration.test.ts:649–778` passed. Reintroducing the hook early return made the beforeCreate regression alone fail (`1 failed, 27 skipped`); reintroducing the read-back early return made the read-back regression alone fail (`1 failed, 27 skipped`). |
+| **B2** | fixed — I4 records attempts per logical worker and asserts start-at-1, consecutiveness, and callback/hook count equality | **Confirmed.** `src/tests/integration/repository-write-outcomes.integration.test.ts:441–503` uses `AsyncLocalStorage` to attribute concurrent hook observations without a shared-current-worker race. Replacing the closure-local counter at `src/core/FirestoreRepository.ts:3720–3726` with a module-global counter made I4 alone fail (`Expected: 2, Received: 4`; `1 failed, 27 skipped`). |
+| **M1** | fixed — retry guidance now distinguishes database non-commit from already-delivered hook effects | **Confirmed.** `src/core/Errors.ts:79–80` and `website/src/content/docs/reference/errors.md:187–189` now require an idempotent business/write identity and explicitly warn that earlier hook side effects may already have been delivered. No “safe to retry the whole create” occurrence remains. |
+| **N1** | fixed — event-correlated `HookDataFor` now types repository and QueryBuilder dispatcher payloads | **Confirmed.** `HookDataFor` is derived from `HookFnMap` at `src/core/FirestoreRepository.ts:326–337`, used by `runHooks` at `1075–1091`, and propagated through QueryBuilder's bound `RunHook` at `src/core/QueryBuilder.ts:44–55`. Mutating repository `beforeUpdate` to pass `42` made `test:types` fail with TS2345; mutating QueryBuilder `beforeBulkUpdate` likewise failed with TS2345. The restored tree passes `test:types`. |
+| **N2** | fixed — remove the out-of-scope outbox draft | **Confirmed.** `docs/design/transactional-outbox.md` is deleted in the remediation diff and is absent from the working tree. The deletion correctly removes the file that was accidentally included in `72def39`; no other outbox implementation surface was added. |
+
+### Fresh verification
+
+| Check | Result |
+| ----- | ------ |
+| Targeted remediation tests | B1's three nested-outcome tests plus strengthened I4: **4 passed, 24 skipped** |
+| Mutation restores | `FirestoreRepository.ts` restored to SHA-256 `accd75…de5d8`; `QueryBuilder.ts` restored to `df1b50…7a760`; targeted tests and `test:types` green after restoration |
+| Full §10 gate | Exact 14-leg `&&` chain under Node `v24.18.0`, output redirected to `/private/tmp/issue46-review-r2-full-gate.log`, explicit chain status **`EXIT=0`** |
+| Suite counts | Unit **32 suites / 417 tests** (baseline 32/407); integration **35 suites / 532 tests** (baseline 34/504) |
+| Unit coverage gate | Utils 98.93 / 94.47 / 100; error-validation 98.42 / 92.92 / 100; index 100 / 100 / 75.76 — all above thresholds |
+| Integration coverage gate | Repository 98.00 / 92.28 / 93.33; query 96.91 / 88.26 / 100; collection group 99.55 / 97.22 / 100; validation 95.97 / 90.51 / 100; vector 93.26 / 88.03 / 96.55 — all above thresholds |
+| Package/consumer/docs | Build passed; package allowlist passed (98 files); packed ESM/CJS root/vector/Express consumer passed on firebase-admin 14; 185 doc files scanned; 61 production pages built |
+| Tree integrity | `git status --porcelain=v1 -uall` matched the pre-gate snapshot before this round was appended; `git diff --check` passed |
+
+No new findings were introduced by the remediation delta. The current source behavior, focused
+regressions, adversarial mutations, type-boundary mutations, full test suites, coverage gates,
+package consumers, and published documentation agree on the issue-46 contract.
+
+## Verdict
+
+**APPROVE** — B1, B2, M1, N1, and N2 are independently verified closed; the fresh exact gate is
+green with `EXIT=0`. The implementation owner can commit the remediation, then proceed with the
+plan-directory cleanup lifecycle.

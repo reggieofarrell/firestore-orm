@@ -6,11 +6,13 @@
  * - I1 before-hook → not-committed / before-hook; Firestore unchanged
  * - I2 after-hook → committed / after-hook; fail-fast; data persisted (incl. query update/delete)
  * - I3 transaction context (attempt 1, not-committed on throw, direct create on txRepo, null attempt)
- * - I4 contention retries observe monotonically increasing diagnostic attempts
+ * - I4 contention retries observe per-worker monotonically increasing diagnostic attempts
  * - I5 partial fixed-batch 501 create-with-id collision
  * - I6 first-chunk collision remains top-level ConflictError
  * - I7 all six returnDoc read-back sites classify as committed / read-back
+ * - B1 nested WriteOutcomeError is reclassified by the outer phase (hook + read-back)
  */
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { FirestoreRepository } from '../../core/FirestoreRepository.js';
 import { ConflictError, WriteOutcomeError, type HookContext } from '../../index.js';
 import { createTestUserInput } from '../shared/factories/user.factory.js';
@@ -428,17 +430,30 @@ describe('FirestoreRepository write outcomes (issue #46)', () => {
   });
 
   describe('I4 — retried transaction attempt (diagnostic)', () => {
-    it('contention observes monotonically increasing attempts starting at 1', async () => {
+    it('contention observes per-worker attempts starting at 1 and rising monotonically', async () => {
       // Adapted from N-transaction-retry-hooks.mjs. Attempts are diagnostic — do not assert [2,2].
+      // Per-worker sequences (review B2): each logical runInTransaction must begin at 1 and rise
+      // consecutively; a module-global counter mutation must fail this test.
       const id = 'counter';
       await db.collection(userRepo.getCollectionPath()).doc(id).set({ name: '0' });
       trackUser(id);
 
-      const observedAttempts: number[] = [];
+      // AsyncLocalStorage attributes concurrent hook observations to the owning logical worker
+      // without racing a shared `currentWorker` variable across interleaved callbacks.
+      const workerStore = new AsyncLocalStorage<number>();
+      const attemptsByWorker: number[][] = [[], []];
+      const callbackInvocationsByWorker = [0, 0];
+
       userRepo.on('beforeUpdate', (_data, context) => {
-        if (context.execution === 'transaction' && typeof context.attempt === 'number') {
-          observedAttempts.push(context.attempt);
+        const workerId = workerStore.getStore();
+        if (
+          workerId === undefined ||
+          context.execution !== 'transaction' ||
+          typeof context.attempt !== 'number'
+        ) {
+          return;
         }
+        attemptsByWorker[workerId].push(context.attempt);
       });
 
       let firstReads = 0;
@@ -447,35 +462,46 @@ describe('FirestoreRepository write outcomes (issue #46)', () => {
         releaseFirstReads = resolve;
       });
 
-      async function increment() {
+      async function increment(workerId: number) {
         return userRepo.runInTransaction(async (tx, txRepo) => {
-          const current = await txRepo.getInTransaction(tx, id);
-          firstReads += 1;
-          // Barrier so both workers observe the same initial value before writing.
-          if (firstReads <= 2) {
-            if (firstReads === 2) releaseFirstReads?.();
-            await bothFirstReads;
-          }
-          await txRepo.updateInTransaction(tx, id, {
-            name: String(Number(current?.name ?? '0') + 1),
+          // Enter ALS before any await so beforeUpdate hooks fired from updateInTransaction
+          // observe this worker id even under concurrent SDK retries.
+          return workerStore.run(workerId, async () => {
+            callbackInvocationsByWorker[workerId] += 1;
+            const current = await txRepo.getInTransaction(tx, id);
+            firstReads += 1;
+            // Barrier so both workers observe the same initial value before writing.
+            if (firstReads <= 2) {
+              if (firstReads === 2) releaseFirstReads?.();
+              await bothFirstReads;
+            }
+            await txRepo.updateInTransaction(tx, id, {
+              name: String(Number(current?.name ?? '0') + 1),
+            });
           });
         });
       }
 
-      await Promise.all([increment(), increment()]);
+      await Promise.all([increment(0), increment(1)]);
 
-      expect(observedAttempts.length).toBeGreaterThanOrEqual(2);
-      expect(Math.min(...observedAttempts)).toBe(1);
-      expect(Math.max(...observedAttempts)).toBeGreaterThanOrEqual(2);
-      // Hook observations match callback invocations (each updateInTransaction fires beforeUpdate).
-      // Within the recorded sequence, every value is a positive 1-based attempt; at least one
-      // worker must have seen attempt >= 2 under contention (diagnostic, not a fixed schedule).
-      for (const attempt of observedAttempts) {
-        expect(attempt).toBeGreaterThanOrEqual(1);
+      // At least one logical transaction must have retried under contention.
+      const maxAcrossWorkers = Math.max(
+        ...attemptsByWorker.map(seq => (seq.length === 0 ? 0 : Math.max(...seq))),
+      );
+      expect(maxAcrossWorkers).toBeGreaterThanOrEqual(2);
+
+      for (const workerId of [0, 1] as const) {
+        const attempts = attemptsByWorker[workerId];
+        const callbacks = callbackInvocationsByWorker[workerId];
+        // Every callback entry fires exactly one beforeUpdate for this update path.
+        expect(attempts.length).toBe(callbacks);
+        expect(callbacks).toBeGreaterThanOrEqual(1);
+        // Each logical transaction's observations begin at 1 and rise by 1 per retry.
+        expect(attempts[0]).toBe(1);
+        for (let i = 0; i < attempts.length; i++) {
+          expect(attempts[i]).toBe(i + 1);
+        }
       }
-      // Monotonic within each worker's attempts is not globally recoverable from a flat list, but
-      // every observed value must be reachable from 1 without going below 1.
-      expect(observedAttempts.filter(a => a === 1).length).toBeGreaterThanOrEqual(1);
 
       expect((await userRepo.getById(id))?.name).toBe('2');
     });
@@ -617,6 +643,138 @@ describe('FirestoreRepository write outcomes (issue #46)', () => {
       await expectReadBack(() =>
         repo.upsert('rb-upsert', createTestUserInput({ name: 'RB upsert' }), { returnDoc: true }),
       );
+    });
+  });
+
+  describe('B1 — nested WriteOutcomeError reclassification', () => {
+    it('beforeCreate wrapping a nested committed after-hook error stays not-committed', async () => {
+      // Nested error claims the INNER write committed via afterCreate — the OUTER create never
+      // wrote, so the outer outcome must still be not-committed/before-hook (review B1).
+      const nested = new WriteOutcomeError(
+        {
+          state: 'committed',
+          phase: 'after-hook',
+          hook: {
+            event: 'afterCreate',
+            execution: 'direct',
+            retryable: false,
+          },
+        },
+        new Error('nested afterCreate failure'),
+      );
+
+      userRepo.on('beforeCreate', () => {
+        throw nested;
+      });
+
+      let caught: unknown;
+      try {
+        await userRepo.create(createTestUserInput({ name: 'Nested before' }));
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).toBeInstanceOf(WriteOutcomeError);
+      expect(caught).not.toBe(nested);
+      const err = caught as WriteOutcomeError;
+      expect(err.outcome).toEqual({
+        state: 'not-committed',
+        phase: 'before-hook',
+        hook: {
+          event: 'beforeCreate',
+          execution: 'direct',
+          retryable: false,
+        },
+      });
+      // parseFirestoreError preserves the nested WriteOutcomeError identity as cause.
+      expect(err.cause).toBe(nested);
+
+      const snap = await db.collection(userRepo.getCollectionPath()).get();
+      expect(snap.size).toBe(0);
+    });
+
+    it('afterCreate wrapping a nested not-committed before-hook error stays committed', async () => {
+      // Outer create commits; a nested repo's before-hook failure must not rewrite the outer
+      // outcome to not-committed (review B1 converse).
+      const nested = new WriteOutcomeError(
+        {
+          state: 'not-committed',
+          phase: 'before-hook',
+          hook: {
+            event: 'beforeCreate',
+            execution: 'direct',
+            retryable: false,
+          },
+        },
+        new Error('nested beforeCreate failure'),
+      );
+
+      userRepo.on('afterCreate', () => {
+        throw nested;
+      });
+
+      let caught: unknown;
+      try {
+        await userRepo.create(createTestUserInput({ name: 'Nested after' }));
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).toBeInstanceOf(WriteOutcomeError);
+      expect(caught).not.toBe(nested);
+      const err = caught as WriteOutcomeError;
+      expect(err.outcome.state).toBe('committed');
+      expect(err.outcome.phase).toBe('after-hook');
+      if (err.outcome.phase === 'after-hook') {
+        expect(err.outcome.hook.event).toBe('afterCreate');
+      }
+      expect(err.cause).toBe(nested);
+
+      const snap = await db.collection(userRepo.getCollectionPath()).get();
+      expect(snap.size).toBe(1);
+      trackUser(snap.docs[0].id);
+    });
+
+    it('read-back wrapping a nested not-committed error stays committed/read-back', async () => {
+      const nested = new WriteOutcomeError(
+        {
+          state: 'not-committed',
+          phase: 'before-hook',
+          hook: {
+            event: 'beforeCreate',
+            execution: 'direct',
+            retryable: false,
+          },
+        },
+        new Error('nested beforeCreate in converter'),
+      );
+
+      const repo = new FirestoreRepository<User>(
+        db,
+        userRepo.getCollectionPath(),
+        undefined,
+        undefined,
+        () => {
+          throw nested;
+        },
+      );
+
+      let caught: unknown;
+      try {
+        await repo.create(createTestUserInput({ name: 'Nested readback' }), { returnDoc: true });
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).toBeInstanceOf(WriteOutcomeError);
+      expect(caught).not.toBe(nested);
+      const err = caught as WriteOutcomeError;
+      expect(err.outcome).toEqual({ state: 'committed', phase: 'read-back' });
+      expect(err.cause).toBe(nested);
+
+      const snap = await db.collection(userRepo.getCollectionPath()).get();
+      expect(snap.size).toBe(1);
+      trackUser(snap.docs[0].id);
     });
   });
 });

@@ -1,5 +1,5 @@
 import { parseFirestoreError } from './ErrorParser.js';
-import { ID } from './FirestoreRepository.js';
+import { ID, type HookDataFor } from './FirestoreRepository.js';
 import type { HookEvent, HookExecution } from './Hooks.js';
 import { FirestoreDocument, asFirestoreDocument } from './DocumentId.js';
 import { ValidationError } from './Errors.js';
@@ -41,10 +41,16 @@ import { z } from 'zod';
 type FirestoreWriteBatch = (
   actions: ((batch: FirebaseFirestore.WriteBatch) => void)[],
 ) => Promise<number>;
-type RunHook = (
-  event: HookEvent,
-  // Matches the repository dispatcher boundary; consumer `on()` callbacks stay strictly typed.
-  data: any,
+/**
+ * Event-correlated bound signature matching {@link FirestoreRepository}'s dispatcher (review N1).
+ * Payload type comes from {@link HookDataFor} so a wrong shape at a query emit site fails to compile
+ * the same way a wrong repository emit payload does.
+ */
+type RunHook<T extends object = object, W extends object = T, WO extends object = W> = <
+  E extends HookEvent,
+>(
+  event: E,
+  data: HookDataFor<E, T, W, WO>,
   execution?: HookExecution,
 ) => Promise<void>;
 type ValidateUpdate<W> = (data: UpdateInput<W>) => UpdateInput<W>;
@@ -1763,7 +1769,7 @@ export class FirestoreQueryBuilder<
     private collectionRef: CollectionReference<any>,
     db: Firestore,
     private commitInChunks: FirestoreWriteBatch,
-    private runHooks: RunHook,
+    private runHooks: RunHook<T, W>,
     private validateUpdate?: ValidateUpdate<W>,
     allowLegacyDatastoreIds = false,
   ) {

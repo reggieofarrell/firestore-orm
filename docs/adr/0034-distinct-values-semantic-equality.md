@@ -118,6 +118,6 @@ converter-sensitive.
 This record **amends ADR-0017**: `distinctValues` Firestore-aware semantic equality is no longer
 deferred. The remaining deferral (#41) and the decision not to pursue full server-side or Enterprise
 Pipeline parity are unchanged. (#40 client-side semantic equality has since shipped — see this ADR;
-server-side distinct remains [#41](https://github.com/reggieofarrell/firestore-orm/issues/41). This
-footer is a living index of remaining ADR-0017 deferrals — see [`docs/adr/README.md`](README.md)
-Conventions.)
+#72 write metadata has since shipped — see [ADR-0037](0037-write-metadata-opt-in.md); server-side
+distinct remains [#41](https://github.com/reggieofarrell/firestore-orm/issues/41). This footer is a
+living index of remaining ADR-0017 deferrals — see [`docs/adr/README.md`](README.md) Conventions.)

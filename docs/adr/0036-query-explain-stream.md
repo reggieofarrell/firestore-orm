@@ -84,4 +84,5 @@ emulator doc-mapping are the accepted confidence layer (same split as ADR-0031).
 This record **amends ADR-0017** and **ADR-0031**: Core `explainStream` is no longer deferred. The
 remaining ADR-0017 deferral (**#41**) and the decision not to pursue full server-side or Enterprise
 Pipeline parity are unchanged. (#65 is a separately tracked Core-only follow-up to #37, not an
-original `#35–#41` living-index item.)
+original `#35–#41` living-index item; #72 write metadata has since shipped — see
+[ADR-0037](0037-write-metadata-opt-in.md).)

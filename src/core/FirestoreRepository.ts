@@ -33,9 +33,43 @@ import {
 } from '../utils/documentId.js';
 
 export type ID = string;
+
+/**
+ * Commit metadata returned only by a **non-transactional** write called with `{ withMetadata: true }`.
+ *
+ * `writeTime` is the Admin SDK {@link FirebaseFirestore.WriteResult.writeTime} for that successful
+ * commit — a receipt from the write RPC, **not** {@link DocumentMetadata.updateTime} (snapshot
+ * provenance) and **not** a JSON-serialized server field on the document body.
+ *
+ * Transactional helpers never expose this type: `Transaction.set` / `update` / `delete` return the
+ * transaction object, not a {@link FirebaseFirestore.WriteResult}.
+ */
+export type WriteMetadata = { readonly writeTime: FirebaseFirestore.Timestamp };
+
+/**
+ * A write's ordinary result paired with its commit metadata.
+ *
+ * For id-returning single writes and fixed batches this is `{ id, writeTime }`. Prefer this
+ * intersection over inventing a universal `{ result, metadata }` wrapper so default callers keep
+ * reading `.id` without unwrapping.
+ */
+export type WriteResultWithMetadata<R> = R & WriteMetadata;
+
+/**
+ * Options bag for direct update/patch writes. `returnDoc` and `withMetadata` are mutually
+ * exclusive — typed overloads reject the combination, and runtime validation rejects it for
+ * JavaScript callers before any I/O.
+ */
 export type UpdateOptions = {
   merge?: boolean;
   returnDoc?: boolean;
+  /**
+   * When `true`, the write resolves to {@link WriteResultWithMetadata} carrying the commit
+   * `writeTime`. Incompatible with `returnDoc: true` (a read-back document is not a commit receipt).
+   * Absent from every `*InTransaction` helper — the Admin SDK does not expose per-op write results
+   * inside a transaction.
+   */
+  withMetadata?: boolean;
   /**
    * Optimistic-concurrency precondition. When supplied, the write is applied **only** if the
    * document's current `updateTime` is exactly this timestamp; otherwise Firestore rejects it and the
@@ -50,6 +84,11 @@ export type UpdateOptions = {
    */
   lastUpdateTime?: FirebaseFirestore.Timestamp;
 };
+
+/** Opt-in write-receipt options: `withMetadata: true` and never paired with `returnDoc: true`. */
+type WriteMetadataOptions = { withMetadata: true; returnDoc?: false };
+/** Default / explicit-false write options: no commit receipt on the result. */
+type NoWriteMetadataOptions = { withMetadata?: false };
 
 /**
  * The write verbs accepted by {@link FirestoreRepository.bulkWrite}.
@@ -1407,11 +1446,20 @@ export class FirestoreRepository<
    * write model but does not read the document back, so it cannot honestly return the read model
    * `T` (which may differ when a `writeSchema` overlay or `readConverter` is configured). Pass
    * `{ returnDoc: true }` to read the created document back through the `readConverter` and return
-   * the converted read model. This mirrors the `update`/`upsert` return contract.
+   * the converted read model. Pass `{ withMetadata: true }` to keep `{ id }` and add the commit
+   * receipt `writeTime` (Admin SDK {@link FirebaseFirestore.WriteResult.writeTime}). `returnDoc` and
+   * `withMetadata` are mutually exclusive. Not available on transactional create helpers — the
+   * Admin SDK exposes no per-op write receipt inside a transaction.
+   *
+   * Auto-id creation uses `CollectionReference.doc().set(...)` (not `add()`) so a
+   * {@link FirebaseFirestore.WriteResult} is always available when metadata is requested; the id is
+   * still client-generated before the write.
    *
    * @param data - Document data (without ID)
-   * @param options - `{ returnDoc: true }` to return the converted read model instead of `{ id }`
-   * @returns `{ id }` by default, or the created document (`FirestoreDocument<T>`) when `returnDoc` is true
+   * @param options - `{ returnDoc: true }` for the converted read model, or `{ withMetadata: true }`
+   *   for `{ id, writeTime }`
+   * @returns `{ id }` by default; `FirestoreDocument<T>` when `returnDoc` is true; `{ id, writeTime }`
+   *   when `withMetadata` is true
    * @throws {ValidationError} If schema validation fails
    *
    * @example
@@ -1425,19 +1473,41 @@ export class FirestoreRepository<
    *   { returnDoc: true },
    * );
    * console.log(user.name);
+   *
+   * @example
+   * // Opt-in commit receipt
+   * const { id, writeTime } = await userRepo.create(
+   *   { name: 'John Doe', email: 'john@example.com' },
+   *   { withMetadata: true },
+   * );
    */
-  async create(data: CreateInput<W>, options: { returnDoc: true }): Promise<FirestoreDocument<T>>;
-  async create(data: CreateInput<W>, options?: { returnDoc?: false }): Promise<{ id: ID }>;
   async create(
     data: CreateInput<W>,
-    options?: { returnDoc?: boolean },
-  ): Promise<{ id: ID } | FirestoreDocument<T>> {
+    options: { returnDoc: true } & NoWriteMetadataOptions,
+  ): Promise<FirestoreDocument<T>>;
+  async create(
+    data: CreateInput<W>,
+    options: WriteMetadataOptions,
+  ): Promise<WriteResultWithMetadata<{ id: ID }>>;
+  async create(
+    data: CreateInput<W>,
+    options?: { returnDoc?: false } & NoWriteMetadataOptions,
+  ): Promise<{ id: ID }>;
+  async create(
+    data: CreateInput<W>,
+    options?: { returnDoc?: boolean; withMetadata?: boolean },
+  ): Promise<{ id: ID } | FirestoreDocument<T> | WriteResultWithMetadata<{ id: ID }>> {
+    // Guard JS callers before any I/O so an ambiguous combined shape is never invented (T4).
+    this.assertExclusiveWriteResultOptions(options);
     try {
       const docToCreate = { ...(data as Record<string, any>) } as Record<string, any>;
       await this.runHooks('beforeCreate', docToCreate as HookDataFor<'beforeCreate', T, W, WO>);
       const validData = this.validateCreateData(docToCreate as CreateInput<W>);
 
-      const docRef = await this.writeCol().add(validData as any);
+      // Client-side auto id + set() yields a WriteResult (add() only yields a DocumentReference) —
+      // required for withMetadata and harmless for the default path (T1).
+      const docRef = this.writeCol().doc();
+      const writeResult = await docRef.set(validData as any);
 
       // After-create hooks receive the parsed write OUTPUT plus the generated id, in a frozen
       // envelope (review R4/R2): the type is verified by emitAfterCreate and the identity/accounting
@@ -1446,6 +1516,9 @@ export class FirestoreRepository<
 
       if (options?.returnDoc === true) {
         return await this.readAfterCommit(() => this.getByIdOrThrow(docRef.id));
+      }
+      if (options?.withMetadata === true) {
+        return { id: docRef.id, writeTime: writeResult.writeTime };
       }
       return { id: docRef.id };
     } catch (err: any) {
@@ -1477,8 +1550,11 @@ export class FirestoreRepository<
    *
    * @param id - Document ID to claim
    * @param data - Document data (without ID)
-   * @param options - `{ returnDoc: true }` to return the converted read model instead of `{ id }`
-   * @returns `{ id }` by default, or the created document (`FirestoreDocument<T>`) when `returnDoc` is true
+   * @param options - `{ returnDoc: true }` for the converted read model, or `{ withMetadata: true }`
+   *   for `{ id, writeTime }`. The two flags are mutually exclusive. Not available on
+   *   `createWithIdInTransaction`.
+   * @returns `{ id }` by default, or the created document (`FirestoreDocument<T>`) when `returnDoc` is true,
+   *   or `{ id, writeTime }` when `withMetadata` is true
    * @throws {InvalidDocumentIdError} If the id is not a single valid Firestore path segment
    * @throws {ValidationError} If schema validation fails, or the payload carries a delete sentinel
    * @throws {ConflictError} If a document already exists at that id
@@ -1496,26 +1572,40 @@ export class FirestoreRepository<
    * @example
    * // Return the converted read model
    * const user = await userRepo.createWithId('user-123', { name: 'Ada' }, { returnDoc: true });
+   *
+   * @example
+   * // Opt-in commit receipt
+   * const { id, writeTime } = await userRepo.createWithId(
+   *   'user-123',
+   *   { name: 'Ada' },
+   *   { withMetadata: true },
+   * );
    */
   async createWithId(
     id: ID,
     data: CreateInput<W>,
-    options: { returnDoc: true },
+    options: { returnDoc: true } & NoWriteMetadataOptions,
   ): Promise<FirestoreDocument<T>>;
   async createWithId(
     id: ID,
     data: CreateInput<W>,
-    options?: { returnDoc?: false },
+    options: WriteMetadataOptions,
+  ): Promise<WriteResultWithMetadata<{ id: ID }>>;
+  async createWithId(
+    id: ID,
+    data: CreateInput<W>,
+    options?: { returnDoc?: false } & NoWriteMetadataOptions,
   ): Promise<{ id: ID }>;
   async createWithId(
     id: ID,
     data: CreateInput<W>,
-    options?: { returnDoc?: boolean },
-  ): Promise<{ id: ID } | FirestoreDocument<T>> {
+    options?: { returnDoc?: boolean; withMetadata?: boolean },
+  ): Promise<{ id: ID } | FirestoreDocument<T> | WriteResultWithMetadata<{ id: ID }>> {
     // Security boundary (review B1): a caller-supplied id is validated BEFORE any hook runs or any
     // I/O happens, because `CollectionReference.doc()` accepts a slash-separated path and would
     // otherwise let a malformed id address a document outside this collection.
     this.validateId(id);
+    this.assertExclusiveWriteResultOptions(options);
     try {
       // The `id` is non-writable on the before-hook payload (review R2): a hook may mutate data
       // fields but cannot repoint identity. The write target is built from the captured `id`
@@ -1533,7 +1623,7 @@ export class FirestoreRepository<
       // `create()` — NOT `set()`. The backend rejects the write when the document already exists,
       // which parseFirestoreError normalizes (gRPC 6 ALREADY_EXISTS) into ConflictError.
       const docRef = this.writeCol().doc(id);
-      await docRef.create(validData as any);
+      const writeResult = await docRef.create(validData as any);
 
       // After-create hooks observe the parsed write OUTPUT plus the caller's id in a frozen envelope
       // (review R4/R2) — identical to create()/upsert().
@@ -1541,6 +1631,9 @@ export class FirestoreRepository<
 
       if (options?.returnDoc === true) {
         return await this.readAfterCommit(() => this.getByIdOrThrow(id));
+      }
+      if (options?.withMetadata === true) {
+        return { id, writeTime: writeResult.writeTime };
       }
       return { id };
     } catch (err: any) {
@@ -1557,11 +1650,15 @@ export class FirestoreRepository<
    *
    * By default returns `{ id }[]` (one generated id per input, in order). Pass
    * `{ returnDoc: true }` to read every created document back through the `readConverter` and return
-   * the converted read models — matching the single {@link create} contract.
+   * the converted read models — matching the single {@link create} contract. Pass
+   * `{ withMetadata: true }` for positional `{ id, writeTime }[]` aligned to the input order across
+   * 500-op chunk boundaries. `returnDoc` and `withMetadata` are mutually exclusive.
    *
    * @param dataArray - Array of documents to create
-   * @param options - `{ returnDoc: true }` to return the converted read models instead of `{ id }[]`
-   * @returns `{ id }[]` by default, or the created documents (`(FirestoreDocument<T>)[]`) when `returnDoc` is true
+   * @param options - `{ returnDoc: true }` for converted read models, or `{ withMetadata: true }` for
+   *   commit receipts
+   * @returns `{ id }[]` by default, `(FirestoreDocument<T>)[]` when `returnDoc` is true, or
+   *   `{ id, writeTime }[]` when `withMetadata` is true
    * @throws {ValidationError} If any document fails validation
    *
    * @example
@@ -1574,19 +1671,28 @@ export class FirestoreRepository<
    * @example
    * // Return the converted read models
    * const users = await userRepo.bulkCreate(rows, { returnDoc: true });
+   *
+   * @example
+   * // Positional commit receipts
+   * const receipts = await userRepo.bulkCreate(rows, { withMetadata: true });
    */
   async bulkCreate(
     dataArray: CreateInput<W>[],
-    options: { returnDoc: true },
+    options: { returnDoc: true } & NoWriteMetadataOptions,
   ): Promise<FirestoreDocument<T>[]>;
   async bulkCreate(
     dataArray: CreateInput<W>[],
-    options?: { returnDoc?: false },
+    options: WriteMetadataOptions,
+  ): Promise<WriteResultWithMetadata<{ id: ID }>[]>;
+  async bulkCreate(
+    dataArray: CreateInput<W>[],
+    options?: { returnDoc?: false } & NoWriteMetadataOptions,
   ): Promise<{ id: ID }[]>;
   async bulkCreate(
     dataArray: CreateInput<W>[],
-    options?: { returnDoc?: boolean },
-  ): Promise<{ id: ID }[] | FirestoreDocument<T>[]> {
+    options?: { returnDoc?: boolean; withMetadata?: boolean },
+  ): Promise<{ id: ID }[] | FirestoreDocument<T>[] | WriteResultWithMetadata<{ id: ID }>[]> {
+    this.assertExclusiveWriteResultOptions(options);
     try {
       const colRef = this.writeCol();
 
@@ -1631,7 +1737,8 @@ export class FirestoreRepository<
         });
       }
 
-      await this.commitInChunks(actions);
+      // Capture receipts in enqueue order across 500-op chunks so withMetadata stays positional (T2).
+      const writeResults = await this.commitInChunks(actions);
       // emitAfterBulkCreate freezes the array and each doc so the hook cannot mutate the accounting.
       await this.emitAfterBulkCreate(validatedDocs);
 
@@ -1639,6 +1746,12 @@ export class FirestoreRepository<
         return await Promise.all(
           validatedDocs.map(doc => this.readAfterCommit(() => this.getByIdOrThrow(doc.id))),
         );
+      }
+      if (options?.withMetadata === true) {
+        return validatedDocs.map((doc, index) => ({
+          id: doc.id,
+          writeTime: writeResults[index]!.writeTime,
+        }));
       }
       return validatedDocs.map(doc => ({ id: doc.id }));
     } catch (error: any) {
@@ -1662,8 +1775,10 @@ export class FirestoreRepository<
    * locally is what produces an actionable message.
    *
    * @param entries - Array of `{ id, data }` pairs to create
-   * @param options - `{ returnDoc: true }` to return the converted read models instead of `{ id }[]`
-   * @returns `{ id }[]` by default, or the created documents when `returnDoc` is true
+   * @param options - `{ returnDoc: true }` for converted read models, or `{ withMetadata: true }` for
+   *   positional `{ id, writeTime }[]`
+   * @returns `{ id }[]` by default, or the created documents when `returnDoc` is true, or
+   *   `{ id, writeTime }[]` when `withMetadata` is true
    * @throws {InvalidDocumentIdError} If any id is not a single valid Firestore path segment
    * @throws {Error} If the input contains duplicate ids
    * @throws {ValidationError} If any document fails validation
@@ -1677,22 +1792,27 @@ export class FirestoreRepository<
    */
   async bulkCreateWithIds(
     entries: { id: ID; data: CreateInput<W> }[],
-    options: { returnDoc: true },
+    options: { returnDoc: true } & NoWriteMetadataOptions,
   ): Promise<FirestoreDocument<T>[]>;
   async bulkCreateWithIds(
     entries: { id: ID; data: CreateInput<W> }[],
-    options?: { returnDoc?: false },
+    options: WriteMetadataOptions,
+  ): Promise<WriteResultWithMetadata<{ id: ID }>[]>;
+  async bulkCreateWithIds(
+    entries: { id: ID; data: CreateInput<W> }[],
+    options?: { returnDoc?: false } & NoWriteMetadataOptions,
   ): Promise<{ id: ID }[]>;
   async bulkCreateWithIds(
     entries: { id: ID; data: CreateInput<W> }[],
-    options?: { returnDoc?: boolean },
-  ): Promise<{ id: ID }[] | FirestoreDocument<T>[]> {
+    options?: { returnDoc?: boolean; withMetadata?: boolean },
+  ): Promise<{ id: ID }[] | FirestoreDocument<T>[] | WriteResultWithMetadata<{ id: ID }>[]> {
     // Security boundary + input contract, both BEFORE any hook or I/O: every caller-supplied id is
     // validated (review B1), then duplicates are rejected because two creates on the same document
     // in one batch are ambiguous and inflate the result count.
     const requestedIds = entries.map(entry => entry.id);
     requestedIds.forEach(id => this.validateId(id));
     this.assertNoDuplicateIds(requestedIds, 'bulkCreateWithIds');
+    this.assertExclusiveWriteResultOptions(options);
     try {
       const colRef = this.writeCol();
 
@@ -1740,7 +1860,7 @@ export class FirestoreRepository<
         });
       }
 
-      await this.commitInChunks(actions);
+      const writeResults = await this.commitInChunks(actions);
       // emitAfterBulkCreate freezes the array and each doc so the hook cannot mutate the accounting.
       await this.emitAfterBulkCreate(validatedDocs);
 
@@ -1748,6 +1868,12 @@ export class FirestoreRepository<
         return await Promise.all(
           validatedDocs.map(doc => this.readAfterCommit(() => this.getByIdOrThrow(doc.id))),
         );
+      }
+      if (options?.withMetadata === true) {
+        return validatedDocs.map((doc, index) => ({
+          id: doc.id,
+          writeTime: writeResults[index]!.writeTime,
+        }));
       }
       return validatedDocs.map(doc => ({ id: doc.id }));
     } catch (error: any) {
@@ -2219,8 +2345,12 @@ export class FirestoreRepository<
    *
    * @param id - Document ID to update
    * @param data - Partial document data (supports dot notation like 'address.city')
-   * @param options - Optional update behavior settings (`merge`, `returnDoc`, `lastUpdateTime`)
-   * @returns Updated document ID
+   * @param options - Optional update behavior (`merge`, `returnDoc`, `withMetadata`,
+   *   `lastUpdateTime`). `{ withMetadata: true }` resolves to `{ id, writeTime }` (Admin SDK commit
+   *   receipt). `returnDoc` and `withMetadata` are mutually exclusive. Not available on
+   *   `updateInTransaction`.
+   * @returns `{ id }` by default; `FirestoreDocument<T>` when `returnDoc` is true; `{ id, writeTime }`
+   *   when `withMetadata` is true
    * @throws {NotFoundError} If document doesn't exist and no `lastUpdateTime` was supplied
    * @throws {PreconditionFailedError} If `lastUpdateTime` no longer matches the stored version
    *   (including when the document has been deleted — Firestore reports that as stored version 0)
@@ -2269,18 +2399,23 @@ export class FirestoreRepository<
   async update(
     id: ID,
     data: UpdateInput<W>,
-    options: UpdateOptions & { returnDoc: true },
+    options: UpdateOptions & { returnDoc: true } & NoWriteMetadataOptions,
   ): Promise<FirestoreDocument<T>>;
   async update(
     id: ID,
     data: UpdateInput<W>,
-    options?: UpdateOptions & { returnDoc?: false },
+    options: UpdateOptions & WriteMetadataOptions,
+  ): Promise<WriteResultWithMetadata<{ id: ID }>>;
+  async update(
+    id: ID,
+    data: UpdateInput<W>,
+    options?: UpdateOptions & { returnDoc?: false } & NoWriteMetadataOptions,
   ): Promise<{ id: ID }>;
   async update(
     id: ID,
     data: UpdateInput<W>,
     options?: UpdateOptions,
-  ): Promise<{ id: ID } | FirestoreDocument<T>> {
+  ): Promise<{ id: ID } | FirestoreDocument<T> | WriteResultWithMetadata<{ id: ID }>> {
     // A direct update()/patch() legitimately permits FieldValue.delete() to clear a field.
     return this.runUpdate(id, data, options, false);
   }
@@ -2299,8 +2434,9 @@ export class FirestoreRepository<
     data: UpdateInput<W>,
     options: UpdateOptions | undefined,
     rejectDeleteSentinels: boolean,
-  ): Promise<{ id: ID } | FirestoreDocument<T>> {
+  ): Promise<{ id: ID } | FirestoreDocument<T> | WriteResultWithMetadata<{ id: ID }>> {
     this.validateId(id);
+    this.assertExclusiveWriteResultOptions(options);
     try {
       const docRef = this.writeCol().doc(id);
       // The `id` is non-writable on the before-hook payload (review R2): a hook may mutate data
@@ -2331,17 +2467,18 @@ export class FirestoreRepository<
       // T1 branch: never forward an `undefined` precondition positionally — `update()`'s
       // field/value overload would parse it as a field argument and throw. See toPrecondition().
       const precondition = this.toPrecondition(options?.lastUpdateTime);
-      if (precondition) {
-        await docRef.update(writePayload as any, precondition);
-      } else {
-        await docRef.update(writePayload as any);
-      }
+      const writeResult = precondition
+        ? await docRef.update(writePayload as any, precondition)
+        : await docRef.update(writePayload as any);
       await this.runHooks('afterUpdate', Object.freeze({ id }));
 
       // When returnDoc is enabled, we re-read the document after write completion.
       // This guarantees callers receive the persisted document shape from Firestore.
       if (options?.returnDoc === true) {
         return await this.readAfterCommit(() => this.getByIdOrThrow(id));
+      }
+      if (options?.withMetadata === true) {
+        return { id, writeTime: writeResult.writeTime };
       }
 
       return { id };
@@ -2359,7 +2496,8 @@ export class FirestoreRepository<
    *
    * Accepts the same optimistic-concurrency `lastUpdateTime` precondition as {@link update} — the
    * merge normalization happens before the write, so the precondition still guards the exact stored
-   * version the caller read.
+   * version the caller read. Pass `{ withMetadata: true }` for `{ id, writeTime }`; `returnDoc` and
+   * `withMetadata` are mutually exclusive. Not available on `patchInTransaction`.
    *
    * @example
    * const current = await userRepo.getByIdWithUpdateTime('user-123');
@@ -2374,25 +2512,49 @@ export class FirestoreRepository<
   async patch(
     id: ID,
     data: UpdateInput<W>,
-    options: { returnDoc: true; lastUpdateTime?: FirebaseFirestore.Timestamp },
+    options: {
+      returnDoc: true;
+      lastUpdateTime?: FirebaseFirestore.Timestamp;
+    } & NoWriteMetadataOptions,
   ): Promise<FirestoreDocument<T>>;
   async patch(
     id: ID,
     data: UpdateInput<W>,
-    options?: { returnDoc?: false; lastUpdateTime?: FirebaseFirestore.Timestamp },
+    options: WriteMetadataOptions & { lastUpdateTime?: FirebaseFirestore.Timestamp },
+  ): Promise<WriteResultWithMetadata<{ id: ID }>>;
+  async patch(
+    id: ID,
+    data: UpdateInput<W>,
+    options?: {
+      returnDoc?: false;
+      lastUpdateTime?: FirebaseFirestore.Timestamp;
+    } & NoWriteMetadataOptions,
   ): Promise<{ id: ID }>;
   async patch(
     id: ID,
     data: UpdateInput<W>,
-    options?: { returnDoc?: boolean; lastUpdateTime?: FirebaseFirestore.Timestamp },
-  ): Promise<{ id: ID } | FirestoreDocument<T>> {
-    // Forward the precondition on both branches. Passing `lastUpdateTime: undefined` through this
+    options?: {
+      returnDoc?: boolean;
+      withMetadata?: boolean;
+      lastUpdateTime?: FirebaseFirestore.Timestamp;
+    },
+  ): Promise<{ id: ID } | FirestoreDocument<T> | WriteResultWithMetadata<{ id: ID }>> {
+    // Reject the impossible flag pair BEFORE forwarding so returnDoc cannot silently win (F1 / T4).
+    this.assertExclusiveWriteResultOptions(options);
+    // Forward merge + returnDoc/withMetadata/lastUpdateTime. Passing `undefined` through this
     // ORM-owned options bag is safe (unlike forwarding `undefined` to the SDK — see toPrecondition):
     // runUpdate branches on truthiness before it reaches Firestore.
     if (options?.returnDoc === true) {
       return this.update(id, data, {
         merge: true,
         returnDoc: true,
+        lastUpdateTime: options.lastUpdateTime,
+      });
+    }
+    if (options?.withMetadata === true) {
+      return this.update(id, data, {
+        merge: true,
+        withMetadata: true,
         lastUpdateTime: options.lastUpdateTime,
       });
     }
@@ -2409,8 +2571,12 @@ export class FirestoreRepository<
    * existing chunked-commit caveat applies — earlier chunks are already committed when a later chunk
    * fails.
    *
+   * Pass `{ withMetadata: true }` for positional `{ id, writeTime }[]` aligned to the input (and to
+   * successfully committed chunk order above 500 ops).
+   *
    * @param updates - Array of update operations with ID, data, and an optional `lastUpdateTime`
-   * @returns Array of updated document IDs
+   * @param options - `{ withMetadata: true }` to include each write's commit `writeTime`
+   * @returns Array of updated document IDs, or `{ id, writeTime }[]` when metadata is requested
    * @throws {NotFoundError} If any document doesn't exist
    * @throws {PreconditionFailedError} If any supplied `lastUpdateTime` no longer matches
    * @throws {ValidationError} If any validation fails
@@ -2442,8 +2608,25 @@ export class FirestoreRepository<
       data: UpdateInput<W>;
       lastUpdateTime?: FirebaseFirestore.Timestamp;
     }[],
-  ): Promise<{ id: ID }[]> {
-    return this.runBulkBatchWrite(updates, false);
+    options: WriteMetadataOptions,
+  ): Promise<WriteResultWithMetadata<{ id: ID }>[]>;
+  async bulkUpdate(
+    updates: {
+      id: ID;
+      data: UpdateInput<W>;
+      lastUpdateTime?: FirebaseFirestore.Timestamp;
+    }[],
+    options?: NoWriteMetadataOptions,
+  ): Promise<{ id: ID }[]>;
+  async bulkUpdate(
+    updates: {
+      id: ID;
+      data: UpdateInput<W>;
+      lastUpdateTime?: FirebaseFirestore.Timestamp;
+    }[],
+    options?: { withMetadata?: boolean },
+  ): Promise<{ id: ID }[] | WriteResultWithMetadata<{ id: ID }>[]> {
+    return this.runBulkBatchWrite(updates, false, options);
   }
 
   /**
@@ -2456,7 +2639,8 @@ export class FirestoreRepository<
   private async runBulkBatchWrite(
     updates: { id: ID; data: UpdateInput<W>; lastUpdateTime?: FirebaseFirestore.Timestamp }[],
     merge: boolean,
-  ): Promise<{ id: ID }[]> {
+    options?: { withMetadata?: boolean },
+  ): Promise<{ id: ID }[] | WriteResultWithMetadata<{ id: ID }>[]> {
     this.assertNoDuplicateIds(
       updates.map(u => u.id),
       merge ? 'bulkPatch' : 'bulkUpdate',
@@ -2506,10 +2690,16 @@ export class FirestoreRepository<
         ids.push(id);
       }
 
-      await this.commitInChunks(actions);
+      const writeResults = await this.commitInChunks(actions);
       // Freeze the whole envelope (review R2): the `ids` property cannot be reassigned to a forged
       // array, so a first hook cannot corrupt what a second hook observes.
       await this.runHooks('afterBulkUpdate', Object.freeze({ ids: Object.freeze([...ids]) }));
+      if (options?.withMetadata === true) {
+        return ids.map((id, index) => ({
+          id,
+          writeTime: writeResults[index]!.writeTime,
+        }));
+      }
       return ids.map(id => ({ id }));
     } catch (error: any) {
       if (error instanceof z.ZodError) throw new ValidationError(error.issues);
@@ -2524,10 +2714,12 @@ export class FirestoreRepository<
    * take precedence over flattened keys, and writes execute via batch.update.
    *
    * Each entry may carry its own `lastUpdateTime` precondition, with the same atomicity behavior as
-   * {@link bulkUpdate}.
+   * {@link bulkUpdate}. Pass `{ withMetadata: true }` for positional `{ id, writeTime }[]` aligned
+   * across 500-op chunks.
    *
    * @param updates - Array of update operations with ID, data, and an optional `lastUpdateTime`
-   * @returns Array of updated document IDs
+   * @param options - `{ withMetadata: true }` to include each write's commit `writeTime`
+   * @returns Array of updated document IDs, or `{ id, writeTime }[]` when metadata is requested
    * @throws {NotFoundError} If any document doesn't exist
    * @throws {PreconditionFailedError} If any supplied `lastUpdateTime` no longer matches
    * @throws {ValidationError} If any validation fails
@@ -2544,21 +2736,44 @@ export class FirestoreRepository<
       data: UpdateInput<W>;
       lastUpdateTime?: FirebaseFirestore.Timestamp;
     }[],
-  ): Promise<{ id: ID }[]> {
+    options: WriteMetadataOptions,
+  ): Promise<WriteResultWithMetadata<{ id: ID }>[]>;
+  async bulkPatch(
+    updates: {
+      id: ID;
+      data: UpdateInput<W>;
+      lastUpdateTime?: FirebaseFirestore.Timestamp;
+    }[],
+    options?: NoWriteMetadataOptions,
+  ): Promise<{ id: ID }[]>;
+  async bulkPatch(
+    updates: {
+      id: ID;
+      data: UpdateInput<W>;
+      lastUpdateTime?: FirebaseFirestore.Timestamp;
+    }[],
+    options?: { withMetadata?: boolean },
+  ): Promise<{ id: ID }[] | WriteResultWithMetadata<{ id: ID }>[]> {
     // Validate raw input first, then normalize — the same order as single-document patch(). This
     // keeps patch() and bulkPatch() consistent (a nested object is validated as a whole object, an
     // explicit dot-notation key is validated at its leaf) rather than validating a pre-flattened
     // payload.
-    return this.runBulkBatchWrite(updates, true);
+    return this.runBulkBatchWrite(updates, true, options);
   }
 
   /**
    * Create a new document if it doesn't exist, or update it if it does.
    * Uses the provided ID instead of auto-generating one.
    *
+   * Pass `{ returnDoc: true }` for the converted read model, or `{ withMetadata: true }` for
+   * `{ id, writeTime }` on either the create or update branch. The two flags are mutually exclusive.
+   * Not available inside a transaction helper.
+   *
    * @param id - Document ID to upsert
    * @param data - Full document data
-   * @returns Created or updated document ID
+   * @param options - `{ returnDoc: true }` or `{ withMetadata: true }`
+   * @returns `{ id }` by default; `FirestoreDocument<T>` when `returnDoc` is true; `{ id, writeTime }`
+   *   when `withMetadata` is true
    * @throws {ValidationError} If validation fails
    *
    * @example
@@ -2579,15 +2794,25 @@ export class FirestoreRepository<
   async upsert(
     id: ID,
     data: CreateInput<W>,
-    options: { returnDoc: true },
+    options: { returnDoc: true } & NoWriteMetadataOptions,
   ): Promise<FirestoreDocument<T>>;
-  async upsert(id: ID, data: CreateInput<W>, options?: { returnDoc?: false }): Promise<{ id: ID }>;
   async upsert(
     id: ID,
     data: CreateInput<W>,
-    options?: { returnDoc?: boolean },
-  ): Promise<{ id: ID } | FirestoreDocument<T>> {
+    options: WriteMetadataOptions,
+  ): Promise<WriteResultWithMetadata<{ id: ID }>>;
+  async upsert(
+    id: ID,
+    data: CreateInput<W>,
+    options?: { returnDoc?: false } & NoWriteMetadataOptions,
+  ): Promise<{ id: ID }>;
+  async upsert(
+    id: ID,
+    data: CreateInput<W>,
+    options?: { returnDoc?: boolean; withMetadata?: boolean },
+  ): Promise<{ id: ID } | FirestoreDocument<T> | WriteResultWithMetadata<{ id: ID }>> {
     this.validateId(id);
+    this.assertExclusiveWriteResultOptions(options);
     try {
       // upsert would behave inconsistently with dot-notation keys — the create path (new doc) writes
       // a literal dot-in-name field, while the update path (existing doc) merges the field path. The
@@ -2607,13 +2832,18 @@ export class FirestoreRepository<
       this.assertNoDeleteSentinel(data as Record<string, any>);
       const existing = await this.getById(id);
       const shouldReturnDoc = options?.returnDoc === true;
+      const shouldReturnMetadata = options?.withMetadata === true;
       if (existing) {
         // Update branch with delete-rejection ON, so a transform-introduced delete is rejected here
         // exactly as it would be on the create branch (existence-independent determinism).
+        // Forward withMetadata so both branches honor the same opt-in receipt contract.
         return await this.runUpdate(
           id,
           data as unknown as UpdateInput<W>,
-          { returnDoc: shouldReturnDoc },
+          {
+            returnDoc: shouldReturnDoc,
+            withMetadata: shouldReturnMetadata,
+          },
           true,
         );
       }
@@ -2628,12 +2858,15 @@ export class FirestoreRepository<
       const validData = this.validateCreateData(docToCreate as CreateInput<W>);
 
       const docRef = this.writeCol().doc(id);
-      await docRef.set(validData as any);
+      const writeResult = await docRef.set(validData as any);
 
       // After-create hooks observe the parsed output + id in a frozen envelope (review R4/R2).
       await this.emitAfterCreate(validData, id);
       if (shouldReturnDoc) {
         return await this.readAfterCommit(() => this.getByIdOrThrow(id));
+      }
+      if (shouldReturnMetadata) {
+        return { id, writeTime: writeResult.writeTime };
       }
       return { id };
     } catch (error: any) {
@@ -2659,7 +2892,10 @@ export class FirestoreRepository<
    * would turn today's benign races into errors).
    *
    * @param id - Document ID to delete
-   * @param options - `{ lastUpdateTime }` to delete only if the document is still at that version
+   * @param options - `{ lastUpdateTime }` to delete only if the document is still at that version;
+   *   `{ withMetadata: true }` to resolve to `{ writeTime }` instead of `void`. Not available on
+   *   `deleteInTransaction`.
+   * @returns `void` by default, or {@link WriteMetadata} when `withMetadata` is true
    * @throws {NotFoundError} If document doesn't exist
    * @throws {PreconditionFailedError} If `lastUpdateTime` no longer matches the stored version
    *
@@ -2684,8 +2920,23 @@ export class FirestoreRepository<
    * if (current) {
    *   await userRepo.delete('user-123', { lastUpdateTime: current.updateTime });
    * }
+   *
+   * @example
+   * // Opt-in commit receipt
+   * const { writeTime } = await userRepo.delete('user-123', { withMetadata: true });
    */
-  async delete(id: ID, options?: { lastUpdateTime?: FirebaseFirestore.Timestamp }): Promise<void> {
+  async delete(
+    id: ID,
+    options: { withMetadata: true; lastUpdateTime?: FirebaseFirestore.Timestamp },
+  ): Promise<WriteMetadata>;
+  async delete(
+    id: ID,
+    options?: { withMetadata?: false; lastUpdateTime?: FirebaseFirestore.Timestamp },
+  ): Promise<void>;
+  async delete(
+    id: ID,
+    options?: { lastUpdateTime?: FirebaseFirestore.Timestamp; withMetadata?: boolean },
+  ): Promise<void | WriteMetadata> {
     this.validateId(id);
     try {
       const docRef = this.readCol().doc(id);
@@ -2704,15 +2955,14 @@ export class FirestoreRepository<
       // T1 branch: `delete(undefined)` happens to be tolerated by the SDK, but every write site
       // branches identically so there is one rule to remember. See toPrecondition().
       const precondition = this.toPrecondition(options?.lastUpdateTime);
-      if (precondition) {
-        await docRef.delete(precondition);
-      } else {
-        await docRef.delete();
-      }
+      const writeResult = precondition ? await docRef.delete(precondition) : await docRef.delete();
       await this.runHooks(
         'afterDelete',
         asFirestoreDocument<T>(deepFreeze({ ...docData })) as HookDataFor<'afterDelete', T, W, WO>,
       );
+      if (options?.withMetadata === true) {
+        return { writeTime: writeResult.writeTime };
+      }
     } catch (error: any) {
       throw parseFirestoreError(error);
     }
@@ -2736,7 +2986,10 @@ export class FirestoreRepository<
    * `readTime`s). An empty-id guard runs before `getAll` because the SDK rejects a zero-ref call.
    *
    * @param entries - Array of document IDs, or of `{ id, lastUpdateTime? }` entries
-   * @returns Number of documents actually deleted
+   * @param options - `{ withMetadata: true }` to resolve to `{ count, writeTimes }` for surviving
+   *   documents only (missing requested ids contribute neither a count nor a fabricated receipt)
+   * @returns Number of documents actually deleted, or `{ count, writeTimes }` when metadata is
+   *   requested (`writeTimes.length === count`, aligned to surviving snapshot order)
    * @throws {PreconditionFailedError} If a supplied `lastUpdateTime` no longer matches (at or below
    *   500 operations the batch is atomic, so nothing is deleted)
    *
@@ -2763,14 +3016,28 @@ export class FirestoreRepository<
    *   { id: 'user-1', lastUpdateTime: firstToken },
    *   { id: 'user-2' }, // unguarded entries may be mixed in as objects
    * ]);
+   *
+   * @example
+   * // Opt-in receipts for surviving deletes only
+   * const { count, writeTimes } = await userRepo.bulkDelete(ids, { withMetadata: true });
    */
-  async bulkDelete(ids: ID[]): Promise<number>;
+  async bulkDelete(
+    ids: ID[],
+    options: WriteMetadataOptions,
+  ): Promise<{ count: number; writeTimes: FirebaseFirestore.Timestamp[] }>;
+  async bulkDelete(ids: ID[], options?: NoWriteMetadataOptions): Promise<number>;
   async bulkDelete(
     entries: { id: ID; lastUpdateTime?: FirebaseFirestore.Timestamp }[],
+    options: WriteMetadataOptions,
+  ): Promise<{ count: number; writeTimes: FirebaseFirestore.Timestamp[] }>;
+  async bulkDelete(
+    entries: { id: ID; lastUpdateTime?: FirebaseFirestore.Timestamp }[],
+    options?: NoWriteMetadataOptions,
   ): Promise<number>;
   async bulkDelete(
     entries: ID[] | { id: ID; lastUpdateTime?: FirebaseFirestore.Timestamp }[],
-  ): Promise<number> {
+    options?: { withMetadata?: boolean },
+  ): Promise<number | { count: number; writeTimes: FirebaseFirestore.Timestamp[] }> {
     // Normalize the two overloads to one internal shape. The overloads keep a mixed
     // `['a', { id: 'b' }]` array from type-checking; this cast is the implementation-signature
     // widening TypeScript requires to iterate the union.
@@ -2785,15 +3052,21 @@ export class FirestoreRepository<
     const preconditionById = new Map<ID, FirebaseFirestore.Timestamp | undefined>(
       normalized.map(entry => [entry.id, entry.lastUpdateTime]),
     );
+    const withMetadata = options?.withMetadata === true;
     try {
       // One BatchGetDocuments instead of N parallel get()s so the pre-read the delete hooks
       // observe is a single consistent snapshot (measured: 14 distinct readTimes → 1 for 300 ids).
       // The empty-input guard is required because db.getAll() with zero refs throws.
-      if (ids.length === 0) return 0;
+      if (ids.length === 0) {
+        return withMetadata ? { count: 0, writeTimes: [] } : 0;
+      }
       const snapshots = await this.db.getAll(...ids.map(id => this.readCol().doc(id)));
       const existing = snapshots.filter(snapshot => snapshot.exists);
 
-      if (existing.length === 0) return 0;
+      if (existing.length === 0) {
+        // No surviving docs → no invented receipts for missing requested ids (T3).
+        return withMetadata ? { count: 0, writeTimes: [] } : 0;
+      }
 
       // Capture the delete targets and ids from the resolved snapshots BEFORE running the hook
       // (review A1/B2): a `beforeBulkDelete` hook must not be able to redirect a delete, change
@@ -2829,11 +3102,18 @@ export class FirestoreRepository<
         };
       });
 
-      await this.commitInChunks(actions);
+      // Pair receipts to surviving targetRefs / capturedIds — never to the original input (T3).
+      const writeResults = await this.commitInChunks(actions);
       await this.runHooks(
         'afterBulkDelete',
         Object.freeze({ ids: capturedIds, documents: docsData }),
       );
+      if (withMetadata) {
+        return {
+          count: deletedCount,
+          writeTimes: writeResults.map(result => result.writeTime),
+        };
+      }
       return deletedCount;
     } catch (error: any) {
       throw parseFirestoreError(error);
@@ -3569,9 +3849,9 @@ export class FirestoreRepository<
 
   /**
    * Generate a new, validated auto-id **without** writing a document. The id is independent of any
-   * later write — `create()` (via `add()`) and `createInTransaction()` each generate their **own**
-   * fresh id — so persist under this id explicitly with `upsert(id, …)` or a transaction `set`.
-   * Useful when you need the id before the write, e.g. to reference it elsewhere in the same
+   * later write — `create()` (via `doc().set()`) and `createInTransaction()` each generate their
+   * **own** fresh id — so persist under this id explicitly with `upsert(id, …)` or a transaction
+   * `set`. Useful when you need the id before the write, e.g. to reference it elsewhere in the same
    * transaction.
    *
    * @example
@@ -3585,6 +3865,11 @@ export class FirestoreRepository<
   /**
    * Commits write actions in sequential chunks of 500 (the Firestore batch limit).
    *
+   * Returns the Admin SDK {@link FirebaseFirestore.WriteResult} array for every **successfully**
+   * committed action, concatenated in enqueue order across chunks. A failed chunk contributes no
+   * fabricated receipts — only prior successful chunks appear in the returned array (and in
+   * {@link WriteOutcomeError.committedWrites}).
+   *
    * IMPORTANT — non-atomic above 500 operations: each 500-op chunk commits independently, so an
    * operation set larger than 500 writes is NOT globally atomic. If a later chunk fails, earlier
    * chunks remain committed and the operation's after-hook does not run. Bulk operations at or below
@@ -3593,7 +3878,10 @@ export class FirestoreRepository<
    */
   private async commitInChunks(
     actions: ((batch: FirebaseFirestore.WriteBatch) => void)[],
-  ): Promise<number> {
+  ): Promise<FirebaseFirestore.WriteResult[]> {
+    // Accumulate only successfully committed chunk results so a later failure cannot invent
+    // receipts for uncommitted actions (trap T2).
+    const writeResults: FirebaseFirestore.WriteResult[] = [];
     let committedWrites = 0;
     let batch = this.db.batch();
     let counter = 0;
@@ -3606,7 +3894,8 @@ export class FirestoreRepository<
         writesInCurrentBatch++;
 
         if (counter === 500) {
-          await batch.commit();
+          const chunkResults = await batch.commit();
+          writeResults.push(...chunkResults);
           committedWrites += writesInCurrentBatch;
           batch = this.db.batch();
           counter = 0;
@@ -3615,16 +3904,19 @@ export class FirestoreRepository<
       }
 
       if (counter > 0) {
-        await batch.commit();
+        const chunkResults = await batch.commit();
+        writeResults.push(...chunkResults);
         committedWrites += writesInCurrentBatch;
       }
 
-      return committedWrites;
+      return writeResults;
     } catch (error) {
       const cause = parseFirestoreError(error);
       if (committedWrites === 0) {
         throw cause;
       }
+      // committedWrites stays a count (length of successfully committed actions), matching the
+      // existing WriteOutcomeError contract — callers do not receive the partial receipt array.
       throw new WriteOutcomeError(
         {
           state: 'partially-committed',
@@ -3633,6 +3925,23 @@ export class FirestoreRepository<
           totalWrites: actions.length,
         },
         cause,
+      );
+    }
+  }
+
+  /**
+   * Rejects the impossible `{ returnDoc: true, withMetadata: true }` combination before any I/O.
+   * Typed overloads already forbid it for TypeScript callers; this guards JavaScript callers so
+   * the repository never invents an ambiguous combined result shape (trap T4 / D3).
+   */
+  private assertExclusiveWriteResultOptions(options?: {
+    returnDoc?: boolean;
+    withMetadata?: boolean;
+  }): void {
+    if (options?.returnDoc === true && options?.withMetadata === true) {
+      throw new Error(
+        'returnDoc and withMetadata are mutually exclusive: returnDoc reads the converted document ' +
+          'after commit, while withMetadata returns the write receipt (writeTime). Pass only one.',
       );
     }
   }

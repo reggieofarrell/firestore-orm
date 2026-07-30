@@ -35,6 +35,13 @@ these types describe, see [FirestoreRepository](/firestore-orm/reference/reposit
   `updateTime`, `readTime`. Delivered as a **sibling** of the document, never overlaid onto it.
 - **`WithMetadata<D>`** — `{ doc: D; metadata: DocumentMetadata }`, returned by any read called with
   `{ withMetadata: true }`. `doc` stays JSON-serializable; `metadata.ref` does not.
+- **`WriteMetadata`** — commit receipt `{ writeTime: Timestamp }` returned by a **non-transactional**
+  write called with `{ withMetadata: true }`. This is the Admin SDK write-result timestamp, **not**
+  `DocumentMetadata.updateTime` and not a JSON field on the document body. Absent from every
+  `*InTransaction` helper.
+- **`WriteResultWithMetadata<R>`** — `R & WriteMetadata` (for example `{ id, writeTime }`). Prefer
+  this enrichment over a universal `{ result, metadata }` wrapper so default callers keep reading
+  `.id`.
 - **`DetailedDocumentChange<R>`** — one mapped `docChanges()` entry: `type`, `doc`, `metadata`,
   `oldIndex`, `newIndex`. For `type: 'removed'`, `doc` and `metadata` describe the document as it
   last was — branch on `type`, not on `exists`.
@@ -48,7 +55,8 @@ these types describe, see [FirestoreRepository](/firestore-orm/reference/reposit
   `attempt: number | null`. See [Lifecycle Hooks](/firestore-orm/guides/concepts/lifecycle-hooks/).
 - **`WriteOutcome`** — discriminated persistence outcome carried by `WriteOutcomeError` (see
   [Error Handling](/firestore-orm/reference/errors/)).
-- **`UpdateOptions`** — `{ merge?: boolean; returnDoc?: boolean }`.
+- **`UpdateOptions`** — `{ merge?: boolean; returnDoc?: boolean; withMetadata?: boolean;
+  lastUpdateTime?: Timestamp }`. `returnDoc` and `withMetadata` are mutually exclusive.
 - **`ReadConverter<T>`** — read-only converter: the `fromFirestore(snapshot) => T` mapper passed as
   `readConverter` (the repository builds the full `FirestoreDataConverter` internally). See
   [Read Converters](/firestore-orm/guides/concepts/read-converters/).

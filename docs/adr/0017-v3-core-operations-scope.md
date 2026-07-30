@@ -149,6 +149,14 @@ server-side Firestore parity. Concretely:
    > #40 leaves this list. The remaining deferral (**#41**) is unchanged, as is the decision not to
    > pursue full server-side or Enterprise Pipeline parity. Rationale and contract: ADR-0034.
 
+   > Amendment (3.0.0, issue #72): Opt-in **write** metadata (`writeTime` on non-transactional
+   > repository writes via `{ withMetadata: true }`) is **no longer deferred** — it ships in 3.0.0
+   > as enriched write results (`WriteMetadata` / `WriteResultWithMetadata`), with `returnDoc`
+   > mutually exclusive and transactional helpers excluded. So the original #39 deferral is **fully
+   > closed** (read half: ADR-0033; write half: this amendment / ADR-0037). The remaining deferral
+   > (**#41**) is unchanged, as is the decision not to pursue full server-side or Enterprise
+   > Pipeline parity. Rationale and contract: ADR-0037.
+
 We explicitly do **not** block v3 on any of the deferred items.
 
 ## Consequences
@@ -192,3 +200,8 @@ capability matrix is the honest middle ground.
 > Amendment block under Decision above). The References living-summary parenthetical for #37 is left
 > as historically written; #65 was never an original `#35–#41` living-index item. Remaining deferral
 > **#41** is unchanged.
+
+> Amendment (3.0.0, issue #72): Write metadata later shipped under ADR-0037 / #72 (see the Amendment
+> block under Decision above). The References living-summary parenthetical for #39 is left as
+> historically written; #72 closes the remaining write-metadata half. Remaining deferral **#41** is
+> unchanged.

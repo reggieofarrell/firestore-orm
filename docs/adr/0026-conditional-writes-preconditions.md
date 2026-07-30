@@ -142,8 +142,9 @@ remaining deferrals (#41) and the decision not to pursue full server-side or Ent
 parity are unchanged. (#34 generic multi-aggregation, #35 `getMany`, #36 typed bounds /
 `limitToLast`, #37 `explain()`, #38 `bulkWrite` / `recursiveDelete`, and #39 snapshot read metadata
 / detailed listeners have since shipped — see ADR-0027 / ADR-0029 / ADR-0030 / ADR-0031 / ADR-0032 /
-ADR-0033; #40 `distinctValues` semantic equality has since shipped — see ADR-0034; this footer is a
-living index of remaining ADR-0017 deferrals — see [`docs/adr/README.md`](README.md) Conventions.)
+ADR-0033; #40 `distinctValues` semantic equality has since shipped — see ADR-0034; #72 write
+metadata has since shipped — see ADR-0037; this footer is a living index of remaining ADR-0017
+deferrals — see [`docs/adr/README.md`](README.md) Conventions.)
 
 ## Consequences
 

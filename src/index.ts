@@ -2,6 +2,8 @@ export { FirestoreRepository } from './core/FirestoreRepository.js';
 export type {
   ID,
   UpdateOptions,
+  WriteMetadata,
+  WriteResultWithMetadata,
   ReadConverter,
   SafeResult,
   ReadOnlyTransactionalRepository,

@@ -191,6 +191,11 @@ or `patch()` to clear a field. The other sentinels (`increment`, `arrayUnion`, `
   `{ metrics, documents }` (`documents` is `null` plan-only, `[]` when analyzed empty). The
   emulator throws `No explain results` — real metrics need production Firestore. See
   [Query Explain](/firestore-orm/guides/working-with-data/queries/#query-explain).
+- **`explainStream(options?)`** is new in 3.0.0 for **Core** queries only (collection +
+  collection-group): streams mapped document chunks and optional metrics. No vector equivalent.
+  Locally rejects `limitToLast` (use `explain()`). The emulator streams documents without metrics —
+  do not treat that as production diagnostics. See
+  [Query Explain](/firestore-orm/guides/working-with-data/queries/#query-explain).
 - `distinctValues(field)` now drops only `undefined` and preserves a stored `null` as a distinct
   value, and dedupes structured/reference values by Firestore-aware semantic equality (maps/arrays
   structural, key order irrelevant; `Timestamp`/`GeoPoint`/`DocumentReference`/`Bytes`/`VectorValue`

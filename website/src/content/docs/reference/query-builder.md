@@ -157,7 +157,20 @@ Plans this query and optionally executes it (Admin SDK Query Explain). Returns
 
 ⚠️ The Firestore **emulator does not return explain metrics** today; the Admin SDK then throws
 `Error: No explain results`. Real plan/execution stats require production Firestore.
-`explainStream` is deferred ([#65](https://github.com/reggieofarrell/firestore-orm/issues/65)).
+
+**`explainStream(options?: { analyze?: boolean }): AsyncGenerator<QueryExplainStreamResult<R>>`**
+
+Streams Admin SDK Query Explain chunks for this Core query (collection and collection-group
+builders inherit it; there is no vector/Aggregate equivalent).
+
+- Pass `{ analyze: true }` to execute while streaming. Document chunks are builder-mapped `R`;
+  metrics arrive as a **separate** optional chunk (`document` / `metrics` fields are optional).
+- Locally rejects `limitToLast` before opening the native stream — use `explain()` instead.
+- Requires `@google-cloud/firestore` >= 7.4.
+
+⚠️ The Firestore **emulator streams document chunks without metrics** today — do not treat an
+emulator stream as proof of production diagnostics. Real plan/execution stats need production
+Firestore (or unit mocks that supply a metrics chunk).
 
 **`getOne(): Promise<R | null>`** /
 **`getOne(options: { withMetadata: true }): Promise<WithMetadata<R> | null>`**

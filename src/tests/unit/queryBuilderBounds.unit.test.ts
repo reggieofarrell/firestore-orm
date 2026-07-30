@@ -9,9 +9,12 @@
  *  - U-2: limitToLast then limit clears the flag so stream() calls through
  *  - U-3: empty-args startAt() throws locally
  *  - U-4: offset(-1) / non-integer throw; offset(0) forwards to the SDK
+ *  - U-4a/U-4b (issue #65): after limitToLast, explainStream() throws before query.explainStream;
+ *    select() retains the guard on collection and group; later limit() clears it
  */
 import { FirestoreQueryBuilder } from '../../core/QueryBuilder.js';
 import { FirestoreCollectionGroupQueryBuilder } from '../../core/CollectionGroup.js';
+import * as ErrorParser from '../../core/ErrorParser.js';
 
 /**
  * Builds a fluent mock Query whose clause methods return themselves so builder chaining keeps
@@ -30,6 +33,9 @@ function makeFluentQuery() {
   query.endBefore = jest.fn(self);
   query.stream = jest.fn(async function* () {
     // empty stream — success path for U-2
+  });
+  query.explainStream = jest.fn(async function* () {
+    // empty explain stream — success path when limit clears hasLimitToLast (U-4b)
   });
   return query;
 }
@@ -60,6 +66,43 @@ describe('FirestoreQueryBuilder bounds / limitToLast guards (issue #36)', () => 
     expect(query.stream).not.toHaveBeenCalled();
   });
 
+  it('U-4a: explainStream() after limitToLast throws before touching query.explainStream', async () => {
+    // T2: local guard must fire synchronously on first iteration — native spy stays untouched,
+    // including when the builder later gains select() (see U-4b).
+    const { builder, query } = makeBuilder();
+
+    const limited = builder.orderBy('score').limitToLast(2);
+    const iterate = async () => {
+      for await (const _chunk of limited.explainStream({ analyze: true })) {
+        // drain
+      }
+    };
+
+    await expect(iterate()).rejects.toThrow(
+      /explainStream\(\) is not supported after limitToLast.*Use explain\(\) instead/,
+    );
+    expect(query.explainStream).not.toHaveBeenCalled();
+  });
+
+  it('U-4a-placement: limitToLast guard does not call parseFirestoreError (outside try)', async () => {
+    // Falsifies moving the hasLimitToLast check inside try (F2 / §7 anti-instruction).
+    const rewrite = jest
+      .spyOn(ErrorParser, 'parseFirestoreError')
+      .mockImplementation(() => new Error('REWRITTEN_BY_PARSER'));
+    const { builder, query } = makeBuilder();
+
+    const iterate = async () => {
+      for await (const _chunk of builder.orderBy('score').limitToLast(2).explainStream()) {
+        // drain
+      }
+    };
+
+    await expect(iterate()).rejects.toThrow(/explainStream\(\) is not supported after limitToLast/);
+    expect(query.explainStream).not.toHaveBeenCalled();
+    expect(rewrite).not.toHaveBeenCalled();
+    rewrite.mockRestore();
+  });
+
   it('U-2: limitToLast then limit clears the flag so stream() calls through', async () => {
     const { builder, query } = makeBuilder();
 
@@ -72,6 +115,71 @@ describe('FirestoreQueryBuilder bounds / limitToLast guards (issue #36)', () => 
     expect(query.limit).toHaveBeenCalledWith(3);
     expect(query.stream).toHaveBeenCalledTimes(1);
     expect(streamed).toEqual([]);
+  });
+
+  it('U-4b: select retains explainStream guard; later limit clears it (collection + group)', async () => {
+    // Collection: limitToLast → select still rejects; limitToLast → limit allows explainStream.
+    const projectedQuery = {
+      explainStream: jest.fn(async function* () {
+        // should never be reached when the flag is copied
+      }),
+    };
+    const query: Record<string, jest.Mock | (() => unknown)> = makeFluentQuery();
+    query.select = jest.fn(() => projectedQuery);
+
+    const builder = new FirestoreQueryBuilder(
+      query as any,
+      {} as any,
+      {} as any,
+      async () => {},
+      async () => {},
+    );
+
+    const projected = builder.orderBy('score').limitToLast(2).select('name');
+    const iterateProjected = async () => {
+      for await (const _chunk of projected.explainStream()) {
+        // drain
+      }
+    };
+    await expect(iterateProjected()).rejects.toThrow(
+      /explainStream\(\) is not supported after limitToLast/,
+    );
+    expect(projectedQuery.explainStream).not.toHaveBeenCalled();
+
+    // Cleared by limit(): native explainStream is touched.
+    const { builder: clearBuilder, query: clearQuery } = makeBuilder();
+    const cleared: unknown[] = [];
+    for await (const chunk of clearBuilder
+      .orderBy('score')
+      .limitToLast(2)
+      .limit(3)
+      .explainStream({ analyze: true })) {
+      cleared.push(chunk);
+    }
+    expect(clearQuery.explainStream).toHaveBeenCalledWith({ analyze: true });
+    expect(cleared).toEqual([]);
+
+    // Group select() also copies hasLimitToLast.
+    const groupProjectedQuery = {
+      explainStream: jest.fn(async function* () {}),
+    };
+    const groupQuery: Record<string, jest.Mock | (() => unknown)> = makeFluentQuery();
+    groupQuery.select = jest.fn(() => groupProjectedQuery);
+    const groupBuilder = new FirestoreCollectionGroupQueryBuilder(
+      groupQuery as any,
+      'posts',
+      {} as any,
+    );
+    const groupProjected = groupBuilder.orderBy('score').limitToLast(2).select('title');
+    const iterateGroup = async () => {
+      for await (const _chunk of groupProjected.explainStream()) {
+        // drain
+      }
+    };
+    await expect(iterateGroup()).rejects.toThrow(
+      /explainStream\(\) is not supported after limitToLast/,
+    );
+    expect(groupProjectedQuery.explainStream).not.toHaveBeenCalled();
   });
 
   it('U-3: empty-args startAt() throws locally without touching the SDK', () => {

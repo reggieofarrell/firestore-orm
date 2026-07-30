@@ -43,7 +43,7 @@ reach the raw Admin SDK for anything not yet wrapped.
 | `getMany(ids)` multi-document reads              | One batched `BatchGetDocuments` read; results in **input order**; `null` marks missing ids in position; optional `fieldMask`; transaction variant `getManyInTransaction`. Prefer over `whereId('in', …)` for id lookups.                    |
 | Field transforms / sentinels                     | Strict per-field approval by default                                                                                                                                                                                                      |
 | Vector search (`vectorQuery().findNearest()`)    | Distance measures, result field, threshold, prefilters (incl. AND/OR)                                                                                                                                                                     |
-| Query Explain (`explain()`)                      | Core + vector (after `findNearest`); returns `{ metrics, documents }` (`documents` is `null` plan-only, `[]` when analyzed empty). **Emulator throws `No explain results`** — real metrics need production Firestore. `explainStream` deferred ([#65](https://github.com/reggieofarrell/firestore-orm/issues/65)). |
+| Query Explain (`explain()` / `explainStream()`)  | `explain()`: Core + vector (after `findNearest`); returns `{ metrics, documents }` (`documents` is `null` plan-only, `[]` when analyzed empty). **Emulator throws `No explain results`**. `explainStream()`: **Core only** (collection + group); mapped document chunks + optional metrics; local `limitToLast` reject. **Emulator streams docs without metrics** — real diagnostics need production Firestore. No vector/Aggregate stream. |
 | Distinct field values (`distinctValues`)         | Client-side: downloads matching documents and dedupes in process by **Firestore-aware semantic equality** (maps/arrays structural, key order irrelevant; `Timestamp`/`GeoPoint`/`DocumentReference`/`Bytes`/`VectorValue` by value). Non-Firestore `readConverter` output falls back to identity. Server-side distinct remains [#41](https://github.com/reggieofarrell/firestore-orm/issues/41); the download-size optimization is [#75](https://github.com/reggieofarrell/firestore-orm/issues/75). |
 
 ## Deferred to v3.x (tracked)
@@ -53,7 +53,6 @@ issue labeled `parity` / `v3.x`. Until then, use the [raw-SDK escape hatch](#raw
 
 | Capability                                         | Issue                                                            |
 | -------------------------------------------------- | ---------------------------------------------------------------- |
-| Query `explainStream` (Core only)                  | [#65](https://github.com/reggieofarrell/firestore-orm/issues/65) |
 | Write metadata (`writeTime` on writes)             | [#72](https://github.com/reggieofarrell/firestore-orm/issues/72) |
 | Experimental Enterprise Pipeline subpath           | [#41](https://github.com/reggieofarrell/firestore-orm/issues/41) |
 

@@ -107,3 +107,8 @@ shipped — see ADR-0033; #40 `distinctValues` semantic equality has since shipp
 `explainStream` is tracked separately as
 [#65](https://github.com/reggieofarrell/firestore-orm/issues/65). This footer is a living index of
 remaining ADR-0017 deferrals — see [`docs/adr/README.md`](README.md) Conventions.)
+
+> Amendment (3.0.0, issue #65): Core `explainStream()` ships under
+> [ADR-0036](0036-query-explain-stream.md). Vector/Aggregate stay out of scope. The remaining
+> ADR-0017 deferral (**#41**) is unchanged — #65 was never part of the original `#35–#41` living
+> index.

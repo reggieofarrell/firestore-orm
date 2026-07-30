@@ -20,6 +20,7 @@ export type {
   PaginatedResult,
   QueryFilterFactory,
   QueryExplainResult,
+  QueryExplainStreamResult,
 } from './core/QueryBuilder.js';
 export type {
   CountAggregation,

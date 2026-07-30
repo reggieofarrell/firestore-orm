@@ -1,7 +1,9 @@
 /**
- * Strategy: unit-test Query Explain (`explain()`) success paths and local guards at the Firestore
- * boundary (issue #37 / ADR-0031). Mocks own the happy path because the emulator always throws
- * `No explain results` (D4). Integration covers that emulator failure mode only.
+ * Strategy: unit-test Query Explain (`explain()` / `explainStream()`) success paths and local
+ * guards at the Firestore boundary (issue #37 / ADR-0031; issue #65 / ADR-0036). Mocks own the
+ * happy path for `explain()` because the emulator always throws `No explain results` (D4).
+ * `explainStream` mocks own document+metrics chunk mapping; emulator integration pins docs-without-
+ * metrics (P2 / T3).
  *
  * Verification points:
  *  - U-1: options are forwarded to SDK `explain` (including `{ analyze: true }` and `undefined`).
@@ -12,10 +14,14 @@
  *  - U-6: missing `query.explain` → local capability Error (upgrade hint).
  *  - U-7 / U-8 / U-2v / U-3v / U-9: vector findNearest gate, doc mapping, null/[] contract,
  *    and defense-in-depth missing-`explain` guard.
+ *  - Stream U-1: options forwarded; document data/id mapping; metrics-only chunk identity (T1/T3/T4).
+ *  - Stream U-2: group maps id/path/parentPath (T1).
+ *  - Stream U-3a/U-3b: missing method upgrade hint; coded async error → NotFoundError (T5).
  */
 import { FirestoreCollectionGroupQueryBuilder } from '../../core/CollectionGroup.js';
 import { NotFoundError } from '../../core/Errors.js';
 import { FirestoreQueryBuilder } from '../../core/QueryBuilder.js';
+import * as ErrorParser from '../../core/ErrorParser.js';
 import { VectorQueryBuilder } from '../../vector/VectorQueryBuilder.js';
 
 type Doc = {
@@ -51,7 +57,12 @@ const ANALYZE_METRICS = {
   },
 };
 
-function makeCollectionBuilder(opts: { explainImpl?: jest.Mock; omitExplain?: boolean }) {
+function makeCollectionBuilder(opts: {
+  explainImpl?: jest.Mock;
+  omitExplain?: boolean;
+  explainStreamImpl?: jest.Mock;
+  omitExplainStream?: boolean;
+}) {
   const explain =
     opts.explainImpl ??
     jest.fn(async () => ({
@@ -64,6 +75,17 @@ function makeCollectionBuilder(opts: { explainImpl?: jest.Mock; omitExplain?: bo
   if (!opts.omitExplain) {
     query.explain = explain;
   }
+  // explainStream is optional — omit for capability-guard tests (U-3a); otherwise default to an
+  // empty async generator so unrelated suites do not accidentally call an undefined method.
+  let explainStream: jest.Mock | undefined;
+  if (!opts.omitExplainStream) {
+    explainStream =
+      opts.explainStreamImpl ??
+      jest.fn(async function* () {
+        // empty stream — callers that need chunks pass explainStreamImpl
+      });
+    query.explainStream = explainStream;
+  }
   const builder = new FirestoreQueryBuilder(
     query as any,
     {} as any,
@@ -71,19 +93,35 @@ function makeCollectionBuilder(opts: { explainImpl?: jest.Mock; omitExplain?: bo
     async () => {},
     async () => {},
   );
-  return { builder, query, explain };
+  return { builder, query, explain, explainStream };
 }
 
-function makeGroupBuilder(opts: { explainImpl?: jest.Mock }) {
+function makeGroupBuilder(opts: {
+  explainImpl?: jest.Mock;
+  explainStreamImpl?: jest.Mock;
+  omitExplainStream?: boolean;
+}) {
   const explain =
     opts.explainImpl ??
     jest.fn(async () => ({
       metrics: PLAN_METRICS,
       snapshot: null,
     }));
-  const query = { explain, get: jest.fn(async () => ({ docs: [] })) };
+  const query: Record<string, unknown> = {
+    explain,
+    get: jest.fn(async () => ({ docs: [] })),
+  };
+  let explainStream: jest.Mock | undefined;
+  if (!opts.omitExplainStream) {
+    explainStream =
+      opts.explainStreamImpl ??
+      jest.fn(async function* () {
+        // empty by default
+      });
+    query.explainStream = explainStream;
+  }
   const builder = new FirestoreCollectionGroupQueryBuilder(query as any, 'posts', {} as any);
-  return { builder, query, explain };
+  return { builder, query, explain, explainStream };
 }
 
 function createMockCoreBuilder(findNearestImpl?: () => unknown) {
@@ -308,5 +346,108 @@ describe('Query explain() — Vector (issue #37)', () => {
     await expect(vectorBuilder.findNearest(findNearestOptions).explain()).rejects.toBeInstanceOf(
       NotFoundError,
     );
+  });
+});
+
+describe('Query explainStream() — Core (issue #65)', () => {
+  it('U-1: forwards options; maps document data/id; preserves metrics-only chunk identity', async () => {
+    // Mock owns a document chunk AND a separate metrics-only chunk (T3) — emulator never emits
+    // metrics, so unit tests are the only place that pins metrics forwarding.
+    const metricsChunk = { metrics: ANALYZE_METRICS };
+    const explainStream = jest.fn(async function* () {
+      yield { document: doc('u1', { name: 'Ada' }) };
+      yield metricsChunk;
+    });
+    const { builder } = makeCollectionBuilder({ explainStreamImpl: explainStream });
+
+    const chunks: Array<{ document?: unknown; metrics?: unknown }> = [];
+    for await (const chunk of builder.explainStream({ analyze: true })) {
+      chunks.push(chunk);
+    }
+
+    expect(explainStream).toHaveBeenCalledWith({ analyze: true });
+    expect(chunks).toHaveLength(2);
+    expect(chunks[0]).toEqual({ document: { name: 'Ada', id: 'u1' } });
+    // Metrics-only chunk: same object identity, no explicit undefined document field (T1/T4).
+    expect(chunks[1]).toEqual({ metrics: ANALYZE_METRICS });
+    expect(chunks[1].metrics).toBe(ANALYZE_METRICS);
+    expect(Object.prototype.hasOwnProperty.call(chunks[1], 'document')).toBe(false);
+  });
+
+  it('U-2: collection-group maps id/path/parentPath via toResult', async () => {
+    const explainStream = jest.fn(async function* () {
+      yield {
+        document: doc(
+          'p1',
+          { title: 'Hello' },
+          { path: 'users/u1/posts/p1', parentPath: 'users/u1/posts' },
+        ),
+      };
+    });
+    const { builder } = makeGroupBuilder({ explainStreamImpl: explainStream });
+
+    const chunks: Array<{ document?: unknown }> = [];
+    for await (const chunk of builder.explainStream({ analyze: true })) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].document).toEqual({
+      title: 'Hello',
+      id: 'p1',
+      path: 'users/u1/posts/p1',
+      parentPath: 'users/u1/posts',
+    });
+  });
+
+  it('U-3a: missing query.explainStream → local capability Error mentioning upgrade', async () => {
+    const { builder } = makeCollectionBuilder({ omitExplainStream: true });
+
+    const iterate = async () => {
+      for await (const _chunk of builder.explainStream()) {
+        // drain
+      }
+    };
+
+    await expect(iterate()).rejects.toThrow(
+      /explainStream\(\) is not available:.*@google-cloud\/firestore >= 7\.4.*Upgrade/i,
+    );
+  });
+
+  it('U-3a-placement: capability guard does not call parseFirestoreError (outside try)', async () => {
+    // Falsifies moving the capability check inside try: parseFirestoreError preserves plain Errors, so
+    // message-only assertions would still pass — spy proves the parser is never touched (F2).
+    const rewrite = jest
+      .spyOn(ErrorParser, 'parseFirestoreError')
+      .mockImplementation(() => new Error('REWRITTEN_BY_PARSER'));
+    const { builder } = makeCollectionBuilder({ omitExplainStream: true });
+
+    const iterate = async () => {
+      for await (const _chunk of builder.explainStream()) {
+        // drain
+      }
+    };
+
+    await expect(iterate()).rejects.toThrow(/explainStream\(\) is not available.*Upgrade/i);
+    expect(rewrite).not.toHaveBeenCalled();
+    rewrite.mockRestore();
+  });
+
+  it('U-3b: coded async SDK error becomes NotFoundError via parseFirestoreError', async () => {
+    // Throwing from inside the async generator (after the native call returns) exercises the
+    // for-await catch path — same coded-error → NotFoundError proof as explain() U-5.
+    const explainStream = jest.fn(async function* () {
+      yield { document: doc('u1', { name: 'Ada' }) };
+      throw { code: 5, message: 'stream failed' };
+    });
+    const { builder } = makeCollectionBuilder({ explainStreamImpl: explainStream });
+
+    const iterate = async () => {
+      for await (const _chunk of builder.explainStream({ analyze: true })) {
+        // drain until throw
+      }
+    };
+
+    await expect(iterate()).rejects.toBeInstanceOf(NotFoundError);
   });
 });

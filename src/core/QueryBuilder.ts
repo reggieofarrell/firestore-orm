@@ -105,6 +105,19 @@ export type QueryExplainResult<R> = {
 };
 
 /**
+ * One chunk from {@link FirestoreQueryBuilderBase.explainStream}.
+ *
+ * Document chunks are builder-mapped `R` (collection `{…data, id}` or group
+ * `{…data, id, path, parentPath}`). Terminal diagnostics chunks carry Admin SDK `metrics`.
+ * Fields are optional because the SDK emits document and metrics chunks separately — a chunk may
+ * have only `document`, only `metrics`, or (in theory) both. Do not assume both are always present.
+ */
+export type QueryExplainStreamResult<R> = {
+  readonly document?: R;
+  readonly metrics?: ExplainMetrics;
+};
+
+/**
  * One entry in an {@link AggregationSpec}. `count` takes no field; `sum` and `average` take a
  * numeric stored field path (top-level, nested/dotted, or a `FieldPath`).
  *
@@ -375,8 +388,8 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
    *
    * The Admin SDK treats `limit` / `limitToLast` as last-wins: a later `limit()` replaces an earlier
    * `limitToLast()` on the underlying query (and vice versa). This flag tracks that so
-   * `stream()` / `paginate()` / `offsetPaginate()` reject only while the builder is actually in a
-   * `limitToLast` state — not after a subsequent `limit()` cleared it.
+   * `stream()` / `explainStream()` / `paginate()` / `offsetPaginate()` reject only while the builder
+   * is actually in a `limitToLast` state — not after a subsequent `limit()` cleared it.
    */
   protected hasLimitToLast = false;
   /**
@@ -1735,6 +1748,82 @@ export abstract class FirestoreQueryBuilderBase<T extends object, S extends obje
             ? null
             : results.snapshot.docs.map(doc => this.toResult(doc)),
       };
+    } catch (error: unknown) {
+      throw parseFirestoreError(error);
+    }
+  }
+
+  /**
+   * Streams Admin SDK Query Explain chunks for this Core query (collection or collection-group).
+   *
+   * Inherited by {@link FirestoreQueryBuilder} and {@link FirestoreCollectionGroupQueryBuilder}.
+   * There is no vector/Aggregate equivalent — `VectorQuery.explainStream` is absent at runtime.
+   *
+   * Pass `{ analyze: true }` to execute the query while streaming: document chunks are mapped
+   * through this builder's result shape (`R`); a terminal chunk may carry `metrics`. Document and
+   * metrics arrive as **separate** chunks (fields are optional on {@link QueryExplainStreamResult}).
+   *
+   * Locally rejects `limitToLast` before opening the native stream (Firestore cannot stream
+   * `LimitType.Last` queries — use {@link explain} instead). Unlike {@link explain}, which
+   * composes with `limitToLast` like `get()`.
+   *
+   * ⚠️ The Firestore **emulator streams document chunks without metrics** today — do not treat an
+   * emulator stream as proof of production diagnostics. Real plan/execution stats need production
+   * Firestore (or unit mocks that supply a metrics chunk).
+   *
+   * Requires a Firestore SDK that exposes `Query.explainStream` (`@google-cloud/firestore` >= 7.4;
+   * firebase-admin 12 only when the resolved `@google-cloud/firestore` is new enough;
+   * firebase-admin >= 13 typically bundles it).
+   *
+   * @example
+   * for await (const chunk of userRepo
+   *   .query()
+   *   .where('status', '==', 'active')
+   *   .explainStream({ analyze: true })) {
+   *   if (chunk.document) {
+   *     console.log(chunk.document.id, chunk.document.name);
+   *   }
+   *   if (chunk.metrics) {
+   *     console.log(chunk.metrics.planSummary.indexesUsed);
+   *   }
+   * }
+   */
+  async *explainStream(options?: ExplainOptions): AsyncGenerator<QueryExplainStreamResult<R>> {
+    // Reject limitToLast locally before opening the native stream. The SDK's own message says
+    // "Use Query.explain()" — wrong for this wrapper — so we own the contract here. Guards run on
+    // first iteration (same as stream()), not at call time.
+    if (this.hasLimitToLast) {
+      throw new Error(
+        'explainStream() is not supported after limitToLast(): Firestore cannot stream limitToLast ' +
+          'queries. Use explain() instead.',
+      );
+    }
+    // Capability check OUTSIDE parseFirestoreError: older admin-12 installs can resolve firestore
+    // <7.4 where Query.explainStream is absent — a plain Error with an upgrade hint beats a
+    // cryptic "explainStream is not a function" from the call site.
+    if (typeof this.query.explainStream !== 'function') {
+      throw new Error(
+        'explainStream() is not available: the installed Firestore SDK does not expose ' +
+          'Query.explainStream(). Query Explain requires @google-cloud/firestore >= 7.4 ' +
+          '(firebase-admin 12 only when the resolved @google-cloud/firestore is new enough; ' +
+          'firebase-admin >= 13 typically bundles it). Upgrade firebase-admin (or ' +
+          '@google-cloud/firestore).',
+      );
+    }
+    try {
+      // SDK returns NodeJS.ReadableStream (non-generic). Cast to AsyncIterable of optional-field
+      // chunks so we can map documents through toResult without leaking raw snapshots. Spread only
+      // defined fields — do not yield explicit `document: undefined` / `metrics: undefined`.
+      const source = this.query.explainStream(options) as unknown as AsyncIterable<{
+        document?: QueryDocumentSnapshot<any>;
+        metrics?: ExplainMetrics;
+      }>;
+      for await (const chunk of source) {
+        yield {
+          ...(chunk.document === undefined ? {} : { document: this.toResult(chunk.document) }),
+          ...(chunk.metrics === undefined ? {} : { metrics: chunk.metrics }),
+        };
+      }
     } catch (error: unknown) {
       throw parseFirestoreError(error);
     }

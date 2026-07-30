@@ -113,6 +113,14 @@ server-side Firestore parity. Concretely:
    > (#38–#41) are unchanged, as is the decision not to pursue full server-side or Enterprise
    > Pipeline parity. Rationale and contract: ADR-0031.
 
+   > Amendment (3.0.0, issue #65): Core Query `explainStream()` is **no longer deferred** — it ships
+   > in 3.0.0 as `explainStream(options?)` on `FirestoreQueryBuilderBase` (collection +
+   > collection-group), returning `AsyncGenerator<QueryExplainStreamResult<R>>` with builder-mapped
+   > document chunks and optional metrics chunks. Local `hasLimitToLast` reject; vector/Aggregate
+   > surfaces stay absent. Emulator streams documents without metrics. #65 was a separately tracked
+   > Core-only follow-up to #37, **not** an original ADR-0017 `#35–#41` item, so the remaining
+   > deferral (**#41**) wording is unchanged. Rationale and contract: ADR-0036.
+
    > Amendment (3.0.0, issue #38): BulkWriter high-throughput writes and explicit recursive delete
    > are **no longer deferred** — they ship in 3.0.0 as `bulkWrite(operations, options?)` (mixed
    > verbs, positional per-item results, no lifecycle hooks — throws if any bulk hook is registered
@@ -179,3 +187,8 @@ capability matrix is the honest middle ground.
   closed by the 3.0.0 `withMetadata` / `onSnapshotDetailed` API (ADR-0033; write metadata remains
   tracked as #72), and #40 is closed by the 3.0.0 `distinctValues` semantic-equality fix (ADR-0034;
   field-mask download optimization remains tracked as #75; server-side distinct remains #41).
+
+> Amendment (3.0.0, issue #65): Core `explainStream` later shipped under ADR-0036 / #65 (see the
+> Amendment block under Decision above). The References living-summary parenthetical for #37 is left
+> as historically written; #65 was never an original `#35–#41` living-index item. Remaining deferral
+> **#41** is unchanged.

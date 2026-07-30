@@ -94,4 +94,3 @@ documenting and typing today's sequential fail-fast contract.
 - [Issue #80](https://github.com/reggieofarrell/firestore-orm/issues/80) (outbox follow-up)
 - [Issue #79](https://github.com/reggieofarrell/firestore-orm/issues/79) (docs contradiction,
   deferred)
-- Plan: `docs/plans/issue-46-hook-delivery-error-model/PLAN.md`

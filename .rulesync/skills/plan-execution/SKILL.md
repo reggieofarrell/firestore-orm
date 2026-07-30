@@ -62,9 +62,15 @@ fails, say so with the failure.
 
 - **Suite counts must move as the plan predicted.** Both should go up. An unexpected change in an
   existing suite means you diverged from §6 — investigate before proceeding.
-- **Every new test must fail on the unfixed baseline.** Mutation-check the load-bearing ones: revert
-  the fix (or `git stash`), confirm the test fails, restore. Record each as a row — test, mutation,
-  observed failure. A test that passes both ways guards nothing.
+- **Every new test must fail on the unfixed baseline.** Mutation-check the
+  load-bearing ones: temporarily break the fix, confirm the test fails, restore.
+  Record each as a row — test, mutation, observed failure. A test that passes
+  both ways guards nothing.
+  **Restore safely:** while implementation is still uncommitted, **never**
+  restore with `git checkout -- <path>` (or `git restore`) — that resets the
+  whole file to HEAD and wipes WIP. Prefer a copy of the pre-mutation file
+  (or a scoped reverse of only the mutation). Do not `git stash` the full
+  working tree just to mutate one site.
 - **ADR bookkeeping (§9): read the current values out of the tree, never copy them from the plan.**
   Claim the next free number in `docs/adr/`, and grep the current `(#N–#41)` range rather than
   trusting an enumerated file list — the set of living-index footers grows every time an issue ships.

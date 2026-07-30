@@ -537,9 +537,29 @@ do not collapse the two. Collection-group builders inherit `explain()`; vector q
 after `findNearest()` (see the vector-search guide).
 
 ⚠️ The Firestore **emulator does not return explain metrics** today — the Admin SDK throws
-`Error: No explain results`. Real plan/execution stats require production Firestore. Streaming
-diagnostics (`explainStream`) are deferred
-([#65](https://github.com/reggieofarrell/firestore-orm/issues/65)).
+`Error: No explain results`. Real plan/execution stats require production Firestore.
+
+`explainStream(options?)` streams the same diagnostics as separate chunks on **Core** builders
+(collection and collection-group). There is no vector equivalent. Document chunks are mapped
+through the builder; metrics arrive separately (and the emulator typically emits documents with
+**no** metrics chunk):
+
+```typescript
+for await (const chunk of userRepo
+  .query()
+  .where('status', '==', 'active')
+  .explainStream({ analyze: true })) {
+  if (chunk.document) {
+    await processUser(chunk.document);
+  }
+  if (chunk.metrics) {
+    console.log(chunk.metrics.planSummary.indexesUsed);
+  }
+}
+```
+
+`explainStream` locally rejects `limitToLast` (use `explain()` instead). Do not treat an emulator
+stream as proof of production diagnostics.
 
 ## Real-time subscriptions
 

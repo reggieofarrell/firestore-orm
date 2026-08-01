@@ -11,6 +11,8 @@ implementation before external review.
 - Next free ADR: `0037` (highest present: `0036-query-explain-stream.md`)
 - Implementation started: 2026-07-30
 - Ready for external review: yes (after adversarial remediations + gate run 2)
+- External review Round 1 (`review.md`): **APPROVE** — zero findings; no remediations; plan-dir
+  cleanup is the remaining §11 row
 
 ## Ambiguities resolved (§1 / §2)
 
@@ -138,6 +140,47 @@ plan + tests (not notes.md). Verdict was **REQUEST CHANGES**.
 | **F8** | nit | **not a defect** — harness may retain unused `add` mock; create contract asserts
   `doc`+`set`; leaving `add` does not weaken the assertion |
 
+## External implementation review (Round 1)
+
+Artifact: `docs/plans/issue-72-write-metadata-opt-in/review.md` (reviewer-owned — **not edited**).
+Reviewed commit: `bcbca07251902941f8b8e0f6715acc7453b97703`. Tree at disposition time: implementation
+unchanged from that commit; only untracked `review.md` plus this notes update.
+
+**Verdict: APPROVE** — no remediation required before plan-directory cleanup.
+
+### Finding-id dispositions
+
+The reviewer issued **no** blocker / major / minor / nit finding ids (`B*`, `M*`, `N*`). Sections
+"Blockers", "Major", and "Minor / nits" are all empty (`None.`). Nothing to fix, defer, or reopen.
+
+| Id | Disposition |
+| --- | --- |
+| _(none issued)_ | N/A — empty finding lists; nothing to remediate |
+
+### Verified-and-holding (accepted; not re-proven)
+
+Per the skill, the reviewer's settled surfaces were not re-audited. Held as stated in `review.md`:
+direct receipt contract; no default-shape regression; batch ordering / partial accounting; mutual
+exclusion + transaction carve-out; public surface / ADR / website; and all plan deviations judged
+**correct** (D2 bulk-delete shape without synthetic singular `writeTime`; always-`doc().set()` for
+auto-id create; schemaContracts mock repair). Deviations were **not** reversed.
+
+### Reviewer "Not defects" dispositions
+
+These are not numbered finding ids; recorded so the round-trip stays falsifiable:
+
+| Topic | Disposition | Evidence |
+| --- | --- | --- |
+| `bulkWrite` lacks new `{ withMetadata }` | **not a defect** | Already returns `writeTime` on success (`src/core/FirestoreRepository.ts` success type ~134–141; map ~3277–3291). Leaving unchanged matches §2 / §7 out-of-scope. |
+| ADR-0017 #39 text still says metadata deferred | **not a defect** | Historical snapshot at `docs/adr/0017-v3-core-operations-scope.md:133-139`; #72 amendment at `:152-158` closes without rewriting history (matches §7 anti-instruction). |
+
+### Post-external-review gate
+
+**No remediations were performed**, so a distinct post-fix §10 re-run was **not required**
+(nothing in `src/` / tests / docs changed that could break a previously green leg). The reviewer's
+own fourteen-leg §10 chain on `bcbca07` already passed (unit `32/426`, integration `36/540`, both
+coverage gates, build/package/consumer/docs/site). Implementer gate runs remain Run 1 + Run 2 above.
+
 ## §11 Definition of done audit
 
 | # | Item | Status | Proving file |
@@ -150,4 +193,4 @@ plan + tests (not notes.md). Verdict was **REQUEST CHANGES**.
 | 6 | README grep + docs HTML `:::` check recorded | PASS | Gate results (npm-readme:121 only; no `:::`) |
 | 7 | §10 gate + probe; notes include self-review | PASS | Gate run 1 + run 2; this section |
 | 8 | §7 anti-instructions not violated | PASS | Anti-instructions checklist |
-| 9 | Plan dir cleanup after external review | PENDING | Leave `docs/plans/issue-72-write-metadata-opt-in/` in place |
+| 9 | Plan dir cleanup after external review | PENDING | External Round 1 **APPROVE**; cleanup is a separate follow-up commit after notes/review land |

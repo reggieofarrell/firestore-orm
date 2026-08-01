@@ -109,24 +109,34 @@ not importable from `firebase-admin/firestore`.
 [#69](https://github.com/reggieofarrell/firestore-orm/issues/69) — verified working on the SDK, but
 the most destructive call in the library and not in #38's acceptance.
 
+> Amendment (3.0.0, issue #69): Collection-wide recursive delete is **no longer deferred** — it
+> ships in 3.0.0 as `recursiveDeleteCollection(): Promise<void>` under ADR-0038. The opt-in is the
+> distinct zero-argument method name (no confirmation/`force` flag); no hooks, no count; delegates
+> the raw repository `CollectionReference` to Admin SDK `Firestore.recursiveDelete`. Parent
+> documents and longer prefix-named sibling collections survive a nested wipe. Historical deferral
+> text above is left intact. #69 is a separately tracked #38 follow-up; original ADR-0017 remaining
+> deferral (**#41**) is unchanged.
+
 ## References
 
 - [Issue #38](https://github.com/reggieofarrell/firestore-orm/issues/38)
 - [Follow-up #69](https://github.com/reggieofarrell/firestore-orm/issues/69) (collection-wide
   recursive delete)
-- Implementation: `src/core/FirestoreRepository.ts` (`bulkWrite`, `recursiveDelete`)
+- Implementation: `src/core/FirestoreRepository.ts` (`bulkWrite`, `recursiveDelete`,
+  `recursiveDeleteCollection`)
 - Tests: `src/tests/integration/repository-bulk-writer.integration.test.ts`,
   `src/tests/types/bulk-write.type-test.ts`
 - [ADR-0017](0017-v3-core-operations-scope.md),
   [ADR-0019](0019-operation-aware-sentinel-validation.md) (delete-sentinel rejection on create
   verbs), [ADR-0029](0029-get-many-multi-document-reads.md) (`bulkDelete`'s consistent pre-read —
-  the contrast case)
+  the contrast case), [ADR-0038](0038-collection-wide-recursive-delete.md) (collection-wide
+  recursive delete)
 
 This record **amends ADR-0017**: BulkWriter high-throughput writes (`bulkWrite`) and explicit
 document-scoped recursive delete (`recursiveDelete`) are no longer deferred. The remaining deferrals
 (#41) and the decision not to pursue full server-side or Enterprise Pipeline parity are unchanged.
 (#38 has since shipped — see this ADR; #39 snapshot read metadata / detailed listeners have since
 shipped — see ADR-0033; #40 `distinctValues` semantic equality has since shipped — see ADR-0034; #72
-write metadata has since shipped — see ADR-0037; collection-wide recursive delete is tracked
-separately as [#69](https://github.com/reggieofarrell/firestore-orm/issues/69). This footer is a
-living index of remaining ADR-0017 deferrals — see [`docs/adr/README.md`](README.md) Conventions.)
+write metadata has since shipped — see ADR-0037; #69 collection-wide recursive delete has since
+shipped — see ADR-0038. This footer is a living index of remaining ADR-0017 deferrals — see
+[`docs/adr/README.md`](README.md) Conventions.)

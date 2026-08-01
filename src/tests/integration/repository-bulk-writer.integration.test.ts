@@ -1,6 +1,7 @@
 /**
  * Strategy: emulator integration coverage for the BulkWriter-backed high-throughput write path
- * (`bulkWrite`) and the explicit destructive `recursiveDelete`.
+ * (`bulkWrite`) and the explicit destructive recursive-delete surface (`recursiveDelete` /
+ * `recursiveDeleteCollection`).
  *
  * Verification points:
  * - `bulkWrite` applies all five verbs and returns POSITIONAL per-item results with `writeTime`.
@@ -11,9 +12,13 @@
  *   `op` from a JS/`as any` bypass) are per-item results, never whole-call throws — and never leave
  *   a hole in the results array that would make `filter(!ok)` silently under-report.
  * - The no-hooks contract is enforced loudly, and `skipHooks` really does skip.
- * - `recursiveDelete` removes a whole subtree, spares siblings, is idempotent, and runs no hooks.
+ * - `recursiveDelete` removes a whole document subtree, spares siblings, is idempotent, and runs no
+ *   hooks.
+ * - `recursiveDeleteCollection` wipes every document in the repository collection (plus descendants),
+ *   spares longer prefix-named sibling collections and nested parents/siblings, returns void, is
+ *   idempotent on an empty target, and runs no delete hooks.
  */
-import { Timestamp } from 'firebase-admin/firestore';
+import { Timestamp, type CollectionReference } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import {
   ConflictError,
@@ -469,5 +474,126 @@ describe('FirestoreRepository.recursiveDelete', () => {
     expect((await parentRef.collection('posts').doc('p2').get()).exists).toBe(true);
 
     await userRepo.recursiveDelete('rd-parent');
+  });
+});
+
+describe('FirestoreRepository.recursiveDeleteCollection', () => {
+  // Isolated root collection so a full wipe cannot disturb the document-scoped suite above.
+  const harness = createUserRepoHarness('test_users_rdc');
+  const { db, userRepo } = harness;
+  // Prefix sibling must be derived from the concrete target id exactly as the SDK probe does —
+  // a longer string that shares the target's prefix must survive the null-byte upper bound.
+  const targetPath = userRepo.getCollectionPath();
+  const prefixPath = `${targetPath}_prefix`;
+  const prefixCol = db.collection(prefixPath);
+
+  /**
+   * Seeds two direct docs plus a grandchild under `a`, matching the probe's shape so assertions
+   * can reuse the same `{ direct, grandchildExists }` observable.
+   */
+  const seedCollectionDocs = async (collection: CollectionReference): Promise<void> => {
+    await collection.doc('a').set({ value: 'a' });
+    await collection.doc('b').set({ value: 'b' });
+    await collection.doc('a').collection('grandchildren').doc('g1').set({ value: 'g1' });
+  };
+
+  const collectionState = async (collection: CollectionReference) => {
+    const direct = await collection.get();
+    const grandchild = await collection.doc('a').collection('grandchildren').doc('g1').get();
+    return { direct: direct.size, grandchildExists: grandchild.exists };
+  };
+
+  afterAll(async () => {
+    // Raw SDK cleanup — never rely on the method under test as the only teardown path, and do not
+    // use bulkDelete (it orphans subcollections).
+    await Promise.allSettled([
+      db.recursiveDelete(db.collection(targetPath)),
+      db.recursiveDelete(prefixCol),
+    ]);
+  });
+
+  it('I-1: deletes every root document and descendant, sparing a longer prefix sibling', async () => {
+    await seedCollectionDocs(db.collection(targetPath));
+    await seedCollectionDocs(prefixCol);
+
+    await userRepo.recursiveDeleteCollection();
+
+    expect(await collectionState(db.collection(targetPath))).toEqual({
+      direct: 0,
+      grandchildExists: false,
+    });
+    expect(await collectionState(prefixCol)).toEqual({
+      direct: 2,
+      grandchildExists: true,
+    });
+  });
+
+  it('I-2: scopes a nested wipe to the subcollection; parent and prefix sibling survive', async () => {
+    const parentRef = db.collection(targetPath).doc('rdc-parent');
+    await parentRef.set({ survives: true });
+    const childrenRepo = userRepo.subcollection(
+      'rdc-parent',
+      'children',
+      z.object({ value: z.string() }),
+    );
+    const nestedTarget = parentRef.collection('children');
+    const nestedPrefix = parentRef.collection('children_prefix');
+    await seedCollectionDocs(nestedTarget);
+    await seedCollectionDocs(nestedPrefix);
+
+    await childrenRepo.recursiveDeleteCollection();
+
+    expect(await collectionState(nestedTarget)).toEqual({
+      direct: 0,
+      grandchildExists: false,
+    });
+    expect(await collectionState(nestedPrefix)).toEqual({
+      direct: 2,
+      grandchildExists: true,
+    });
+    expect((await parentRef.get()).exists).toBe(true);
+
+    // Nested leftovers must not strand the suite; wipe via the parent document subtree.
+    await db.recursiveDelete(parentRef);
+  });
+
+  it('I-3: returns undefined and is idempotent on an empty collection', async () => {
+    const emptyHarness = createUserRepoHarness('test_users_rdc_empty');
+    const emptyPath = emptyHarness.userRepo.getCollectionPath();
+    await emptyHarness.userRepo.bulkWrite([
+      { op: 'set', id: 'once', data: createTestUserInput({ name: 'once' }) },
+    ]);
+
+    await expect(emptyHarness.userRepo.recursiveDeleteCollection()).resolves.toBeUndefined();
+    await expect(emptyHarness.userRepo.recursiveDeleteCollection()).resolves.toBeUndefined();
+    expect((await db.collection(emptyPath).get()).size).toBe(0);
+
+    await db.recursiveDelete(db.collection(emptyPath));
+  });
+
+  it('I-4: runs no delete hooks while wiping the collection', async () => {
+    const hookRepo = new FirestoreRepository<User>(db, targetPath);
+    const fired: string[] = [];
+    hookRepo.on('beforeDelete', () => {
+      fired.push('beforeDelete');
+    });
+    hookRepo.on('afterDelete', () => {
+      fired.push('afterDelete');
+    });
+    hookRepo.on('beforeBulkDelete', () => {
+      fired.push('beforeBulkDelete');
+    });
+    hookRepo.on('afterBulkDelete', () => {
+      fired.push('afterBulkDelete');
+    });
+
+    await seedCollectionDocs(db.collection(targetPath));
+    await hookRepo.recursiveDeleteCollection();
+
+    expect(fired).toEqual([]);
+    expect(await collectionState(db.collection(targetPath))).toEqual({
+      direct: 0,
+      grandchildExists: false,
+    });
   });
 });

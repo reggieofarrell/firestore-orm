@@ -320,6 +320,25 @@ subcollections, any depth). No lifecycle hooks run; no count is returned. A miss
 resolves (idempotent). Partial failure is reported as a whole-call error — already-deleted docs stay
 deleted; re-running is safe. Separate from `delete(id)`, which orphans subcollections.
 
+**`recursiveDeleteCollection(): Promise<void>`**
+
+**Highly destructive.** Permanently deletes **every document in this repository's collection** and
+every descendant subcollection (any depth). Deliberately separate from `recursiveDelete(id)` (one
+document subtree) and `delete(id)` (one document, orphans subcollections). When this repository
+points at a subcollection, only that concrete subcollection is removed — its parent document and
+sibling collections survive. A collection whose id merely shares this collection's prefix also
+survives. No lifecycle hooks run; no count is returned. An empty collection resolves; re-running is
+safe. Partial failure is a whole-call error — already-deleted docs stay deleted.
+
+```typescript
+// Wipe every user and every descendant beneath every user.
+await userRepo.recursiveDeleteCollection();
+
+// Wipe every post below one user; the user document and sibling subcollections survive.
+const postRepo = userRepo.subcollection('user-123', 'posts', postSchema);
+await postRepo.recursiveDeleteCollection();
+```
+
 ## Identity
 
 **`id(raw: string): ID`**
@@ -388,8 +407,8 @@ receive the full persisted document as a `FirestoreDocument<T>` at runtime. `que
 `beforeBulkDelete`/`afterBulkDelete`), not the per-document hooks; inside transactions only
 `before*` hooks run, via the transaction-scoped repo passed to `runInTransaction` (with
 `execution: 'transaction'` and an observed `attempt`, or `null` for caller-managed raw
-transactions). **`bulkWrite` and `recursiveDelete` run no hooks** — `bulkWrite` throws when any bulk
-hook is registered unless `{ skipHooks: true }` is passed. See
+transactions). **`bulkWrite`, `recursiveDelete`, and `recursiveDeleteCollection` run no hooks** —
+`bulkWrite` throws when any bulk hook is registered unless `{ skipHooks: true }` is passed. See
 [Lifecycle hooks](/firestore-orm/guides/concepts/lifecycle-hooks/) for full detail.
 
 **`subcollection<RS extends ZodObject, WS extends ZodObject = RS, SS extends ZodObject = RS>(parentId: ID, subcollectionName: string, readSchema: RS, options?: { writeSchema?: WS; storedSchema?: SS; readConverter?: ReadConverter<z.output<RS>>; sentinelPolicy?: SentinelPolicy; allowLegacyDatastoreIds?: boolean }): FirestoreRepository<z.output<RS>, z.input<WS>, z.output<SS>, z.output<WS>>`**

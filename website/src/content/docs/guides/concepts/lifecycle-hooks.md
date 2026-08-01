@@ -72,7 +72,7 @@ these hooks wrap.
 
 ### Operations that run **no** hooks
 
-Two write paths deliberately fire nothing:
+Three write paths deliberately fire nothing:
 
 - **`bulkWrite`** — high-throughput, non-atomic BulkWriter path. If any bulk hook is registered on
   the repository, the call **throws** unless you pass `{ skipHooks: true }` to acknowledge that those
@@ -80,6 +80,9 @@ Two write paths deliberately fire nothing:
 - **`recursiveDelete`** — deletes a document and every descendant; no per-document or bulk delete
   hooks run (the SDK streams name-only snapshots and descendants live in collections this repository
   may not model).
+- **`recursiveDeleteCollection`** — deletes every document in this repository's collection and every
+  descendant; the same name-only / cross-collection reasons apply, so no delete hooks can honestly
+  supply modeled payloads.
 
 Do not assume every write goes through the hook table above.
 
@@ -160,7 +163,8 @@ recursively.
 is validated and written, `afterBulkUpdate` receives `{ ids }` for the written documents, and the
 bulk-delete hooks receive `{ ids, documents }`. The per-document `before/afterUpdate` and
 `before/afterDelete` hooks do **not** run on query-level writes — use the single-document methods
-when you need those. Separately, `bulkWrite` and `recursiveDelete` run **no** hooks at all (see
+when you need those. Separately, `bulkWrite`, `recursiveDelete`, and `recursiveDeleteCollection` run
+**no** hooks at all (see
 [above](#operations-that-run-no-hooks)). See
 [Queries](/firestore-orm/guides/working-with-data/queries/).
 

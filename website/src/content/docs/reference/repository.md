@@ -190,23 +190,36 @@ than invoking the callback with a nullable document — the underlying deletion 
 
 ## Writes
 
+Opt-in **write metadata**: pass `{ withMetadata: true }` on the helpers below to include the Admin
+SDK commit `writeTime` on the result (`WriteMetadata` / `WriteResultWithMetadata`). Default shapes
+are unchanged. `returnDoc` and `withMetadata` are mutually exclusive. Transactional helpers
+(`*InTransaction`) do **not** accept `withMetadata` — the Admin SDK exposes no per-op write receipt
+inside a transaction. Fixed batches above 500 ops concatenate receipts in enqueue order across
+chunks; a failed chunk contributes no fabricated timestamps (`WriteOutcomeError` accounting is
+unchanged). `bulkWrite` already returns `writeTime` on each successful item and does not take this
+flag.
+
 **`create(data: CreateInput<W>, options: { returnDoc: true }): Promise<FirestoreDocument<T>>`**
-**`create(data: CreateInput<W>, options?: { returnDoc?: false }): Promise<{ id: ID }>`**
+**`create(data: CreateInput<W>, options: { withMetadata: true }): Promise<{ id: ID; writeTime: Timestamp }>`**
+**`create(data: CreateInput<W>, options?: { returnDoc?: false; withMetadata?: false }): Promise<{ id: ID }>`**
 
 Create a new document with an auto-generated Firestore ID. Returns `{ id }` by default; pass
-`{ returnDoc: true }` to resolve to the created `FirestoreDocument<T>`. A postcommit read/converter
-failure after a successful write throws `WriteOutcomeError` with `phase: 'read-back'` (document is
-persisted).
+`{ returnDoc: true }` to resolve to the created `FirestoreDocument<T>`; pass `{ withMetadata: true }`
+for `{ id, writeTime }`. A postcommit read/converter failure after a successful write throws
+`WriteOutcomeError` with `phase: 'read-back'` (document is persisted).
 
 **`bulkCreate(data: CreateInput<W>[], options: { returnDoc: true }): Promise<FirestoreDocument<T>[]>`**
-**`bulkCreate(data: CreateInput<W>[], options?: { returnDoc?: false }): Promise<{ id: ID }[]>`**
+**`bulkCreate(data: CreateInput<W>[], options: { withMetadata: true }): Promise<{ id: ID; writeTime: Timestamp }[]>`**
+**`bulkCreate(data: CreateInput<W>[], options?: { returnDoc?: false; withMetadata?: false }): Promise<{ id: ID }[]>`**
 
 Create multiple documents, committed in batches of 500. Returns `{ id }[]` by default; pass
-`{ returnDoc: true }` for the created documents. Above 500 ops, a later-chunk failure throws
+`{ returnDoc: true }` for the created documents, or `{ withMetadata: true }` for positional
+`{ id, writeTime }[]`. Above 500 ops, a later-chunk failure throws
 `WriteOutcomeError` (`partially-committed`) with exact `committedWrites` / `totalWrites`.
 
 **`createWithId(id: ID, data: CreateInput<W>, options: { returnDoc: true }): Promise<FirestoreDocument<T>>`**
-**`createWithId(id: ID, data: CreateInput<W>, options?: { returnDoc?: false }): Promise<{ id: ID }>`**
+**`createWithId(id: ID, data: CreateInput<W>, options: { withMetadata: true }): Promise<{ id: ID; writeTime: Timestamp }>`**
+**`createWithId(id: ID, data: CreateInput<W>, options?: { returnDoc?: false; withMetadata?: false }): Promise<{ id: ID }>`**
 
 **Create-only** write under a caller-supplied ID — the counterpart to `upsert`, which overwrites.
 Throws `ConflictError` when a document already exists at that ID. The existence check happens on the
@@ -215,7 +228,8 @@ backend as part of the write, so two concurrent calls cannot both succeed. Fires
 `WriteOutcomeError` with `phase: 'read-back'`.
 
 **`bulkCreateWithIds(entries: { id: ID; data: CreateInput<W> }[], options: { returnDoc: true }): Promise<FirestoreDocument<T>[]>`**
-**`bulkCreateWithIds(entries: { id: ID; data: CreateInput<W> }[], options?: { returnDoc?: false }): Promise<{ id: ID }[]>`**
+**`bulkCreateWithIds(entries: { id: ID; data: CreateInput<W> }[], options: { withMetadata: true }): Promise<{ id: ID; writeTime: Timestamp }[]>`**
+**`bulkCreateWithIds(entries: { id: ID; data: CreateInput<W> }[], options?: { returnDoc?: false; withMetadata?: false }): Promise<{ id: ID }[]>`**
 
 Batched create-only writes under caller-supplied IDs. Throws `ConflictError` if any ID exists — at
 or below 500 operations the batch is atomic, so **no sibling lands**. Above 500, a later-chunk
@@ -223,55 +237,71 @@ failure throws `WriteOutcomeError` (`partially-committed`) with exact counts. Du
 input are rejected before any I/O. `{ returnDoc: true }` read-back failures are `phase: 'read-back'`.
 
 **`update(id: ID, data: UpdateInput<W>, options: UpdateOptions & { returnDoc: true }): Promise<FirestoreDocument<T>>`**
-**`update(id: ID, data: UpdateInput<W>, options?: UpdateOptions & { returnDoc?: false }): Promise<{ id: ID }>`**
+**`update(id: ID, data: UpdateInput<W>, options: UpdateOptions & { withMetadata: true }): Promise<{ id: ID; writeTime: Timestamp }>`**
+**`update(id: ID, data: UpdateInput<W>, options?: UpdateOptions & { returnDoc?: false; withMetadata?: false }): Promise<{ id: ID }>`**
 
 Update a document with partial data. Supports dot notation for nested updates. Pass
 `{ merge: true }` to normalize nested objects to dot paths before writing. Pass `{ lastUpdateTime }`
 (from `getByIdWithUpdateTime`) to make the write conditional — it commits only if the document is
 still at that version, and otherwise throws `PreconditionFailedError`. Returns `{ id }` by default;
 pass `{ returnDoc: true }` to resolve to the updated `FirestoreDocument<T>` (postcommit converter
-failures are `WriteOutcomeError` / `phase: 'read-back'`).
+failures are `WriteOutcomeError` / `phase: 'read-back'`); pass `{ withMetadata: true }` for
+`{ id, writeTime }`.
 
 **`patch(id: ID, data: UpdateInput<W>, options: { returnDoc: true; lastUpdateTime?: Timestamp }): Promise<FirestoreDocument<T>>`**
-**`patch(id: ID, data: UpdateInput<W>, options?: { returnDoc?: false; lastUpdateTime?: Timestamp }): Promise<{ id: ID }>`**
+**`patch(id: ID, data: UpdateInput<W>, options: { withMetadata: true; lastUpdateTime?: Timestamp }): Promise<{ id: ID; writeTime: Timestamp }>`**
+**`patch(id: ID, data: UpdateInput<W>, options?: { returnDoc?: false; withMetadata?: false; lastUpdateTime?: Timestamp }): Promise<{ id: ID }>`**
 
 Merge-style update — equivalent to `update(id, data, { merge: true })`. `patch` **always** merges,
 so there is no `merge` option; `{ returnDoc: true }` resolves to the updated `FirestoreDocument<T>`,
-and `{ lastUpdateTime }` guards the write exactly as on `update`.
+`{ withMetadata: true }` adds the commit receipt, and `{ lastUpdateTime }` guards the write exactly
+as on `update`.
 
-**`bulkUpdate(updates: { id: ID; data: UpdateInput<W>; lastUpdateTime?: Timestamp }[]): Promise<{ id: ID }[]>`**
+**`bulkUpdate(updates: { id: ID; data: UpdateInput<W>; lastUpdateTime?: Timestamp }[], options: { withMetadata: true }): Promise<{ id: ID; writeTime: Timestamp }[]>`**
+**`bulkUpdate(updates: { id: ID; data: UpdateInput<W>; lastUpdateTime?: Timestamp }[], options?: { withMetadata?: false }): Promise<{ id: ID }[]>`**
 
 Update multiple documents in a batch. Supports dot notation. Each entry may carry its own
 `lastUpdateTime`; at or below 500 operations one failed precondition rejects the whole batch and
 changes nothing. Above 500, a later-chunk failure throws `WriteOutcomeError` (`partially-committed`)
-with exact `committedWrites` / `totalWrites`.
+with exact `committedWrites` / `totalWrites`. Pass `{ withMetadata: true }` for positional
+`{ id, writeTime }[]`.
 
-**`bulkPatch(updates: { id: ID; data: UpdateInput<W>; lastUpdateTime?: Timestamp }[]): Promise<{ id: ID }[]>`**
+**`bulkPatch(updates: { id: ID; data: UpdateInput<W>; lastUpdateTime?: Timestamp }[], options: { withMetadata: true }): Promise<{ id: ID; writeTime: Timestamp }[]>`**
+**`bulkPatch(updates: { id: ID; data: UpdateInput<W>; lastUpdateTime?: Timestamp }[], options?: { withMetadata?: false }): Promise<{ id: ID }[]>`**
 
 Merge-style batch update. Each payload is normalized like `patch(...)` before the batched writes.
-Same partial-batch `WriteOutcomeError` contract as `bulkUpdate` above 500 ops.
+Same partial-batch `WriteOutcomeError` contract as `bulkUpdate` above 500 ops. Optional
+`{ withMetadata: true }` matches `bulkUpdate`.
 
 **`upsert(id: ID, data: CreateInput<W>, options: { returnDoc: true }): Promise<FirestoreDocument<T>>`**
-**`upsert(id: ID, data: CreateInput<W>, options?: { returnDoc?: false }): Promise<{ id: ID }>`**
+**`upsert(id: ID, data: CreateInput<W>, options: { withMetadata: true }): Promise<{ id: ID; writeTime: Timestamp }>`**
+**`upsert(id: ID, data: CreateInput<W>, options?: { returnDoc?: false; withMetadata?: false }): Promise<{ id: ID }>`**
 
 Create or overwrite the document with the given ID. Returns `{ id }` by default; pass
 `{ returnDoc: true }` to resolve to the final persisted `FirestoreDocument<T>` (postcommit
-converter/read failures are `WriteOutcomeError` / `phase: 'read-back'`). Use `createWithId`
-instead when the document must **not** already exist.
+converter/read failures are `WriteOutcomeError` / `phase: 'read-back'`); pass
+`{ withMetadata: true }` for `{ id, writeTime }` on either the create or update branch. Use
+`createWithId` instead when the document must **not** already exist.
 
-**`delete(id: ID, options?: { lastUpdateTime?: Timestamp }): Promise<void>`**
+**`delete(id: ID, options: { withMetadata: true; lastUpdateTime?: Timestamp }): Promise<{ writeTime: Timestamp }>`**
+**`delete(id: ID, options?: { withMetadata?: false; lastUpdateTime?: Timestamp }): Promise<void>`**
 
 Permanently delete a document. Throws `NotFoundError` when the document does not exist — including
 when a `lastUpdateTime` was supplied, because `delete`'s own existence pre-read runs first. A
-supplied `lastUpdateTime` that no longer matches throws `PreconditionFailedError`.
+supplied `lastUpdateTime` that no longer matches throws `PreconditionFailedError`. Pass
+`{ withMetadata: true }` to resolve to `{ writeTime }` instead of `void`.
 
-**`bulkDelete(ids: ID[]): Promise<number>`**
-**`bulkDelete(entries: { id: ID; lastUpdateTime?: Timestamp }[]): Promise<number>`**
+**`bulkDelete(ids: ID[], options: { withMetadata: true }): Promise<{ count: number; writeTimes: Timestamp[] }>`**
+**`bulkDelete(ids: ID[], options?: { withMetadata?: false }): Promise<number>`**
+**`bulkDelete(entries: { id: ID; lastUpdateTime?: Timestamp }[], options: { withMetadata: true }): Promise<{ count: number; writeTimes: Timestamp[] }>`**
+**`bulkDelete(entries: { id: ID; lastUpdateTime?: Timestamp }[], options?: { withMetadata?: false }): Promise<number>`**
 
 Permanently delete multiple documents. Resolves to the count of documents that **actually existed**
-(not the length of the input array). The two overloads cannot be mixed in one array. Documents that
-are already gone are filtered out by the existence pre-read, so an entry with a `lastUpdateTime`
-whose document no longer exists is skipped rather than raising.
+(not the length of the input array). With `{ withMetadata: true }`, resolves to
+`{ count, writeTimes }` for surviving documents only — missing requested ids contribute neither a
+count nor a fabricated receipt (`writeTimes.length === count`). The two entry-shape overloads cannot
+be mixed in one array. Documents that are already gone are filtered out by the existence pre-read,
+so an entry with a `lastUpdateTime` whose document no longer exists is skipped rather than raising.
 
 **`bulkWrite(operations: BulkWriteOperation<W>[], options?: BulkWriteOptions): Promise<BulkWriteResult[]>`**
 
@@ -280,7 +310,8 @@ result per operation. This is a *separate contract* from the fixed-batch helpers
 or fails alone; lifecycle hooks do **not** run (throws if any bulk hook is registered unless
 `{ skipHooks: true }`); duplicate explicit ids are rejected because same-document commit order is
 undefined. Validation failures and backend refusals land as `{ ok: false, error }` for that item
-while siblings still write. Optional `throttling` is forwarded to `db.bulkWriter`.
+while siblings still write. Successful items already include `writeTime` — there is no separate
+`withMetadata` flag. Optional `throttling` is forwarded to `db.bulkWriter`.
 
 **`recursiveDelete(id: ID): Promise<void>`**
 

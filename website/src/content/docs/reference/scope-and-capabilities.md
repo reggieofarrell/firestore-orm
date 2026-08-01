@@ -31,7 +31,8 @@ reach the raw Admin SDK for anything not yet wrapped.
 | Cursor + offset pagination                       | Opaque, forward-only cursor bound to the collection                                                                                                                                                                                       |
 | Field projections (`select`)                     | Result type narrows to `FirestoreDocument<DeepPartial<T>>`                                                                                                                                                                                |
 | Real-time listeners (`onSnapshot`)               | Full-model arrays; not combinable with `select()`                                                                                                                                                                                         |
-| Snapshot read metadata + detailed listeners      | `{ withMetadata: true }` on core reads and query terminals; `onSnapshotDetailed()` / `listenOneDetailed()`. Write metadata (`writeTime`) deferred ([#72](https://github.com/reggieofarrell/firestore-orm/issues/72)).                   |
+| Snapshot read metadata + detailed listeners      | `{ withMetadata: true }` on core reads and query terminals; `onSnapshotDetailed()` / `listenOneDetailed()`.                                                                                                                                                                                              |
+| Write metadata (`writeTime` on writes)           | `{ withMetadata: true }` on non-transactional repository writes (`create` / `update` / `delete` / fixed batches). Enriches `{ id }` / `void` / batch results with commit `writeTime`(s). Mutually exclusive with `returnDoc`. Not available inside transactions (`*InTransaction`). `bulkWrite` already returns `writeTime` per success. |
 | Count / sum / average aggregates                 | Numeric field-path typing for sum/average                                                                                                                                                                                                 |
 | Multi-aggregation `aggregate(spec)`              | Aliased count/sum/average in one request; max 5; sparse-field caveat (see queries guide)                                                                                                                                                  |
 | Native query streaming (`stream`)                | Backed by the SDK's `Query.stream()`                                                                                                                                                                                                      |
@@ -53,7 +54,6 @@ issue labeled `parity` / `v3.x`. Until then, use the [raw-SDK escape hatch](#raw
 
 | Capability                                         | Issue                                                            |
 | -------------------------------------------------- | ---------------------------------------------------------------- |
-| Write metadata (`writeTime` on writes)             | [#72](https://github.com/reggieofarrell/firestore-orm/issues/72) |
 | Experimental Enterprise Pipeline subpath           | [#41](https://github.com/reggieofarrell/firestore-orm/issues/41) |
 
 ## Collection groups are read-only

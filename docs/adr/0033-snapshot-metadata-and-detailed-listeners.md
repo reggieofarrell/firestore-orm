@@ -170,7 +170,6 @@ serializable.
 This record **amends ADR-0017**: opt-in snapshot **read** metadata and detailed listeners are no
 longer deferred. The remaining deferrals (#41) and the decision not to pursue full server-side or
 Enterprise Pipeline parity are unchanged. (#39 read metadata / detailed listeners have since shipped
-— see this ADR; #40 `distinctValues` semantic equality has since shipped — see ADR-0034; write
-metadata is tracked separately as [#72](https://github.com/reggieofarrell/firestore-orm/issues/72).
-This footer is a living index of remaining ADR-0017 deferrals — see
-[`docs/adr/README.md`](README.md) Conventions.)
+— see this ADR; #40 `distinctValues` semantic equality has since shipped — see ADR-0034; #72 write
+metadata has since shipped — see [ADR-0037](0037-write-metadata-opt-in.md). This footer is a living
+index of remaining ADR-0017 deferrals — see [`docs/adr/README.md`](README.md) Conventions.)

@@ -11,12 +11,14 @@ import { FirestoreRepository } from '../../core/FirestoreRepository.js';
  *    authoritative.
  */
 function createSchemaRepoHarness() {
+  // create() now uses doc().set() (not collection.add()) so a WriteResult is available for
+  // `{ withMetadata: true }` — mirrors production Admin SDK auto-id generation.
   const add = jest.fn().mockResolvedValue({ id: 'generated-doc-id' });
-  const update = jest.fn().mockResolvedValue(undefined);
-  const set = jest.fn().mockResolvedValue(undefined);
+  const update = jest.fn().mockResolvedValue({ writeTime: { seconds: 1, nanoseconds: 0 } });
+  const set = jest.fn().mockResolvedValue({ writeTime: { seconds: 1, nanoseconds: 0 } });
   const get = jest.fn().mockResolvedValue({ exists: false });
-  const doc = jest.fn(() => ({
-    id: 'doc-ref-id',
+  const doc = jest.fn((id?: string) => ({
+    id: id ?? 'generated-doc-id',
     update,
     set,
     get,
@@ -118,15 +120,17 @@ describe('repository schema contracts', () => {
   });
 
   it('strips top-level id from create payloads and returns Firestore-derived ids', async () => {
-    const { repo, add } = createSchemaRepoHarness();
+    const { repo, set, doc } = createSchemaRepoHarness();
 
     const created = await repo.create({
       id: 'client-id-should-be-ignored',
       name: 'Create Test',
     } as any);
 
+    // Auto-id create claims a client-side doc ref, then set()s — never collection.add().
+    expect(doc).toHaveBeenCalledWith();
     // The payload persisted to Firestore must not include a client id field.
-    expect(add).toHaveBeenCalledWith({ name: 'Create Test' });
+    expect(set).toHaveBeenCalledWith({ name: 'Create Test' });
     // The repository contract uses Firestore ids as the authoritative id.
     expect(created.id).toBe('generated-doc-id');
   });

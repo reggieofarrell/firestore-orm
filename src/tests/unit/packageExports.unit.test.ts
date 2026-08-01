@@ -64,4 +64,12 @@ describe('package exports', () => {
     expect((orm as Record<string, unknown>).withVectorSearch).toBeUndefined();
     expect((orm as Record<string, unknown>).vectorEmbeddingSchema).toBeUndefined();
   });
+
+  it('documents that WriteMetadata types are type-only root exports (issue #72)', () => {
+    // WriteMetadata / WriteResultWithMetadata are type aliases — they erase at runtime. Compile-time
+    // root-import coverage lives in src/tests/types/write-metadata.type-test.ts (T-4). Assert they
+    // are not accidentally emitted as runtime values on the package entry.
+    expect((orm as Record<string, unknown>).WriteMetadata).toBeUndefined();
+    expect((orm as Record<string, unknown>).WriteResultWithMetadata).toBeUndefined();
+  });
 });

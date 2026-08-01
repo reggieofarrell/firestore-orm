@@ -85,7 +85,7 @@ We will ship typed bounds and `limitToLast` as follows:
 - Capability matrix: #36 moves Deferred → Supported. Remaining ADR-0017 deferrals are `#41` (#37
   `explain()`, #38 `bulkWrite` / `recursiveDelete`, #39 snapshot read metadata / detailed listeners,
   and #40 `distinctValues` semantic equality have since shipped — see ADR-0031 / ADR-0032 / ADR-0033
-  / ADR-0034).
+  / ADR-0034; #72 write metadata — ADR-0037).
 
 ## Alternatives considered
 
@@ -118,5 +118,6 @@ This record **amends ADR-0017**: typed lower-level bounds + `limitToLast` are no
 The remaining deferrals (#41) and the decision not to pursue full server-side or Enterprise Pipeline
 parity are unchanged. (#37 `explain()`, #38 `bulkWrite` / `recursiveDelete`, and #39 snapshot read
 metadata / detailed listeners have since shipped — see ADR-0031 / ADR-0032 / ADR-0033; #40
-`distinctValues` semantic equality has since shipped — see ADR-0034; this footer is a living index
-of remaining ADR-0017 deferrals — see [`docs/adr/README.md`](README.md) Conventions.)
+`distinctValues` semantic equality has since shipped — see ADR-0034; #72 write metadata has since
+shipped — see ADR-0037; this footer is a living index of remaining ADR-0017 deferrals — see
+[`docs/adr/README.md`](README.md) Conventions.)

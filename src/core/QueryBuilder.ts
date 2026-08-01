@@ -35,12 +35,14 @@ import {
 } from 'firebase-admin/firestore';
 import { z } from 'zod';
 
-// Bound repository helpers. commitInChunks now returns the successful write count; callers that
-// ignore the number (query update/delete) remain correct. runHooks accepts an optional third
-// execution argument — query writes always use the dispatcher default (direct).
+// Bound repository helpers. commitInChunks returns the Admin SDK WriteResult[] for each successfully
+// committed action (in enqueue order across 500-op chunks). Query update/delete ignore the array and
+// keep returning a count; repository fixed-batch helpers with `{ withMetadata: true }` project it.
+// runHooks accepts an optional third execution argument — query writes always use the dispatcher
+// default (direct).
 type FirestoreWriteBatch = (
   actions: ((batch: FirebaseFirestore.WriteBatch) => void)[],
-) => Promise<number>;
+) => Promise<FirebaseFirestore.WriteResult[]>;
 /**
  * Event-correlated bound signature matching {@link FirestoreRepository}'s dispatcher (review N1).
  * Payload type comes from {@link HookDataFor} so a wrong shape at a query emit site fails to compile

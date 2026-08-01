@@ -278,7 +278,6 @@ a subcollection, only that concrete subcollection is removed; its parent documen
 collections survive.
 
 **Performance Tip**: For simple bulk updates on query results, use `query().update()` instead:
-**Performance Tip**: For simple bulk updates on query results, use `query().update()` instead:
 
 ```typescript
 // More efficient - single query + batched writes

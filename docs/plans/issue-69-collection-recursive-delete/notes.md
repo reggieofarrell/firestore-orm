@@ -1,9 +1,10 @@
 # Issue #69 — Implementation notes (for adversarial review)
 
 **Implementer:** Cursor Cloud Agent (Grok 4.5) · **Branch:**
-`plan/issue-69-collection-recursive-delete` · **Plan:**
-`docs/plans/issue-69-collection-recursive-delete/PLAN.md` · **Baseline:** `main` @ `75aa6ea` (no
-rebase required; plan branch already at that baseline)
+`cursor/issue-69-collection-recursive-delete-ca3f` (renamed from
+`plan/issue-69-collection-recursive-delete` for the required `cursor/` PR prefix; same commits) ·
+**Plan:** `docs/plans/issue-69-collection-recursive-delete/PLAN.md` · **Baseline:** `main` @
+`75aa6ea` (no rebase required; plan branch already at that baseline)
 
 ## Status
 
@@ -24,6 +25,9 @@ None beyond §1. D1–D4 followed exactly. ADR number claimed from the tree as *
    (matching the sibling `recursiveDelete` style) without changing behavior or the public contract.
 2. **I-3 uses an isolated second harness** (`test_users_rdc_empty`) rather than reusing the describe
    harness after I-1 wiped it. Same observables; avoids order coupling between I-1 and I-3.
+3. **Branch rename for PR tooling.** Cloud PR creation requires a `cursor/` prefix, so the tip was
+   pushed as `cursor/issue-69-collection-recursive-delete-ca3f` without rewriting history. Plan §7
+   step 1 still applied for checkout/implementation; only the publish name changed.
 
 ## Files touched and why
 
@@ -86,22 +90,21 @@ the dirty tree.
 
 SDK probe re-run before edits: exit 0; P1–P5 observables matched §0.
 
-Fourteen-leg §10 output recorded after implementation (see below / subsequent commit if gate was
-still running at notes write time).
+Fourteen-leg §10 under Node `v24.18.0` — all green (`/tmp/issue69-gate.log`):
 
 ```
-npm run test:types                         ✓ (clean after restore)
-npm run lint                               (pending / see gate run)
-npm run check:format                       (pending / see gate run)
-npm run test:unit                          expected unchanged 32 / 426
-npm run test:integration:emulator          expected 36 / 544 (was 36 / 540)
-npm run test:unit:coverage + gate:unit
-npm run test:integration:coverage + gate
-npm run build
-npm run check:package
-npm run check:consumer                     local peer: firebase-admin@^14
-npm run check:docs
-npm run docs:build                         no aside prescribed; still grepped for leaked `:::`
+npm run test:types                         ✓
+npm run lint                               ✓
+npm run check:format                       ✓
+npm run test:unit                          ✓ 32 suites / 426 tests  (unchanged)
+npm run test:integration:emulator          ✓ 36 suites / 544 tests  (was 36 / 540)
+npm run test:unit:coverage + gate:unit     ✓
+npm run test:integration:coverage + gate   ✓
+npm run build                              ✓
+npm run check:package                      ✓
+npm run check:consumer                     ✓ firebase-admin@^14.0.0 (ESM+CJS+Express)
+npm run check:docs                         ✓ 188 files
+npm run docs:build                         ✓ 61 pages; no leaked `:::` in guides/reference HTML
 ```
 
 Targeted pre-gate signal: `repository-bulk-writer` integration file **28 passed** (includes I-1–I-4).
@@ -132,31 +135,36 @@ Targeted pre-gate signal: `repository-bulk-writer` integration file **28 passed*
 | 7 Five Starlight pages; stale phrase gone | PASS | website greps; zero `Collection-wide variant deferred` |
 | 8 Untouched prescribed surfaces | PASS | git diff paths |
 | 9 Probe + greps | PASS | probe exit 0; README rg exit 1 empty |
-| 10 Fourteen-leg gate | (fill after gate) | |
+| 10 Fourteen-leg gate | PASS | `/tmp/issue69-gate.log`; 32/426 + 36/544 |
 | 11 Anti-instructions | PASS | checklist above |
 | 12 notes.md committed | PASS | this file |
 | 13 Plan dir remains until post-review cleanup | PASS | directory present |
 
 ## Independent adversarial review
 
-**Reviewer:** pending fresh-context subagent · **Reviewed:** (post-gate commit) · **Fixes in:** n/a ·
-**Verdict:** pending
+**Reviewer:** fresh-context subagent (GPT-5.5 high) · **Reviewed:** `d8642e1` · **Fixes in:**
+(follow-up commit after F1) · **Verdict:** pass with fixes → pass after F1
+
+Given: plan + diff + tests (**not** these notes). Prompted to refute; default to findings when
+uncertain.
 
 ### Findings fixed
 
-(none yet)
+1. **F1 minor — Duplicate “Performance Tip” line in CRUD guide** — `crud-operations.md` had the
+   heading twice after the §9.4 edit. Removed the duplicate line.
 
 ### Findings not treated as defects
 
-(none yet)
+None.
 
 ### Findings deferred
 
-(none yet)
+None.
 
 ### Gate re-run after fixes
 
-(n/a until findings)
+Full fourteen-leg §10 re-run after F1 (`/tmp/issue69-gate-rerun.log`): all green. Unit **32 / 426**,
+integration **36 / 544** unchanged from the first post-implementation run.
 
 ## Could-not-verify
 

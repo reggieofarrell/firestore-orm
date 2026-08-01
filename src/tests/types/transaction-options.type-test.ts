@@ -105,6 +105,10 @@ export async function readOnlyCallbackExcludesNonTransactionalWritesAndHooks() {
       await repo.bulkUpdate([{ id: 'u1', data: { balance: 1 } }]);
       // @ts-expect-error bulkDelete bypasses the transaction — absent from the RO type
       await repo.bulkDelete(['u1']);
+      // @ts-expect-error recursiveDelete bypasses the transaction — absent from the RO type
+      await repo.recursiveDelete('u1');
+      // @ts-expect-error recursiveDeleteCollection bypasses the transaction — absent from the RO type
+      await repo.recursiveDeleteCollection();
       // @ts-expect-error on() mutates repo hook state outside the tx contract — absent from RO
       repo.on('beforeCreate', () => {});
       // @ts-expect-error safeValidate is intentionally outside the settled RO member set

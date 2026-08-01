@@ -35,6 +35,7 @@ Firestore charges for:
 | `update()`                 | 1 write                                      | Even if updating one field                |
 | `delete()`                 | 1 delete                                     | Permanently removes document              |
 | `recursiveDelete(id)`      | 1 delete per document in the subtree         | Target + all descendants                  |
+| `recursiveDeleteCollection()` | 1 delete per document across the collection and all descendants | Entire repository collection + nested subcollections |
 | `query().update()`         | 1 write per match                            | Efficient batch update                    |
 | `onSnapshot()`             | 1 read per doc initially + 1 read per change | Real-time listener costs                  |
 

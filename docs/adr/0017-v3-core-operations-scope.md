@@ -157,6 +157,14 @@ server-side Firestore parity. Concretely:
    > (**#41**) is unchanged, as is the decision not to pursue full server-side or Enterprise
    > Pipeline parity. Rationale and contract: ADR-0037.
 
+   > Amendment (3.0.0, issue #69): Collection-wide recursive delete is **no longer deferred** — it
+   > ships in 3.0.0 as `recursiveDeleteCollection(): Promise<void>` (distinct zero-argument method;
+   > no confirmation flag; no hooks; no count; raw `CollectionReference` SDK delegation). #69 is a
+   > separately tracked follow-up to the document-scoped half shipped under #38 / ADR-0032; the
+   > historical issue #38 amendment above is left intact. #69 was **not** an original ADR-0017
+   > `#35–#41` item, so the remaining deferral (**#41**) wording is unchanged. Rationale and
+   > contract: ADR-0038.
+
 We explicitly do **not** block v3 on any of the deferred items.
 
 ## Consequences
@@ -205,3 +213,8 @@ capability matrix is the honest middle ground.
 > block under Decision above). The References living-summary parenthetical for #39 is left as
 > historically written; #72 closes the remaining write-metadata half. Remaining deferral **#41** is
 > unchanged.
+
+> Amendment (3.0.0, issue #69): Collection-wide recursive delete later shipped under ADR-0038 / #69
+> (see the Amendment block under Decision above). The References living-summary parenthetical for
+> #38 is left as historically written; #69 closes the separately tracked collection-wide half.
+> Remaining deferral **#41** is unchanged.

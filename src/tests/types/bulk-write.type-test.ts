@@ -172,9 +172,23 @@ export async function methodReturnTypes() {
   const removed: void = await users.recursiveDelete('u1');
   void removed;
 
+  // Collection-wide wipe is a distinct zero-argument method (issue #69 / ADR-0038). Pinning the
+  // void return and arity here keeps an accidental overload of recursiveDelete(id) from compiling
+  // and from silently selecting the maximally destructive path when an id is omitted.
+  const removedCollection: void = await users.recursiveDeleteCollection();
+  void removedCollection;
+
   // recursiveDelete takes exactly one argument.
   // @ts-expect-error no second parameter exists
   await users.recursiveDelete('u1', { force: true });
+
+  // Omitting the document id must remain a compile error — never a collection wipe.
+  // @ts-expect-error recursiveDelete requires a document id
+  await users.recursiveDelete();
+
+  // The collection method rejects an id argument so the two scopes stay distinct by name and arity.
+  // @ts-expect-error recursiveDeleteCollection takes no arguments
+  await users.recursiveDeleteCollection('u1');
 
   return results;
 }

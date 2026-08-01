@@ -3437,6 +3437,46 @@ export class FirestoreRepository<
   }
 
   /**
+   * **Highly destructive.** Permanently deletes **every document in this repository's collection**
+   * and every descendant subcollection, at any depth, via the Admin SDK's
+   * `Firestore.recursiveDelete()`.
+   *
+   * This is deliberately separate from {@link recursiveDelete}, which removes one document subtree,
+   * and {@link delete}, which removes one document but leaves its subcollections orphaned. When this
+   * repository points at a subcollection, only that concrete subcollection is removed: its parent
+   * document and sibling collections survive. A collection whose id merely shares this collection's
+   * prefix also survives.
+   *
+   * No lifecycle hooks run and no count is returned. The SDK reads names only and descendants may
+   * belong to collections this repository does not model. An empty collection resolves successfully;
+   * re-running is safe. Deletes are non-atomic, so a rejection can mean some documents were already
+   * removed; the SDK reports the failure count and last failure status.
+   *
+   * @returns Nothing after all discovered documents have been deleted
+   * @throws {Error} If any descendant delete failed; already-deleted documents remain deleted
+   *
+   * @example
+   * // Delete every user and every descendant beneath every user.
+   * await userRepo.recursiveDeleteCollection();
+   *
+   * @example
+   * // Delete every post below one user; the user document and sibling subcollections survive.
+   * const postRepo = userRepo.subcollection('user-123', 'posts', postSchema);
+   * await postRepo.recursiveDeleteCollection();
+   */
+  async recursiveDeleteCollection(): Promise<void> {
+    try {
+      // Same writer-lifecycle rule as {@link recursiveDelete}: pass only the collection reference
+      // so the SDK owns the lazily-created BulkWriter. Using `writeCol()` (not `readCol()`) keeps
+      // any converter off the wire; the target is this repository's concrete collection, never a
+      // parent DocumentReference that would widen a nested wipe beyond the collection boundary.
+      await this.db.recursiveDelete(this.writeCol());
+    } catch (error: any) {
+      throw parseFirestoreError(error);
+    }
+  }
+
+  /**
    * Find documents by a specific field value.
    * Simple equality search on a single field.
    *

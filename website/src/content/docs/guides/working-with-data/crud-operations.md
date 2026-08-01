@@ -270,9 +270,14 @@ for (const failure of failed) console.error(failure.index, failure.error.message
 ```
 
 Pass `{ skipHooks: true }` when the repository has bulk hooks registered and you deliberately want
-them not to fire. For a document subtree (not a single doc), use `recursiveDelete(id)` — separate
-from `delete(id)`, which orphans subcollections.
+them not to fire. For a **document subtree**, use `recursiveDelete(id)` — separate from `delete(id)`,
+which orphans subcollections. For the **entire repository collection** (every document plus all
+nested descendants), use `recursiveDeleteCollection()` — highly destructive, deliberately a distinct
+method name so an omitted document id cannot select a collection wipe. When the repository points at
+a subcollection, only that concrete subcollection is removed; its parent document and sibling
+collections survive.
 
+**Performance Tip**: For simple bulk updates on query results, use `query().update()` instead:
 **Performance Tip**: For simple bulk updates on query results, use `query().update()` instead:
 
 ```typescript
@@ -287,6 +292,7 @@ await orderRepo.bulkUpdate(orders.map(o => ({ id: o.id, data: { status: 'shipped
 Note that `query().update()` and `query().delete()` run the **bulk** lifecycle hooks
 (`beforeBulkUpdate`/`afterBulkUpdate` and `beforeBulkDelete`/`afterBulkDelete` respectively), not
 the per-document `before/afterUpdate` / `before/afterDelete` hooks. Use the single-document methods
-if you need per-document hooks. **`bulkWrite` and `recursiveDelete` run no hooks** — `bulkWrite`
-throws when bulk hooks are registered unless you pass `{ skipHooks: true }`. See
+if you need per-document hooks. **`bulkWrite`, `recursiveDelete`, and `recursiveDeleteCollection`
+run no hooks** — `bulkWrite` throws when bulk hooks are registered unless you pass
+`{ skipHooks: true }`. See
 [lifecycle hooks](/firestore-orm/guides/concepts/lifecycle-hooks/).

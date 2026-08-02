@@ -10,10 +10,9 @@ baseline; §3 line numbers still match (no rebase needed). Cloud-agent workflow 
 
 ## Status
 
-Done-pending-external-review — harness `VectorDoc.embedding` typed as required `VectorValueLike`;
-I-1 added to `vector-search.integration.test.ts` exactly as §6.2. Mutation proof recorded;
-observational probe still matches P1–P4. Full fourteen-leg gate green. Independent refute-first
-review: **pass** (no findings). Plan directory left in place for external review (§11.15–16).
+Done — external `review.md` round 1 verdict **APPROVE** with zero blockers / majors / nits. No
+remediation edits required. Branch/mutation-restore deviations judged acceptable. §11.15 satisfied by
+the review; §11.16 plan-directory cleanup follows this notes disposition commit.
 
 ## Ambiguities resolved
 
@@ -161,8 +160,36 @@ Not required — adversarial review returned **pass** with zero findings; no rem
 | 12 §7 anti-instructions | PASS | Checklist above |
 | 13 Full fourteen-leg gate green | PASS | Gate results above |
 | 14 `notes.md` committed | PASS | This file on branch |
-| 15 External review with plan dir present | PENDING | Ready; directory still present |
-| 16 Plan-dir cleanup commit before merge | PENDING | After external review |
+| 15 External review with plan dir present | PASS | `review.md` round 1 APPROVE while directory present |
+| 16 Plan-dir cleanup commit before merge | PASS | Cleanup commit immediately after this disposition |
+
+## External review dispositions (`review.md` round 1)
+
+**Reviewer:** Codex (GPT-5.6) · **Reviewed:** `3da77f2` / implementation `e80434d` ·
+**Verdict:** APPROVE
+
+### Findings fixed
+
+None — review reported empty Blockers / Major / Minor sections.
+
+### Findings not treated as defects
+
+Reviewer-agreed non-defects (left unchanged):
+
+- Existing `as VectorDoc` casts elsewhere in the vector suite (plan §2 excluded cleanup).
+- Fixed vector collection names (index-backed); I-1 scopes reads and reuses established cleanup.
+- No decoded constructor-identity assertion (deliberate; public ORM result is the contract).
+
+### Deviations the reviewer judged correct (kept)
+
+- Cloud `cursor/*-c567` feature-branch topology vs plan-branch commit target.
+- Mutation restore via file backup rather than `git restore`.
+- Unit suite count unchanged at `32 / 426` (plan §10, not a missing unit test).
+
+### Gate re-run after remediation
+
+N/A — no remediation. Reviewer independently re-ran the full fourteen-leg gate (`EXIT=0`) and the T9
+mutation (I-1 alone failed with length 3; restored 1/35 green).
 
 ## Independent adversarial review
 

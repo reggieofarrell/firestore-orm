@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { FirestoreRepository } from '../../../core/FirestoreRepository.js';
 import type { FirestoreDocument } from '../../../core/DocumentId.js';
 import { zArrayWrite, zNumberWrite, zSentinel } from '../../../core/Validation.js';
+import type { VectorValueLike } from '../../../utils/pathTypes.js';
 
 /**
  * Canonical project id used by local and CI emulator-backed integration tests.
@@ -219,6 +220,7 @@ export interface VectorDoc {
   name: string;
   category?: string;
   status?: string;
+  embedding: VectorValueLike;
 }
 
 const VECTOR_COLLECTION = 'test_vectors';

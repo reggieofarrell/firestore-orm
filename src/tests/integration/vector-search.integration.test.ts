@@ -1,6 +1,7 @@
 /**
  * Strategy: emulator integration tests for the opt-in vector search extension.
- * Verifies withVectorSearch wiring, KNN queries, pre-filters, distance options, and guards.
+ * Verifies withVectorSearch wiring, KNN queries, pre-filters, distance options, guards,
+ * and decoded VectorValue equality through query().distinctValues (issue #76).
  */
 import { FieldValue } from 'firebase-admin/firestore';
 import { z } from 'zod';
@@ -67,6 +68,27 @@ describe('Vector search extension', () => {
 
     const fetched = await vectorRepo.getById(created.id);
     expect(fetched?.name).toBe('vector-doc');
+  });
+
+  it('I-1: distinctValues dedupes vectors decoded from stored documents by value (issue #76)', async () => {
+    const names = ['distinct-vector-a', 'distinct-vector-b', 'distinct-vector-c'] as const;
+    await Promise.all([
+      vectorRepo.create({ name: names[0], embedding: FieldValue.vector([1, 2, 3]) }),
+      vectorRepo.create({ name: names[1], embedding: FieldValue.vector([1, 2, 3]) }),
+      vectorRepo.create({ name: names[2], embedding: FieldValue.vector([1, 2, 4]) }),
+    ]);
+
+    const distinct = await vectorRepo
+      .query()
+      .where('name', 'in', [...names])
+      .orderBy('name', 'asc')
+      .distinctValues('embedding');
+
+    expect(distinct).toHaveLength(2);
+    expect(distinct.map(value => value.toArray())).toEqual([
+      [1, 2, 3],
+      [1, 2, 4],
+    ]);
   });
 
   it('should support FieldValue.vector through schema validation on create', async () => {

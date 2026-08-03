@@ -1,14 +1,10 @@
 # Issue #79 — Correct lifecycle-hooks `query().delete()` contradiction
 
 **Implementer:** Cursor Cloud Agent or later session · **Reviewer:** independent agent via the
-`implementation-review` skill · **Baseline:** `cursor/issue-76-decoded-vector-equality-c567` @
-`32566c722b0d479e2d6007d788a7c543aaab59c8` (`chore: remove issue 76 plan directory after review`) ·
-**Branch:** `cursor/issue-79-lifecycle-hooks-query-delete-docs-e6df` — already created and pushed with
-this plan on it; check it out, do not cut a new one
-
-**Affected file identity vs `origin/main`:** `website/src/content/docs/guides/concepts/lifecycle-hooks.md`
-is byte-identical to `origin/main` @ `8c5ed6d` on this baseline (verified: empty `git diff
-origin/main -- <that path>`).
+`implementation-review` skill · **Baseline:** `main` @ `8c5ed6d17c8a88bad93643f9e7eb6884de3afdee`
+(`chore: gitignore local agent tooling under .cursor/.claude/.agents (#87)`) · **Branch:**
+`cursor/issue-79-lifecycle-hooks-query-delete-docs-e6df` — already created and pushed with this plan
+on it; check it out, do not cut a new one
 
 **Issue:** [#79](https://github.com/reggieofarrell/firestore-orm/issues/79) — label `bug` only. This
 is a **docs-only** bug. It is **not** an ADR-0017 `#35–#41` deferral, so the deferral /
@@ -88,7 +84,7 @@ asked as questions. Do not re-litigate.
 The issue cites `lifecycle-hooks.md:120-122` for the false claim and `124-133` for the correct bulk
 section. On this baseline those line numbers are wrong (P2):
 
-| Issue claim | Actual on baseline `32566c7` |
+| Issue claim | Actual on baseline `8c5ed6d` |
 | ----------- | ---------------------------- |
 | False claim at 120–122 | False claim at **155–157** |
 | Correct bulk section at 124–133 | Correct section heading at **159**; body at **161–165** |
@@ -136,9 +132,9 @@ node docs/plans/issue-79-lifecycle-hooks-query-delete-docs/probes/contradiction-
 | **P11** | `docs/adr/0035-hook-delivery-and-write-outcome-errors.md:9-10,95-96` | Related + References still call #79 "out of scope here" / "deferred". |
 | **P12** | `rg` over `README.md` + `npm-readme.md` for the false claim / `query().delete` hook wording | No hits — READMEs unaffected. |
 | **G1** | `npm run test:unit` on clean tree | **32 suites / 426 tests** passed. |
-| **G2** | `npm run test:integration:emulator` on clean tree | **36 suites / 545 tests** passed. |
+| **G2** | `npm run test:integration:emulator` on clean tree | **36 suites / 544 tests** passed. |
 
-### 3.5 Authoritative site enumeration (`32566c7`)
+### 3.5 Authoritative site enumeration (`8c5ed6d`)
 
 | File | Lines | Action |
 | ---- | ----- | ------ |
@@ -162,7 +158,7 @@ node docs/plans/issue-79-lifecycle-hooks-query-delete-docs/probes/contradiction-
 ### 3.6 Gate headroom
 
 Not applicable: no production / coverage-gated source paths change. Suite counts must stay **32/426**
-unit and **36/545** integration.
+unit and **36/544** integration.
 
 ### 3.7 Temporary §6 verification (reverted)
 
@@ -304,8 +300,7 @@ pointer updates (D4, T6, T7).
 ## §7 Implementation sequence and anti-instructions
 
 1. Check out `cursor/issue-79-lifecycle-hooks-query-delete-docs-e6df` — it already carries this plan.
-   If the cloud base / `main` moved past `32566c7`, rebase and **re-verify §3 line numbers** before
-   editing.
+   If `main` moved past `8c5ed6d`, rebase and **re-verify §3 line numbers** before editing.
 2. Apply §6.1 to `lifecycle-hooks.md` (the example explanation only).
 3. Apply §6.2 to ADR-0035 Related + References.
 4. Run post-fix probes (§10). Confirm `EXPECT_CONTRADICTION=0` exits 0 and the emulator hook probe
@@ -431,7 +426,7 @@ npm run test:types && npm run lint && npm run check:format && npm run test:unit 
 
 Fourteen legs. Report failures with output — never claim a leg passed that you did not execute.
 
-Baseline before your change: unit **32 suites / 426 tests**, integration **36 suites / 545 tests**.
+Baseline before your change: unit **32 suites / 426 tests**, integration **36 suites / 544 tests**.
 Both must stay unchanged (docs/ADR-only). Coverage gates should be unaffected.
 
 Re-run the probes against the finished docs:
@@ -470,7 +465,7 @@ a `!` commit.
 | 7 | No new ADR; no ADR-0017 living-index / scope-and-capabilities churn (T6, §9.1) |
 | 8 | READMEs untouched; PR body notes they were grepped clean (P12) |
 | 9 | Post-fix probes green (§10) |
-| 10 | Full gate green (§10) with real output; suite counts unchanged at 32/426 and 36/545 |
+| 10 | Full gate green (§10) with real output; suite counts unchanged at 32/426 and 36/544 |
 | 11 | Nothing in the §7 anti-instruction list violated |
 | 12 | `notes.md` committed: deviations, unverified items, adversarial self-review |
 | 13 | Assertion probes were not "promoted" as tests — correctly left as investigation probes (D5) |
@@ -485,7 +480,7 @@ What the **planner** ran before pushing this plan — not the implementer's chec
 
 | Check | Command / method | Result |
 | ----- | ---------------- | ------ |
-| Baseline identity | `git log -1 --oneline`; `git rev-parse HEAD`; `gh issue view 79 --json …` | `32566c7`; issue open; title/labels/`bug`; acceptance quoted in header |
+| Baseline identity | `git log -1 --oneline` on `main`; `gh issue view 79 --json …` | `8c5ed6d`; issue open; title/labels/`bug`; acceptance quoted in header |
 | Contradiction probe (unfixed) | `node …/contradiction-text.mjs` | `contradictionPresent: true`; false claim line 155; correct heading 159 |
 | Contradiction probe (expect fixed, on unfixed tree) | `EXPECT_CONTRADICTION=0 node …` | exit 1 (expected) |
 | Emulator hook probe | `firebase emulators:exec … query-delete-hook-wiring.mjs` | bulk 1/1, per-doc 0/0 |
@@ -494,8 +489,7 @@ What the **planner** ran before pushing this plan — not the implementer's chec
 | Every `from '…'` specifier in §6 | N/A — markdown only | — |
 | Declaration emit | N/A — no public types | — |
 | Sibling / README / 2.0 greps | §3 commands | P9–P12 as recorded |
-| Baseline suite counts | `test:unit`; `test:integration:emulator` | **32/426**; **36/545** |
-| Gate headroom | N/A — no coverage-gated paths | — |
+| Baseline suite counts | `test:unit`; `test:integration:emulator` | **32/426**; **36/544** || Gate headroom | N/A — no coverage-gated paths | — |
 | Unresolved conditionals | re-read §§2–9 | none (best-practices deferred to §9.6; no-new-test resolved by D5) |
 | Trap coverage inverse walk | §4 against §8.2 | every trap × site has a falsifying check |
 | Full §10 gate on unfinished tree | not claimed green for the docs edit | planner ran baseline suites + `check:docs` on temp apply; implementer owes full fourteen legs |

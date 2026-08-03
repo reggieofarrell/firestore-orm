@@ -74,26 +74,33 @@ these types describe, see [FirestoreRepository](/firestore-orm/reference/reposit
   guard the method as well (`row.value?.method?.()`) or assert the field back to its class type
   after a null check (`(row.value as ClassType).method()`).
 - **`FieldPaths<T>` / `PathValue<T, P>`** — typed field-path union and the value type at a path.
-  Declared literal keys beside a string index signature *with no explicit `id`* (for example
-  `{ name: string } & Record<string, unknown>`) are preserved as typed paths; arbitrary dynamic map
-  keys are not — use an SDK `FieldPath` for those. Nested intersections recover their declared
-  children recursively. An explicit `id` combined with a string index remains unsupported (see
-  issue [#82](https://github.com/reggieofarrell/firestore-orm/issues/82)).
+  Query/builder surfaces compose these over the stored shape after synthetic-`id` removal
+  (`FieldPaths<OmitId<S>>`). Declared literal keys beside a string index signature (for example
+  `{ name: string } & Record<string, unknown>`, or the same shape with an explicit synthetic `id`)
+  are preserved as typed paths; arbitrary dynamic map keys are not — use an SDK `FieldPath` for
+  those. Nested intersections recover their declared children recursively. When the stored model
+  also declares `id`, that key is excluded from typed paths (`FieldPaths<OmitId<S>>`) even though a
+  string index still makes value-position access at `id` legal at the index value type on
+  `StoredDataOf` / `OmitId<S>` itself.
 - **`OmitId<S>`** — distributive synthetic-`id` removal for stored/read models. When a member
-  explicitly declares a literal `id`, the helper omits it; otherwise it returns that member
-  unchanged (so an intersection with `Record<string, unknown>` keeps both its declared keys and its
-  value-position index signature). Use when annotating a reusable `QueryFilterFactory` predicate
-  over a union model: `(f: QueryFilterFactory<OmitId<UnionStored>>) => …`. Prefer
-  `StoredDataOf<typeof repo>` for repository-bound predicates. See ADR-0028.
+  explicitly declares a literal `id`, the helper omits it from the declared-key portion and
+  reattaches any original string/number index signatures so declared siblings keep precise types
+  while value-position dynamic indexing survives; otherwise it returns that member unchanged (so an
+  intersection with `Record<string, unknown>` keeps both its declared keys and its value-position
+  index signature). Use when annotating a reusable `QueryFilterFactory` predicate over a union
+  model: `(f: QueryFilterFactory<OmitId<UnionStored>>) => …`. Prefer `StoredDataOf<typeof repo>` for
+  repository-bound predicates. See ADR-0028.
 - **`QueryFilterFactory<S>`** — the callback argument of
   [`whereFilter(...)`](/firestore-orm/reference/query-builder/): schema-aware `where` / `whereId` /
   `and` / `or` builders that return an SDK `Filter`. `and()` and `or()` throw when called with no
   filters. `Filter` itself is **not** re-exported — import it from `firebase-admin/firestore`, as
   with `FieldPath` and `WhereFilterOp`. Useful for extracting a reusable typed predicate — annotate
-  the shape with `StoredDataOf<typeof repo>`, which already excludes the synthetic `id`:
+  the shape with `StoredDataOf<typeof repo>`, which already excludes the synthetic `id` from typed
+  query paths (`FieldPaths<OmitId<S>>`) while retaining value-position index access when the stored
+  model has a string index:
   `const mine = (f: QueryFilterFactory<StoredDataOf<typeof postRepo>>) => f.or(…)`. `S` is
   **invariant**: a predicate annotated with a different repository's shape (or one that still
-  includes `id`) is a compile error rather than silently accepted.
+  includes `id` as a declared typed path) is a compile error rather than silently accepted.
 - **`CollectionGroupFilterFactory<S>`** — the collection-group counterpart, handed to
   `collectionGroup().query().whereFilter(...)`. Identical to `QueryFilterFactory<S>` except that the
   document-name helper is `wherePath(op, fullPathOrRef)` rather than `whereId(op, id)`, because a

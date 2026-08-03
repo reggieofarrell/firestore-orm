@@ -23,8 +23,9 @@ walkthrough of these methods, see [Queries](/firestore-orm/guides/working-with-d
 
 Add a where clause. `field` is a typed stored field path — a top-level key or a nested dot-notation
 path (`'address.city'`) derived from `S` — or a `FieldPath` for dynamic names. Declared fields
-beside an index signature (for example `{ name: string } & Record<string, unknown>`) are included
-in the typed path union; arbitrary dynamic map keys are not — pass a `FieldPath` for those.
+beside an index signature (for example `{ name: string } & Record<string, unknown>`, including when
+the raw stored model also declares synthetic `id`) are included in the typed path union; arbitrary
+dynamic map keys are not — pass a `FieldPath` for those.
 Operators: `==`, `!=`, `>`, `>=`, `<`, `<=`, `in`, `not-in`, `array-contains`,
 `array-contains-any`. `where('id', …)` does **not** compile — the synthetic `id` is not a stored
 field path; query the document name with `whereId(...)`. Chained `where()` clauses are AND-only;

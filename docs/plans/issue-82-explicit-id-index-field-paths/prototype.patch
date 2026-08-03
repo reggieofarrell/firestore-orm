@@ -1,0 +1,24 @@
+diff --git a/src/utils/pathTypes.ts b/src/utils/pathTypes.ts
+index aa139b5..109d3de 100644
+--- a/src/utils/pathTypes.ts
++++ b/src/utils/pathTypes.ts
+@@ -49,6 +49,10 @@ type LiteralOnly<T> = {
+   [K in keyof T as IsIndexKey<K> extends true ? never : K]: T[K];
+ };
+ 
++type StringIndex<T> = string extends keyof T ? Pick<T, string> : unknown;
++type NumberIndex<T> = number extends keyof T ? Pick<T, number> : unknown;
++type IndexOnly<T> = StringIndex<T> & NumberIndex<T>;
++
+ /**
+  * The literal string keys of `T` only — index signatures and symbol keys are dropped. The
+  * intermediate key-remapped type is load-bearing: `keyof ({ name: string } &
+@@ -207,7 +211,7 @@ export type DeepPartial<T> = T extends Leaf
+  */
+ export type OmitId<S> = S extends unknown
+   ? 'id' extends keyof LiteralOnly<S>
+-    ? Omit<S, 'id'>
++    ? Omit<LiteralOnly<S>, 'id'> & IndexOnly<S>
+     : S
+   : never;
+

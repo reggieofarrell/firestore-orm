@@ -8,19 +8,24 @@ edit)
 
 ## Status
 
-Done-pending-review. Shipped the §6.1 Lifecycle Hooks prose fix and the §6.2 ADR-0035 #79
-cross-reference retarget. No `src/**`, tests, READMEs, sibling pages, new ADR, or `docs/2.0/`
-changes. Full §10 fourteen-leg gate green on the implementation commit; suite counts unchanged
-(32/426 unit, 36/544 integration). Plan directory left in place for external review.
+Done-pending-review. Shipped the §6.1 Lifecycle Hooks prose fix, the §6.2 ADR-0035 #79
+cross-reference retarget, and (owner request) the §9.6 best-practices note naming skipped
+per-document delete hooks. No `src/**`, tests, READMEs, new ADR, or `docs/2.0/` changes. Full §10
+fourteen-leg gate green on the implementation commit; suite counts unchanged (32/426 unit, 36/544
+integration). Plan directory left in place for external review.
 
 ## Ambiguities resolved
 
-None beyond §1. Follow-up issue for `best-practices.md` incompleteness (§9.6) was **not** opened in
-this environment (`gh` is read-only for writes); deferred explicitly below for the maintainer.
+None beyond §1. The §9.6 `best-practices.md` incompleteness was folded into this PR at the owner's
+request after the initial implementation (see Deviations).
 
 ## Deviations from the plan
 
-1. None on the product/docs surface. §6.1 and §6.2 applied verbatim.
+1. **§9.6 best-practices incompleteness — folded into this PR (owner request).** The plan deferred
+   naming skipped per-document `before/afterDelete` in
+   `website/src/content/docs/guides/designing/best-practices.md:107-111`. Owner asked to make that
+   change on this branch instead of opening a follow-up. Applied to mirror `crud-operations.md` /
+   `lifecycle-hooks.md` (still docs-only; no `src/**`).
 
 ## Files touched and why
 
@@ -28,6 +33,7 @@ this environment (`gh` is read-only for writes); deferred explicitly below for t
 | ---- | ------ | -------------- |
 | `website/src/content/docs/guides/concepts/lifecycle-hooks.md` | Replaced false example explanation with bulk-vs-per-document wording | §6.1 |
 | `docs/adr/0035-hook-delivery-and-write-outcome-errors.md` | Related + References: #79 deferred/out-of-scope → resolved | §6.2 |
+| `website/src/content/docs/guides/designing/best-practices.md` | Named skipped per-document delete hooks in the query-level note | §9.6 (owner: fold in) |
 | `docs/plans/issue-79-lifecycle-hooks-query-delete-docs/notes.md` | This file | plan-execution |
 
 ## Edge cases / traps handled
@@ -101,7 +107,7 @@ Implementation commit: `70d1e23`.
 | Do not say unqualified “hooks do not run” | ✓ |
 | Do not add new tests | ✓ |
 | Do not create a new ADR / touch living-index footers | ✓ |
-| Do not edit sibling pages / fold in best-practices | ✓ |
+| Do not edit sibling pages / fold in best-practices | ✓ for plan-time scope; later **owner-requested** exception — see Deviations #1 |
 | Do not hand-edit CHANGELOG.md | ✓ |
 | Do not write review.md | ✓ |
 | Do not remove plan directory yet | ✓ |
@@ -125,7 +131,7 @@ Implementation commit: `70d1e23`.
 | 12 notes.md committed with self-review | PASS | this file (commit after `70d1e23`) |
 | 13 Probes not promoted as tests | PASS | remain under `docs/plans/.../probes/` |
 | 14 Plan dir removed after review | PENDING | correct at this stage |
-| 15 best-practices follow-up | DEFERRED | recorded below; `gh` cannot open issues here |
+| 15 best-practices follow-up | PASS (folded in) | `best-practices.md` updated; Deviations #1 |
 
 ## Independent adversarial review
 
@@ -149,9 +155,10 @@ Given: plan + impl diff + source; **not** these notes. Asked to refute.
 
 ### Findings deferred
 
-- **§9.6 best-practices incompleteness** — Out of scope for #79. Maintainer should open:
-  `docs: mention per-document delete hooks in best-practices query-level note` (body in plan §9.6).
-  Optional coverage pin for per-doc hooks skipped on `query().delete()` also remains deferred (D5).
+- **Optional coverage pin** (plan D5) — emulator assertion that per-doc delete hooks stay at zero on
+  `query().delete()` while bulk hooks fire. Still out of scope; not required to close #79.
+- **§9.6 best-practices incompleteness** — **no longer deferred**; applied on this branch per owner
+  request (Deviations #1).
 
 ### Gate re-run after fixes
 

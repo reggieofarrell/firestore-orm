@@ -106,8 +106,9 @@ reporting a successful count. See
 
 **Note:** `query().update()` and `query().delete()` run the **bulk** lifecycle hooks
 (`beforeBulkUpdate`/`afterBulkUpdate`, `beforeBulkDelete`/`afterBulkDelete`), not the per-document
-`before/afterUpdate` hooks. If you rely on per-document `beforeUpdate`/`afterUpdate` side effects,
-use per-document `update` instead. See
+`before/afterUpdate` / `before/afterDelete` hooks. If you rely on per-document
+`beforeUpdate`/`afterUpdate` or `beforeDelete`/`afterDelete` side effects, use the single-document
+methods instead. See
 [Lifecycle hooks](/firestore-orm/guides/concepts/lifecycle-hooks/).
 
 ## 5. Add timestamps consistently

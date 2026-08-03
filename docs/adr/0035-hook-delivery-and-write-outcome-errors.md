@@ -7,7 +7,7 @@
   [Follow-up #80](https://github.com/reggieofarrell/firestore-orm/issues/80) (transactional outbox /
   durable after-hook delivery),
   [Issue #79](https://github.com/reggieofarrell/firestore-orm/issues/79) (lifecycle-hooks prose
-  contradiction for `query().delete()` — docs-only, out of scope here),
+  contradiction for `query().delete()` — resolved; docs-only),
   [ADR-0013](0013-create-return-contract.md) (`returnDoc` read-back),
   [ADR-0015](0015-express-adapter-subpath.md) (Express mapping),
   [`src/core/Hooks.ts`](../../src/core/Hooks.ts), [`src/core/Errors.ts`](../../src/core/Errors.ts),
@@ -93,4 +93,4 @@ documenting and typing today's sequential fail-fast contract.
 - [Issue #46](https://github.com/reggieofarrell/firestore-orm/issues/46)
 - [Issue #80](https://github.com/reggieofarrell/firestore-orm/issues/80) (outbox follow-up)
 - [Issue #79](https://github.com/reggieofarrell/firestore-orm/issues/79) (docs contradiction,
-  deferred)
+  resolved)

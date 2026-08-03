@@ -431,6 +431,11 @@ export function ty8_numberOnlyRejectsArbitraryStrings() {
   // @ts-expect-error number-only index does not invent arbitrary string paths
   const _arbitrary: NumberOnlyPaths = 'arbitrary';
   void _arbitrary;
+  // Domain preservation (T3): string key value-access must stay illegal — widening the number
+  // index to a string index would make this compile and would leave the matrix cell unguarded.
+  // @ts-expect-error number-only stored shape rejects string-key indexing
+  const _stringKeyAccess = _numberOnlyStored['arbitrary'];
+  void _stringKeyAccess;
 }
 export const _ty8_number = [_numberOnlyName, _numberOnlyDynamic];
 
@@ -471,13 +476,18 @@ const _symbolValue: unknown = _symbolStored[Symbol.for('x')];
 export const _ty9_symbol = [_symbolName, _symbolValue];
 
 // Special-type identity: never / unknown / any must not be rewritten into an empty object.
+// Bare `declare const` + array placement is vacuous (assignable from `{}`); use bidirectional
+// equality so a regression that maps these to `{}` fails `test:types`.
+type AssertTrue<T extends true> = T;
+type ExpectEqual<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
 type NeverOmit = OmitId<never>;
 type UnknownOmit = OmitId<unknown>;
 type AnyOmit = OmitId<any>;
-declare const _neverOmit: NeverOmit;
-declare const _unknownOmit: UnknownOmit;
-declare const _anyOmit: AnyOmit;
-export const _ty9_special = [_neverOmit, _unknownOmit, _anyOmit];
+type _ty9_neverIsNever = AssertTrue<ExpectEqual<NeverOmit, never>>;
+type _ty9_unknownIsUnknown = AssertTrue<ExpectEqual<UnknownOmit, unknown>>;
+type _ty9_anyIsAny = AssertTrue<ExpectEqual<AnyOmit, any>>;
+export type _ty9_special = [_ty9_neverIsNever, _ty9_unknownIsUnknown, _ty9_anyIsAny];
 
 // No-id indexed, pure-record, and ordinary explicit-id controls remain (cross-checked above too)
 type NoIdIndexControl = { name: string } & Record<string, unknown>;

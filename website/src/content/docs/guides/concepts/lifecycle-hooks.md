@@ -152,9 +152,10 @@ userRepo.on('afterDelete', async user => {
 });
 ```
 
-In the last example, `query().delete()` is a query-level bulk write that does **not** fire delete
-hooks (see below) — which is exactly what you want here, since it avoids re-triggering cleanup logic
-recursively.
+In the last example, `query().delete()` is a query-level bulk write: it runs
+`beforeBulkDelete` / `afterBulkDelete` on the target repository, but does **not** run the
+per-document `beforeDelete` / `afterDelete` hooks — which is exactly what you want here, since it
+avoids re-triggering per-document cleanup logic recursively.
 
 ## Query-level writes run the bulk hooks
 

@@ -50,6 +50,34 @@ type LiteralOnly<T> = {
 };
 
 /**
+ * Recover only an existing **string** index signature from `T`, via `Pick<T, string>`. When `T`
+ * has no string index domain (`string extends keyof T` is false), the result is `unknown` — the
+ * neutral identity for later intersection so a number-only (or index-free) model is not widened.
+ *
+ * `Pick` is load-bearing: a hand-written `Record<string, …>` would invent a mutable index and lose
+ * any readonly modifier / precise value type that the original signature carried.
+ */
+type StringIndex<T> = string extends keyof T ? Pick<T, string> : unknown;
+
+/**
+ * Recover only an existing **number** index signature from `T`, via `Pick<T, number>`. Absent a
+ * number index domain, yields `unknown` so intersecting it does not invent one. Kept separate from
+ * {@link StringIndex} so a number-only model is not silently given a string index (and vice versa).
+ */
+type NumberIndex<T> = number extends keyof T ? Pick<T, number> : unknown;
+
+/**
+ * Reattach the original string/number index signatures after declared keys have been remapped
+ * (e.g. after omitting a literal `id`). Used only in value-position composition with
+ * `Omit<LiteralOnly<S>, 'id'>` — do **not** pass this type to {@link FieldPaths} by itself, because
+ * index keys are not typed string paths.
+ *
+ * Symbol indexes need no reconstruction helper: {@link LiteralOnly} removes only broad
+ * string/number keys, and ordinary `Omit` retains symbol keys on the declared-key portion.
+ */
+type IndexOnly<T> = StringIndex<T> & NumberIndex<T>;
+
+/**
  * The literal string keys of `T` only — index signatures and symbol keys are dropped. The
  * intermediate key-remapped type is load-bearing: `keyof ({ name: string } &
  * Record<string, unknown>)` is only `string`, but key remapping recovers the explicit `name`.
@@ -179,35 +207,42 @@ export type DeepPartial<T> = T extends Leaf
 
 /**
  * Distributive synthetic-`id` removal for stored/read models. Each union member is handled
- * independently. When a member explicitly declares a literal `id`, the helper omits it; otherwise
- * it returns that member unchanged instead of applying `Omit` needlessly.
+ * independently (`S extends unknown`), then re-unioned, so `FieldPaths<OmitId<S>>` agrees with
+ * {@link PathValue}'s own distributivity contract.
  *
  * Plain `Omit<Union, 'id'>` is defined via `keyof`, and `keyof (A | B)` is the key **intersection**,
  * so a discriminated union like `{ kind: 'a'; onlyOnA: string } | { kind: 'b'; onlyOnB: number }`
- * incorrectly yields only `'kind'` as a queryable path. `Omit` also flattens an intersection such
- * as `{ name: string } & Record<string, unknown>` to the index signature alone. Avoiding `Omit` when
- * there is no explicit `id` preserves both the literal key and the index signature. The
- * `S extends unknown` wrapper makes the conditional **distributive**: each union member is processed
- * independently, then re-unioned, so `FieldPaths<OmitId<S>>` agrees with {@link PathValue}'s own
- * distributivity contract.
+ * incorrectly yields only `'kind'` as a queryable path. Built-in `Omit` also flattens an intersection
+ * such as `{ id: string; name: string } & Record<string, unknown>` to the index signature alone,
+ * destroying declared siblings. This helper therefore:
+ *
+ * 1. **Distributes** over each union member independently (unchanged from ADR-0028).
+ * 2. Returns a **no-explicit-`id`** member exactly — preserving issue #58's declared-key + index
+ *    signature behavior without applying `Omit` needlessly.
+ * 3. For an **explicit-`id`** member, omits `id` from the declared-key portion
+ *    (`Omit<LiteralOnly<S>, 'id'>`) and reattaches the original string/number index signatures via
+ *    {@link IndexOnly}, so declared siblings keep precise types while value-position dynamic
+ *    indexing survives.
+ * 4. Consequently `FieldPaths<OmitId<S>>` excludes synthetic `id` and arbitrary index keys, but
+ *    recovers declared siblings (and nested declared paths) recursively.
+ * 5. Value-position aliases (`DataOf` / `StoredDataOf`) retain dynamic indexing. Because a string
+ *    index includes every string key, value access at `id` still has the index value type even
+ *    though `id` is not a declared typed path — TypeScript cannot express a string-index domain
+ *    that excludes one literal.
+ * 6. For a `keyof` position, {@link KeysOf} is still required (`keyof OmitId<S>` re-collapses).
+ *    Compose as `KeysOf<OmitId<S>>` — the deliberate top-level-key contract for `distinctValues` /
+ *    `findNearest`, which must remain wider than {@link FieldPaths}.
  *
  * **Inlining does not work** — `FieldPaths<Union extends unknown ? Omit<Union, 'id'> : never>` still
  * resolves to the collapsed key set because distribution requires a naked type parameter at the use
  * site, not inside another type's argument list. Always apply this alias rather than spelling the
  * conditional inline.
  *
- * For a `keyof` position, {@link KeysOf} is required: `keyof OmitId<S>` re-collapses for the same
- * reason plain `keyof (A | B)` does. Compose as `KeysOf<OmitId<S>>`.
- *
- * A model with no explicit `id` is returned exactly; a model that declares `id` still has that
- * property omitted. Index signatures remain available in value positions such as
- * `StoredDataOf<typeof repo>`.
- *
- * @see ADR-0028
+ * @see ADR-0028 (and its issue-#82 amendment for the explicit-`id` + index preservation path)
  */
 export type OmitId<S> = S extends unknown
   ? 'id' extends keyof LiteralOnly<S>
-    ? Omit<S, 'id'>
+    ? Omit<LiteralOnly<S>, 'id'> & IndexOnly<S>
     : S
   : never;
 

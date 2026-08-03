@@ -260,9 +260,9 @@ through as-is. Malformed paths (`a..b`, `.a`, `a.`) are rejected up front via
 **Querying into a dynamic map.** The typed query paths (`FieldPaths<S>`, from the stored shape `S`,
 for `where` / `orderBy` / `select`) are generated from the schema's **declared** fields. Declared
 siblings on an intersection with `Record<string, unknown>` (for example a `name` field beside a
-dynamic map) are available as typed string paths. Arbitrary subkeys of a `z.record(...)` map (or
-paths deeper than the type's depth bound) are **not** included. To filter or order by a dynamic map
-key, pass a `FieldPath`:
+dynamic map — including direct-constructor models that also declare synthetic `id`) are available
+as typed string paths. Arbitrary subkeys of a `z.record(...)` map (or paths deeper than the type's
+depth bound) are **not** included. To filter or order by a dynamic map key, pass a `FieldPath`:
 
 ```typescript
 import { FieldPath } from 'firebase-admin/firestore';

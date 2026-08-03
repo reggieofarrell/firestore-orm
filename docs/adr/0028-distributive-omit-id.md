@@ -6,8 +6,8 @@
 - **Related:** Issue [#54](https://github.com/reggieofarrell/firestore-orm/issues/54); amends
   [ADR-0018](0018-document-identity-and-data-model.md); pointer in
   [ADR-0024](0024-collection-group-queries.md); resolved for no-explicit-`id` intersections by
-  [#58](https://github.com/reggieofarrell/firestore-orm/issues/58) (explicit-`id`+index bound:
-  [#82](https://github.com/reggieofarrell/firestore-orm/issues/82))
+  [#58](https://github.com/reggieofarrell/firestore-orm/issues/58); resolved for explicit-`id` +
+  index intersections by [#82](https://github.com/reggieofarrell/firestore-orm/issues/82)
 
 ## Context
 
@@ -100,6 +100,17 @@ value-position index signature; `FieldPaths` key remapping recovers declared key
 index keys remain excluded, and an explicit `id` combined with a string index remains outside this
 fix (D4/P19) — tracked by [#82](https://github.com/reggieofarrell/firestore-orm/issues/82).
 
+Amendment (3.0.0, issue #82): the explicit-`id` + index bound is now resolved. When a member
+declares a literal `id`, `OmitId` omits it from the declared-key portion
+(`Omit<LiteralOnly<S>, 'id'>`) and intersects the original string/number index signatures via
+`Pick`, so declared siblings (including nested declared paths) retain precise types across Core,
+repository-mask, collection-group, and vector surfaces without editing those signatures. `DataOf` /
+`StoredDataOf` retain dynamic index access, and reusable
+`QueryFilterFactory<StoredDataOf<typeof repo>>` remains nameable. A string index inherently includes
+every string key, so value access at `id` still has the index value type even though `FieldPaths`
+excludes `id` as a declared typed path. `distinctValues` / `findNearest` retain their separate
+`KeysOf<OmitId<…>>` contract (wider than `FieldPaths`).
+
 ## Alternatives considered
 
 - **Query-only fix** — rejected: union models were not writable at all (P-W1).
@@ -116,8 +127,8 @@ fix (D4/P19) — tracked by [#82](https://github.com/reggieofarrell/firestore-or
 - Issue [#54](https://github.com/reggieofarrell/firestore-orm/issues/54) (historical origin)
 - Issue [#58](https://github.com/reggieofarrell/firestore-orm/issues/58) (index-signature collapse
   resolution — no-explicit-`id` intersections)
-- Bound [#82](https://github.com/reggieofarrell/firestore-orm/issues/82) (explicit `id` + string
-  index still unsupported)
+- Issue [#82](https://github.com/reggieofarrell/firestore-orm/issues/82) (explicit `id` + string
+  index — declared siblings preserved with reconstructed index signatures)
 - [ADR-0018](0018-document-identity-and-data-model.md) (identity and data-model split)
 - [ADR-0024](0024-collection-group-queries.md) (`CollectionGroupDocument` distribution)
 - [`src/utils/pathTypes.ts`](../../src/utils/pathTypes.ts),

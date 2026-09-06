@@ -1,0 +1,33 @@
+---
+description: Keep SonarQube scans pinned to each repository's committed server and use shared TypeScript Repo Tooling instead of copied shell implementations
+---
+
+# SonarQube safety
+
+- Treat `sonar.host.url` and `sonar.projectKey` in the committed `sonar-project.properties` as the
+  repository's sole SonarQube authority. Do not duplicate them in package scripts, workflow
+  variables, or repository-tooling config.
+- Invoke `casadega-repo-tooling sonar precheck` for local changed-file analysis. Do not copy or fork
+  its host, credential, API, scanner, temporary-branch, or exit-status implementation into the
+  consuming repository.
+- Retrieve existing pull-request or branch issues and security hotspots with
+  `casadega-repo-tooling sonar findings`. Never run bare `sonar list issues` or `sonar api` queries:
+  they follow SonarQube CLI's one active connection, and the wrong server can return an empty result
+  that looks falsely clean. Never transition an issue or hotspot without explicit user authority.
+- Require `casadega-repo-tooling sonar check` in the repository's complete local quality command so
+  committed properties and generated rule-profile provenance are validated without network access.
+- Generate the committed local SonarJS profile through `casadega-repo-tooling sonar rules sync` and
+  verify it with `--check` where profile drift must block. Do not maintain repository-local profile
+  loaders, API clients, or synchronization scripts. Use `--bootstrap` only before the intended
+  server is reachable, then replace that bootstrap provenance with a normal authenticated sync.
+- Never allow inherited `SONAR_HOST_URL` to override a committed host. Never pass a token on scanner
+  command-line arguments, log it, persist it in repository files, or include it in an error.
+- On macOS, store durable tokens under the endpoint-scoped service selected by the tooling, such as
+  `sonarqube-cli-sonar.example.com`, with the URL authority as the account. Do not put durable
+  multi-server credentials in the plain `sonarqube-cli` service because the CLI replaces that item
+  when its active server changes. `SONAR_TOKEN` and `SONAR_USER_TOKEN` are portable fallbacks.
+- Preserve exit status `0` for success, `1` for blocking failures, and `2` only for unavailable
+  external prerequisites. A quality failure, invalid token, malformed configuration, or scanner
+  failure must never be converted into a skip.
+- Pin TypeScript Repo Tooling and shared RuleSync inputs to reviewed versions or lock revisions.
+  Adopt changes explicitly instead of consuming a floating branch in protected quality gates.

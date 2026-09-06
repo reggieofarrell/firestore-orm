@@ -10,7 +10,7 @@ problem, and rerun it. A deliberate emergency bypass is an accountable human
 decision, not a routine agent shortcut.
 
 Run `npm run release:verify` before handing off a change that should match CI
-(format, lint, RuleSync, SonarJS helper tests, types, manifest, audit, build,
+(format, lint, shared Sonar baseline, RuleSync, types, manifest, audit, build,
 package, consumer, dual coverage gates, docs, zod idioms, website build).
 Everyday pre-push still runs the lighter unit-coverage gate without the
 emulator.
@@ -18,24 +18,10 @@ emulator.
 - Dual path-specific coverage thresholds are ratchets. Never lower them merely
   to make a change pass; add meaningful coverage or document an intentional
   review. Merged LCOV is not a gate.
-- Every active server rule implemented by `eslint-plugin-sonarjs` is an ESLint
-  error on production `src/`. The SonarQube server quality gate remains
-  authoritative for analyzers that cannot run locally and is **new-code-only**.
 - SonarQube secret scans are fail-closed. A finding or scanner failure blocks
   the Git operation. The server-backed pre-push check may skip only when its
   explicit status says prerequisites are unavailable; findings and analysis
   failures still block.
-- Repository-local Sonar tooling must take its server only from the committed
-  `sonar.host.url`. Never allow inherited `SONAR_HOST_URL` values to override or
-  replace that identity; report conflicts, and block when the property is
-  missing rather than treating deterministic configuration as a soft skip.
-- On macOS, prefer the Sonar token stored for the committed host over an
-  inherited `SONAR_TOKEN`; use the environment only as a fallback. On other
-  platforms, explicitly treat `SONAR_TOKEN` as the only supported local source.
-  Never print tokens or place them in command arguments or shell history.
-- Before trusting `sonar api`, `sonar list issues`, or another CLI query with no
-  host option, verify that `sonar auth status` names the committed host. An
-  empty response is not evidence of a clean project until that check succeeds.
 - Preserve the pre-commit, pre-push, and CI gates when changing quality tooling.
   Do not narrow their coverage or downgrade blocking checks to warnings.
 

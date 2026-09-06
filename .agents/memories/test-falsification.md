@@ -1,0 +1,22 @@
+# Test falsification and assertion strength
+
+- A test added for a bug, guard, rejection path, or behavior-preserving refactor is not proven by a
+  green run alone. Temporarily reintroduce the smallest local source mutation that recreates the
+  claimed defect, run the narrow test, confirm it fails for the expected reason, and restore the
+  correct implementation before handoff.
+- Use one mutation for each independent behavior claimed as regression coverage. A single red run
+  for a file does not prove unrelated branches, guards, or accumulators in that file.
+- If the test remains green while the defect is present, rewrite or remove it. When a test cannot
+  reasonably discriminate a defect, describe it as contract or invariant coverage rather than
+  claiming it as regression coverage.
+- Prefer assertions that pin the complete expected public value. Negated substring assertions such
+  as `not.toContain(secret)` or `not.toMatch(pattern)` can stay green when output leaks, truncates,
+  or mangles part of the forbidden value. When the contract is genuinely absence, bound the result
+  with an exact positive assertion or a structural check that proves the intended output.
+- Make test inputs isolate the behavior under examination. Even an exact assertion is vacuous when
+  an unrelated field, suffix, timestamp, or identifier can distinguish the result while the target
+  behavior is broken. Hold every other result-affecting input constant.
+- Keep mutations local and reversible. Never falsify a test by changing production data, remote
+  services, credentials, shared infrastructure, or committed history.
+- Report the mutation and narrow command used to observe the expected failure. Do not leave the
+  temporary mutation in the working tree.

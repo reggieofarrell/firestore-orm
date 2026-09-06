@@ -20,6 +20,12 @@ permissions:
   # for publish rights. Without this, Trusted Publishing cannot authenticate.
   id-token: write
   contents: read
+  packages: read
+
+# Dependency restoration needs the private Casadega package, while the publish
+# step itself remains tokenless and authenticates to npm through OIDC.
+env:
+  NPM_CONFIG_USERCONFIG: ${{ github.workspace }}/.github/npmrc
 
 jobs:
   publish:
@@ -68,7 +74,16 @@ jobs:
           java-version: 21
 
       - name: Install dependencies
+        env:
+          # Limit the private-package credential to dependency restoration so
+          # npm Trusted Publishing remains tokenless at the publish step.
+          NODE_AUTH_TOKEN: ${{ secrets.CASADEGA_PACKAGES_TOKEN }}
         run: npm ci
+
+      - name: Restore locked shared RuleSync policy
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.CASADEGA_PACKAGES_TOKEN }}
+        run: npm run rules:install
 
       # release:verify runs docs:build (website build), which needs the website's own deps.
       - name: Install website dependencies

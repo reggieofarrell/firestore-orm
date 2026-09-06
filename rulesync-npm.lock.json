@@ -1,0 +1,24 @@
+{
+  "lockfileVersion": 1,
+  "sources": {
+    "@casadega-development/ts-repo-tooling": {
+      "registry": "https://npm.pkg.github.com",
+      "requestedVersion": "0.6.0",
+      "resolvedVersion": "0.6.0",
+      "integrity": "sha512-CKh0IH6NXAOY1myE1FqcXcvEiOhgK4+vHmvU++puZ9IVww2ydt39icn+suYUY0aOiIB6mBJliBwPs9H29JTmzw==",
+      "resolvedAt": "2026-09-06T17:23:26.851Z",
+      "skills": {},
+      "rules": {
+        "sonarqube-safety": {
+          "integrity": "sha256-955f7c93ba42d1faee232242c42452bfc7d7ca5e5dcca2a25f562c1c1e896966"
+        },
+        "test-falsification": {
+          "integrity": "sha256-24dfed9a96f9a1f0bb9ef34051832f0de0c94c1fb8c5e45744fd714e40be16b6"
+        }
+      },
+      "ruleSelection": ["sonarqube-safety", "test-falsification"],
+      "rulesPath": "rules",
+      "resolvedRuleNames": ["sonarqube-safety", "test-falsification"]
+    }
+  }
+}

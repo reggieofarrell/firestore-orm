@@ -185,7 +185,7 @@ problem, and rerun it. A deliberate emergency bypass is an accountable human
 decision, not a routine agent shortcut.
 
 Run `npm run release:verify` before handing off a change that should match CI
-(format, lint, RuleSync, SonarJS helper tests, types, manifest, audit, build,
+(format, lint, shared Sonar baseline, RuleSync, types, manifest, audit, build,
 package, consumer, dual coverage gates, docs, zod idioms, website build).
 Everyday pre-push still runs the lighter unit-coverage gate without the
 emulator.
@@ -193,24 +193,10 @@ emulator.
 - Dual path-specific coverage thresholds are ratchets. Never lower them merely
   to make a change pass; add meaningful coverage or document an intentional
   review. Merged LCOV is not a gate.
-- Every active server rule implemented by `eslint-plugin-sonarjs` is an ESLint
-  error on production `src/`. The SonarQube server quality gate remains
-  authoritative for analyzers that cannot run locally and is **new-code-only**.
 - SonarQube secret scans are fail-closed. A finding or scanner failure blocks
   the Git operation. The server-backed pre-push check may skip only when its
   explicit status says prerequisites are unavailable; findings and analysis
   failures still block.
-- Repository-local Sonar tooling must take its server only from the committed
-  `sonar.host.url`. Never allow inherited `SONAR_HOST_URL` values to override or
-  replace that identity; report conflicts, and block when the property is
-  missing rather than treating deterministic configuration as a soft skip.
-- On macOS, prefer the Sonar token stored for the committed host over an
-  inherited `SONAR_TOKEN`; use the environment only as a fallback. On other
-  platforms, explicitly treat `SONAR_TOKEN` as the only supported local source.
-  Never print tokens or place them in command arguments or shell history.
-- Before trusting `sonar api`, `sonar list issues`, or another CLI query with no
-  host option, verify that `sonar auth status` names the committed host. An
-  empty response is not evidence of a clean project until that check succeeds.
 - Preserve the pre-commit, pre-push, and CI gates when changing quality tooling.
   Do not narrow their coverage or downgrade blocking checks to warnings.
 
@@ -299,3 +285,56 @@ When you add, rename, move, or delete test infrastructure, update:
 7. **`README.md` Testing Strategy** and **Contributing** — keep summary + link accurate
 8. **`.github/workflows/tests.yml`** and **`.husky/pre-push`** — hook/CI behavior matches docs
 9. **`package.json`** — script names must match documentation
+
+# SonarQube safety
+
+- Treat `sonar.host.url` and `sonar.projectKey` in the committed `sonar-project.properties` as the
+  repository's sole SonarQube authority. Do not duplicate them in package scripts, workflow
+  variables, or repository-tooling config.
+- Invoke `casadega-repo-tooling sonar precheck` for local changed-file analysis. Do not copy or fork
+  its host, credential, API, scanner, temporary-branch, or exit-status implementation into the
+  consuming repository.
+- Retrieve existing pull-request or branch issues and security hotspots with
+  `casadega-repo-tooling sonar findings`. Never run bare `sonar list issues` or `sonar api` queries:
+  they follow SonarQube CLI's one active connection, and the wrong server can return an empty result
+  that looks falsely clean. Never transition an issue or hotspot without explicit user authority.
+- Require `casadega-repo-tooling sonar check` in the repository's complete local quality command so
+  committed properties and generated rule-profile provenance are validated without network access.
+- Generate the committed local SonarJS profile through `casadega-repo-tooling sonar rules sync` and
+  verify it with `--check` where profile drift must block. Do not maintain repository-local profile
+  loaders, API clients, or synchronization scripts. Use `--bootstrap` only before the intended
+  server is reachable, then replace that bootstrap provenance with a normal authenticated sync.
+- Never allow inherited `SONAR_HOST_URL` to override a committed host. Never pass a token on scanner
+  command-line arguments, log it, persist it in repository files, or include it in an error.
+- On macOS, store durable tokens under the endpoint-scoped service selected by the tooling, such as
+  `sonarqube-cli-sonar.example.com`, with the URL authority as the account. Do not put durable
+  multi-server credentials in the plain `sonarqube-cli` service because the CLI replaces that item
+  when its active server changes. `SONAR_TOKEN` and `SONAR_USER_TOKEN` are portable fallbacks.
+- Preserve exit status `0` for success, `1` for blocking failures, and `2` only for unavailable
+  external prerequisites. A quality failure, invalid token, malformed configuration, or scanner
+  failure must never be converted into a skip.
+- Pin TypeScript Repo Tooling and shared RuleSync inputs to reviewed versions or lock revisions.
+  Adopt changes explicitly instead of consuming a floating branch in protected quality gates.
+
+# Test falsification and assertion strength
+
+- A test added for a bug, guard, rejection path, or behavior-preserving refactor is not proven by a
+  green run alone. Temporarily reintroduce the smallest local source mutation that recreates the
+  claimed defect, run the narrow test, confirm it fails for the expected reason, and restore the
+  correct implementation before handoff.
+- Use one mutation for each independent behavior claimed as regression coverage. A single red run
+  for a file does not prove unrelated branches, guards, or accumulators in that file.
+- If the test remains green while the defect is present, rewrite or remove it. When a test cannot
+  reasonably discriminate a defect, describe it as contract or invariant coverage rather than
+  claiming it as regression coverage.
+- Prefer assertions that pin the complete expected public value. Negated substring assertions such
+  as `not.toContain(secret)` or `not.toMatch(pattern)` can stay green when output leaks, truncates,
+  or mangles part of the forbidden value. When the contract is genuinely absence, bound the result
+  with an exact positive assertion or a structural check that proves the intended output.
+- Make test inputs isolate the behavior under examination. Even an exact assertion is vacuous when
+  an unrelated field, suffix, timestamp, or identifier can distinguish the result while the target
+  behavior is broken. Hold every other result-affecting input constant.
+- Keep mutations local and reversible. Never falsify a test by changing production data, remote
+  services, credentials, shared infrastructure, or committed history.
+- Report the mutation and narrow command used to observe the expected failure. Do not leave the
+  temporary mutation in the working tree.

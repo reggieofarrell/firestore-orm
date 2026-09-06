@@ -132,8 +132,8 @@ publish — it is not a live Codecov-style percentage.
 - **Pre-push:** outgoing secret scan, skippable `sonar:precheck`, then unit coverage + unit gate (no
   emulator)
 - **CI:** unit and integration jobs run in parallel (each enforces its own gate), then the Casadega
-  reusable SonarQube scan with a **new-code-only** quality gate and a sticky PR comment. Combined
-  LCOV in Sonar is informational.
+  reusable SonarQube scan with a **new-code-only** quality gate. SonarQube's GitHub integration owns
+  PR decoration; combined LCOV in Sonar is informational.
 - **Publish:** `test:coverage:all` must pass before the package is published to npm
 
 **SonarQube setup:** [docs/development/sonarqube.md](docs/development/sonarqube.md)
@@ -171,6 +171,11 @@ npm install
 npm run build
 npm test
 ```
+
+Development uses the private `@casadega-development/ts-repo-tooling` package. Maintainers must
+configure read access before installing dependencies; see
+[private package access](docs/development/private-packages.md). Untrusted fork CI is intentionally
+not supported.
 
 `.npmrc` sets `min-release-age=2` (npm 11.10+, shipped with Node 24). Fresh publishes are not
 resolved until they are two days old. Use Node 24 from `.nvmrc` for installs; npm 10 (Node 22)

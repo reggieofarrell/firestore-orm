@@ -19,6 +19,18 @@ concurrency:
   # so cancelling one cannot interrupt an in-flight Sonar baseline upload.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Root dependency installation reads Casadega's private tooling package. This
+# personal repository therefore supplies a read-only package token in addition
+# to the normal source-code permission.
+permissions:
+  contents: read
+  packages: read
+
+# Point CI npm processes at the runner-only auth placeholder. The credential
+# itself remains scoped to the explicit install and RuleSync restoration steps.
+env:
+  NPM_CONFIG_USERCONFIG: ${{ github.workspace }}/.github/npmrc
+
 jobs:
   test:
     name: ${{ matrix.label }}
@@ -60,6 +72,8 @@ jobs:
           java-version: 21
 
       - name: Install dependencies
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.CASADEGA_PACKAGES_TOKEN }}
         run: npm ci
 
       - name: Run ${{ matrix.label }}
@@ -83,18 +97,19 @@ jobs:
   sonarqube:
     name: SonarQube
     needs: test
-    # Secrets are unavailable to workflows triggered from forks. The rest of the
-    # Tests workflow still runs there; trusted pushes and same-repo PRs get the
-    # authoritative server analysis and quality gate.
+    # Secrets are unavailable to workflows triggered from forks. External fork
+    # CI is intentionally unsupported now that the development toolchain uses a
+    # private package; this guard keeps the authoritative scan on trusted refs.
     if:
       github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name ==
       github.repository
     permissions:
       actions: read
       contents: read
-      pull-requests: write
+      packages: read
     uses: Casadega-Development/action-workflows/.github/workflows/sonar-scan.yml@main
     secrets:
+      NODE_AUTH_TOKEN: ${{ secrets.CASADEGA_PACKAGES_TOKEN }}
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     with:
       coverage-artifacts-json: '[{"name":"coverage-unit","path":"coverage/unit"},{"name":"coverage-integration","path":"coverage/integration"}]'
@@ -145,6 +160,8 @@ jobs:
           cache: npm
 
       - name: Install dependencies
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.CASADEGA_PACKAGES_TOKEN }}
         run: npm ci
 
       # Type-checks src + *.type-test.ts (the write-input type assertions), which the jest suites
@@ -165,16 +182,23 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - name: Install dependencies
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.CASADEGA_PACKAGES_TOKEN }}
         run: npm ci
+      - name: Restore locked shared RuleSync policy
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.CASADEGA_PACKAGES_TOKEN }}
+        run: npm run rules:install
       - name: Format check
         # eslint extends eslint-config-prettier (formatting rules disabled), so `npm run lint` does
         # NOT catch Prettier drift — this mirrors release:verify's `check:format` step (review R8).
         run: npm run check:format
       - name: Lint
         run: npm run lint
-      - name: SonarJS rule-sync helpers
-        # Pure parsing tests; no Scanner, CLI, or server credentials required.
-        run: npm run test:sonar-rules
+      - name: Validate Sonar baseline
+        # Shared tooling validates committed host, project, profile provenance,
+        # and locally available rule IDs without contacting the server.
+        run: npm run sonar:check
       - name: Rules in sync (rulesync)
         # Fails if the generated agent-instruction files drift from the .rulesync/ source.
         run: npm run rules:check
@@ -187,7 +211,7 @@ jobs:
         run: npm run check:hooks
 
   # NOTE: the union of the PR jobs below is kept definitionally equivalent to `npm run release:verify`
-  # (which the publish workflow runs as one command) — format, lint, SonarJS rule-sync helpers,
+  # (which the publish workflow runs as one command) — format, lint, shared Sonar baseline,
   # hook-permission checks, types, manifest, audit, build, package, consumer (ESM/CJS/express,
   # compile + runtime), coverage gates, doc links, and website build. If you change release:verify,
   # mirror it here (and vice versa).
@@ -209,6 +233,8 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - name: Install dependencies
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.CASADEGA_PACKAGES_TOKEN }}
         run: npm ci
       - name: Manifest / lockfile metadata agreement
         run: npm run check:manifest
@@ -237,6 +263,8 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - name: Install dependencies
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.CASADEGA_PACKAGES_TOKEN }}
         run: npm ci
       - name: Build
         run: npm run build
@@ -269,6 +297,8 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - name: Install dependencies
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.CASADEGA_PACKAGES_TOKEN }}
         run: npm ci
       - name: Build
         run: npm run build
@@ -293,6 +323,8 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - name: Install dependencies
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.CASADEGA_PACKAGES_TOKEN }}
         run: npm ci
       - name: Runtime dependency audit
         run: npm run check:audit
@@ -333,6 +365,8 @@ jobs:
           node-version: 22
           cache: npm
       - name: Install dependencies
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.CASADEGA_PACKAGES_TOKEN }}
         run: npm ci
       - name: Build
         run: npm run build

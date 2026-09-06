@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.4](https://github.com/reggieofarrell/flintfire/compare/v3.1.3...v3.1.4) (2026-09-06)
+
+### Fixed
+
+- npm readme cleanup ([#130](https://github.com/reggieofarrell/flintfire/issues/130))
+  ([aab90e2](https://github.com/reggieofarrell/flintfire/commit/aab90e2fd7c7ce21fc60582841ea783d9f43f374))
+- pin local Sonar host ([#128](https://github.com/reggieofarrell/flintfire/issues/128))
+  ([3926507](https://github.com/reggieofarrell/flintfire/commit/39265076ffc7f19839b27623efedb657aad7843d))
+- scope local Sonar credentials ([#129](https://github.com/reggieofarrell/flintfire/issues/129))
+  ([e9eb634](https://github.com/reggieofarrell/flintfire/commit/e9eb63428f2d00b332d3096efbce6590f13be5bb))
+
 ## [3.1.3](https://github.com/reggieofarrell/flintfire/compare/v3.1.2...v3.1.3) (2026-08-31)
 
 ### Fixed

@@ -1,6 +1,6 @@
 {
   "name": "flintfire",
-  "version": "3.1.3",
+  "version": "3.1.4",
   "description": "A type-safe, schema-aware Firestore data-access library for Node.js, built for the Firebase Admin SDK.",
   "type": "module",
   "main": "./dist/cjs/index.js",

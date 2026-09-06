@@ -198,7 +198,6 @@ MIT. Full text: [LICENSE](LICENSE). Required attribution for redistributors: [NO
 - **Issues:** [GitHub Issues](https://github.com/reggieofarrell/flintfire/issues)
 - **Documentation:**
   [https://reggieofarrell.github.io/flintfire/](https://reggieofarrell.github.io/flintfire/)
-- **Email:** reggie@blackflag.design
 
 ## Acknowledgments
 

@@ -37,8 +37,8 @@ We will adopt the starter's layered SonarQube model with these adaptations:
    FlintFire stays under `reggieofarrell`. The org repo is public so a personal repository can
    `uses:` it and maps `SONAR_TOKEN` explicitly (`secrets: inherit` does not cross from a personal
    repository into another GitHub organization). It does not call
-   `black-flag-collective/action-workflows`. Pull-request scans upsert a sticky GitHub comment;
-   pushes to `main` re-baseline without commenting.
+   `black-flag-collective/action-workflows`. SonarQube's GitHub integration owns pull-request
+   decoration; the reusable workflow does not post a second comment.
 4. **Tests also run on pushes to `main`** so Sonar has a branch baseline for new-code comparison.
 5. **Sonar's combined LCOV is informational.** Path-specific gates in
    `scripts/check-coverage-gates.mjs` remain the coverage authority.
@@ -61,8 +61,8 @@ We will adopt the starter's layered SonarQube model with these adaptations:
   repository is not in that GitHub organization; access would be an extra coupling. The Sonar-only
   subset is duplicated into public `Casadega-Development/action-workflows` instead.
 - **Keep the scan inlined in FlintFire.** Rejected after CI failed on a non-existent
-  `sonarsource/sonarqube-quality-gate-action@v1.3.1` pin, and because a sticky PR comment plus CE
-  wait belong in one shared workflow rather than a second copy per repo.
+  `sonarsource/sonarqube-quality-gate-action@v1.3.1` pin, and because scan orchestration and CE
+  waiting belong in one shared workflow rather than a second copy per repo.
 - **Fail CI on all open issues.** Appropriate for a greenfield starter; inappropriate here without a
   dedicated cleanup campaign.
 - **Sonar-only, no local SonarJS.** Would leave the gap the starter closed: editors and agents would

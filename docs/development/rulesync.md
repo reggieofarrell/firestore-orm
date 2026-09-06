@@ -1,14 +1,24 @@
 # Agent config (rulesync)
 
-Agent **rules, commands, and skills** are authored once under `.rulesync/` and generated to every
-tool with [rulesync](https://github.com/dyoshikawa/rulesync). Edit `.rulesync/`, never the generated
-files. `npm run rules:sync` writes them; `npm run rules:check` (`rulesync generate --check`) fails
-on drift and runs in the pre-push hook, PR CI, and `release:verify`.
+Project-specific agent **rules, commands, and skills** are authored once under `.rulesync/`.
+Cross-repository Sonar safety and test-falsification policy is restored from the exact shared
+tooling release recorded in `rulesync-npm.lock.json`. Edit local RuleSync sources, never generated
+files or `.curated/` imports. `npm run rules:sync` refreshes locked inputs and generates every
+target; `npm run rules:check` (`rulesync generate --check`) fails on drift and runs in the pre-push
+hook, PR CI, and `release:verify`.
 
-The CLI version is a **devDependency** pinned in `package-lock.json`. CI installs with `npm ci`, so
-a caret range in `package.json` does **not** float to new releases. Root and `website/.npmrc` set
+After a clean dependency installation, run `npm run rules:install` with private-package credentials
+to restore the exact shared inputs from `rulesync-npm.lock.json`. CI performs this explicitly before
+checking generated output; `.curated/` caches are never committed.
+
+The CLI versions are **devDependencies** pinned in `package-lock.json`. CI installs with `npm ci`,
+so a caret range in `package.json` does **not** float to new releases. Root and `website/.npmrc` set
 `min-release-age=2` (npm 11.10+): new resolves skip versions published in the last two days. Do not
 install an exact too-new version to bypass that — see the root `.npmrc` comments.
+
+The shared package and RuleSync npm transport require private GitHub Packages access. Follow
+[private-packages.md](./private-packages.md); CI maps `CASADEGA_PACKAGES_TOKEN` to `NODE_AUTH_TOKEN`
+only for dependency and policy restoration.
 
 ## Generation contract
 

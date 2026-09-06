@@ -1,0 +1,4 @@
+# GitHub Actions supplies NODE_AUTH_TOKEN only to dependency and RuleSync
+# restoration steps. Keeping this runner-only auth placeholder separate from
+# the project .npmrc preserves developers' normal user-level npm credentials.
+//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}

@@ -61,7 +61,7 @@ src/tests/
 | `npm run test:coverage:gate:integration` | Enforce integration-suite path thresholds    |
 | `npm run test:coverage:all`              | Full local coverage run + both gates         |
 | `npm run test:types`                     | Type-check `src` + `*.type-test.ts` (`tsc`)  |
-| `npm run test:sonar-rules`               | SonarJS rule-sync helpers (no credentials)   |
+| `npm run sonar:check`                    | Shared offline Sonar baseline validation     |
 | `npm run test:hook-permissions`          | Bare-path hook-script executable-bit checker |
 | `npm test`                               | Unit + integration (emulator auto-start)     |
 
@@ -141,8 +141,9 @@ loudly when Scanner/credentials/server are unavailable), then `rules:check` + `c
 **CI** runs each suite with coverage, then its gate, in parallel matrix jobs, plus a `Type checks`
 job (`test:types`). After both coverage artifacts upload, the Tests workflow calls
 [`Casadega-Development/action-workflows`](https://github.com/Casadega-Development/action-workflows)
-to scan the PR head or `main`, wait on the official **new-code** quality gate, and (on pull
-requests) upsert a sticky Sonar comment. Combined LCOV in Sonar is informational only.
+to scan the PR head or `main` and wait on the official **new-code** quality gate. SonarQube's own
+GitHub integration owns PR decoration; the workflow does not add a second comment. Combined LCOV in
+Sonar is informational only.
 
 **Local full check:** `npm run test:coverage:all`
 

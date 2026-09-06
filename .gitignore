@@ -110,3 +110,8 @@ tmp/
 # Root-level personal overrides (Claude Code + Codex) — never commit
 CLAUDE.local.md
 **/AGENTS.override.md
+
+# RuleSync verifies these restored npm-source caches against the committed
+# rulesync-npm.lock.json. They are installation artifacts; generated target
+# rules remain committed and reviewable.
+.rulesync/**/.curated/

@@ -33,7 +33,13 @@ concurrency:
 
 permissions:
   contents: read
+  packages: read
   pull-requests: read
+
+# Use the CI-only npm auth placeholder without overriding developer credentials
+# in the repository's normal project configuration.
+env:
+  NPM_CONFIG_USERCONFIG: ${{ github.workspace }}/.github/npmrc
 
 jobs:
   bump:
@@ -64,6 +70,8 @@ jobs:
           cache: npm
 
       - name: Install dependencies
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.CASADEGA_PACKAGES_TOKEN }}
         run: npm ci
 
       - name: Resolve cooldown-eligible rulesync
@@ -94,9 +102,11 @@ jobs:
           echo "Newest cooldown-eligible rulesync=${ELIGIBLE:-<none>} (min-release-age=${AGE_DAYS})"
 
           skip() {
-            echo "to_version=${FROM_VERSION}" >> "${GITHUB_OUTPUT}"
-            echo "eligible=" >> "${GITHUB_OUTPUT}"
-            echo "skipped=true" >> "${GITHUB_OUTPUT}"
+            {
+              echo "to_version=${FROM_VERSION}"
+              echo "eligible="
+              echo "skipped=true"
+            } >> "${GITHUB_OUTPUT}"
             echo "::notice::$1"
             echo "$1" >> "${GITHUB_STEP_SUMMARY}"
           }
@@ -111,14 +121,19 @@ jobs:
             exit 0
           fi
 
-          echo "to_version=${ELIGIBLE}" >> "${GITHUB_OUTPUT}"
-          echo "eligible=${ELIGIBLE}" >> "${GITHUB_OUTPUT}"
-          echo "skipped=false" >> "${GITHUB_OUTPUT}"
+          {
+            echo "to_version=${ELIGIBLE}"
+            echo "eligible=${ELIGIBLE}"
+            echo "skipped=false"
+          } >> "${GITHUB_OUTPUT}"
 
       - name: Install eligible rulesync and regenerate
         if: steps.resolve.outputs.skipped != 'true'
         env:
           ELIGIBLE: ${{ steps.resolve.outputs.eligible }}
+          # RuleSync's npm-source transport intentionally requires an explicit
+          # token while it refreshes the locked shared Casadega policy.
+          NODE_AUTH_TOKEN: ${{ secrets.CASADEGA_PACKAGES_TOKEN }}
         run: |
           set -euo pipefail
           # Exact spec of a version that already cleared the window — `min-release-age`

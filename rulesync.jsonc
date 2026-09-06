@@ -36,4 +36,19 @@
   //   commands (Codex commands are global-mode only), so they are intentionally absent there.
   "targets": ["cursor", "claudecode", "agentsmd", "codexcli"],
   "features": ["rules", "commands", "skills", "hooks"],
+
+  // Cross-repository quality policy is distributed with the same exact package
+  // release as its executable implementation. RuleSync verifies the package
+  // integrity and selected files through rulesync-npm.lock.json. FlintFire's
+  // application-specific rules and skills remain authored locally.
+  "sources": [
+    {
+      "source": "@casadega-development/ts-repo-tooling",
+      "transport": "npm",
+      "registry": "https://npm.pkg.github.com",
+      "ref": "0.6.0",
+      "tokenEnv": "NODE_AUTH_TOKEN",
+      "rules": ["sonarqube-safety", "test-falsification"],
+    },
+  ],
 }

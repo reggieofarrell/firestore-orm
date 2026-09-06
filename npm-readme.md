@@ -161,7 +161,6 @@ Source, issues, and contributing guides:
 - **Issues:** [GitHub Issues](https://github.com/reggieofarrell/flintfire/issues)
 - **Documentation:**
   [https://reggieofarrell.github.io/flintfire/](https://reggieofarrell.github.io/flintfire/)
-- **Email:** reggie@blackflag.design
 
 ## License
 

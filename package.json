@@ -154,7 +154,7 @@
     }
   },
   "devDependencies": {
-    "@casadega-development/ts-repo-tooling": "0.7.0",
+    "@casadega-development/ts-repo-tooling": "0.8.0",
     "@commitlint/cli": "^19.8.1",
     "@commitlint/config-conventional": "^19.8.1",
     "@eslint/js": "^10.0.1",

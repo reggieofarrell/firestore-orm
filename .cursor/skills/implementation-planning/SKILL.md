@@ -1,6 +1,6 @@
 ---
 name: implementation-planning
-description: Write a detailed, evidence-backed implementation plan into docs/plans/ for an implementer who will not share your context — a teammate, a later session, or a Cursor Cloud Agent on a fresh clone. Use when handing off a FlintFire issue, or via the write-plan command. NOT for planning a change you will implement yourself in the same session (plan mode is enough). NOT for executing an existing plan — see the plan-execution skill. NOT for trivial doc-only or config edits.
+description: Write a detailed, evidence-backed implementation plan into docs/plans/ for an implementer who will not share your context — a teammate, a later session, or a Cursor Cloud Agent on a fresh clone. Use when handing off a FlintFire issue across a context boundary. NOT for planning a change you will implement yourself in the same session (plan mode is enough). NOT for executing an existing plan — see the plan-execution skill. NOT for trivial doc-only or config edits.
 ---
 # Implementation Planning (FlintFire)
 
@@ -25,8 +25,8 @@ Three things still apply to in-session work, because they are not handoff-specif
 bookkeeping map** below (this repo's main defect mode), the **§10 gate**, and the rule that **every new
 test must fail on the unfixed baseline**.
 
-The explicit entry point is the `write-plan` command; being invoked through it settles the boundary
-question. Absent that, prefer the lighter path.
+An explicit request to create a durable handoff plan settles the boundary question. Absent that,
+prefer the lighter in-session planning path.
 
 ## Where it goes
 
@@ -39,7 +39,7 @@ docs/plans/issue-NN-<kebab-slug>/
   prototype.patch  optional: the reverted prototype diff, so §6 can be copy-verbatim
   notes.md         the implementer writes this back (incl. self-review dispositions)
   review.md        optional inbound: **external/third-party** reviewer report only, written via
-                   the `implementation-review` skill / `write-review` command — implementers must
+                   the `implementation-review` skill — implementers must
                    not write this file; their self-review stays in chat + notes
 ```
 
@@ -147,8 +147,8 @@ condition below now governs, and you must resolve it *before* writing more plan.
 **Collapse condition — a gate-green prototype means the plan is no longer the deliverable.** A
 verified implementation and a plan for producing one are alternatives, not a sequence. Reverting green
 code so an implementer can re-derive it from prose describing that same code throws away the gate run
-and turns a finished change into a transcription exercise. Being invoked through `write-plan` settles
-that a **handoff** was wanted; it does not settle **which artifact** the handoff should carry. So stop
+and turns a finished change into a transcription exercise. Being explicitly asked for a durable plan
+settles that a **handoff** was wanted; it does not settle **which artifact** the handoff should carry. So stop
 and put it to the owner in one message: _"this is built and passing N legs — do you want the PR, or
 still the plan?"_ They may genuinely still want the plan: a cloud agent to do the §9 docs sweep, a
 teammate who needs the reasoning, a review boundary they want preserved. Asking costs one message.

@@ -1,11 +1,11 @@
 # Agent config (rulesync)
 
-Project-specific agent **rules, commands, and skills** are authored once under `.rulesync/`.
-Cross-repository Sonar safety and test-falsification policy is restored from the exact shared
-tooling release recorded in `rulesync-npm.lock.json`. Edit local RuleSync sources, never generated
-files or `.curated/` imports. `npm run rules:sync` refreshes locked inputs and generates every
-target; `npm run rules:check` (`rulesync generate --check`) fails on drift and runs in the pre-push
-hook, PR CI, and `release:verify`.
+Project-specific agent **rules and skills** are authored once under `.rulesync/`. The
+`casadega-sonarqube-safety` and `casadega-test-falsification` cross-repository rules are restored
+from the exact shared tooling release recorded in `rulesync-npm.lock.json`. Edit local RuleSync
+sources, never generated files or `.curated/` imports. `npm run rules:sync` refreshes locked inputs
+and generates every target; `npm run rules:check` (`rulesync generate --check`) fails on drift and
+runs in the pre-push hook, PR CI, and `release:verify`.
 
 After a clean dependency installation, run `npm run rules:install` with private-package credentials
 to restore the exact shared inputs from `rulesync-npm.lock.json`. CI performs this explicitly before
@@ -33,8 +33,9 @@ Other invariants the upgrade review encodes:
   Cursor does not double-load it (it already reads `AGENTS.md`).
 - `CLAUDE.md` is a real file containing the root overview only. Claude Code also reads
   `.claude/rules/`; inlining scoped rules there would double-load.
-- Commands: Cursor + Claude only. Skills (including extra files next to `SKILL.md`): Cursor, Claude,
-  and `.agents/skills/`.
+- Skills, including extra files next to `SKILL.md`, are generated for Cursor, Claude, and
+  `.agents/skills/`. The repository does not author commands; reusable workflows stay in skills so
+  Codex receives them too.
 - Hooks: authored in `.rulesync/hooks.jsonc` (`features` includes `"hooks"`). Generated post-edit
   commands run `scripts/agent-hooks/scan-edited-file.mjs` for Cursor, Claude, and Codex.
 
@@ -85,5 +86,5 @@ Local equivalent, on a checkout of the upgrade branch:
 
 ```bash
 git fetch origin main
-# Then invoke the review-rulesync-upgrade command / rulesync-upgrade-review skill.
+# Then invoke the rulesync-upgrade-review skill.
 ```

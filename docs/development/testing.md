@@ -186,10 +186,10 @@ write-input types).
 
 ## AI-assisted testing
 
-Agent **rules, commands, and skills** are authored once under `.rulesync/` and generated to every
-tool with [rulesync](https://github.com/dyoshikawa/rulesync) via `npm run rules:sync`. **Edit
-`.rulesync/`, never the generated files.** `npm run rules:check` (`rulesync generate --check`) fails
-if the generated files drift from the source, and runs in the `pre-push` hook and CI (and is part of
+Agent **rules and skills** are authored once under `.rulesync/` and generated to every tool with
+[rulesync](https://github.com/dyoshikawa/rulesync) via `npm run rules:sync`. **Edit `.rulesync/`,
+never the generated files.** `npm run rules:check` (`rulesync generate --check`) fails if the
+generated files drift from the source, and runs in the `pre-push` hook and CI (and is part of
 `release:verify`). Generated outputs are prettier-ignored (emitted verbatim). Testing rules:
 
 - `test-awareness` — suggests tests after code changes (always-on)
@@ -215,16 +215,14 @@ natively — so rulesync logs a benign "No root rulesync rule file found for tar
 Keeping the CLI on latest, and reviewing generator-output diffs when a bump changes files, is
 documented in [rulesync.md](./rulesync.md) (daily `rulesync-upgrade` workflow + Grok 4.5 review).
 
-Skills and commands are also rulesync-managed (authored in `.rulesync/skills/*/SKILL.md` and
-`.rulesync/commands/*.md`), so they propagate to every agent — Cursor (`.cursor/skills`,
-`.cursor/commands`), Claude Code (`.claude/skills`, `.claude/commands`), and the AGENTS.md family
-(`.agents/skills`). The former `.claude/skills` / `.claude/commands` symlinks into `.cursor/` are
-gone; the repo now commits no symlinks at all. Testing-related entries:
+Skills are also rulesync-managed (authored in `.rulesync/skills/*/SKILL.md`), so they propagate to
+every agent — Cursor (`.cursor/skills`), Claude Code (`.claude/skills`), and the AGENTS.md family
+(`.agents/skills`). The repo intentionally has no authored commands: testing workflows live directly
+in skills so Codex receives the same behavior as Cursor and Claude. The former `.claude/skills`
+symlink into `.cursor/` is gone; the repo now commits no symlinks at all. Testing-related entries:
 
 - `skills/unit-testing/SKILL.md` — unit test patterns
 - `skills/integration-testing/SKILL.md` — emulator integration patterns
-- `commands/write-unit-tests.md` — diff-based unit test workflow
-- `commands/write-integration-tests.md` — diff-based integration test workflow
 
 ## Related docs
 

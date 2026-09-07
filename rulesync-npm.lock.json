@@ -3,22 +3,22 @@
   "sources": {
     "@casadega-development/ts-repo-tooling": {
       "registry": "https://npm.pkg.github.com",
-      "requestedVersion": "0.6.0",
-      "resolvedVersion": "0.6.0",
-      "integrity": "sha512-CKh0IH6NXAOY1myE1FqcXcvEiOhgK4+vHmvU++puZ9IVww2ydt39icn+suYUY0aOiIB6mBJliBwPs9H29JTmzw==",
-      "resolvedAt": "2026-09-06T17:23:26.851Z",
+      "requestedVersion": "0.7.0",
+      "resolvedVersion": "0.7.0",
+      "integrity": "sha512-/DmNId8a7hkb2BqXEhDyVbOdSd9Y8mX2vNEI4vB23Pz0QsB4bXFEY86tgSshrSZUikDK1ZVYDVlH5rX2zW7UtA==",
+      "resolvedAt": "2026-09-07T16:11:13.274Z",
       "skills": {},
       "rules": {
-        "sonarqube-safety": {
+        "casadega-sonarqube-safety": {
           "integrity": "sha256-955f7c93ba42d1faee232242c42452bfc7d7ca5e5dcca2a25f562c1c1e896966"
         },
-        "test-falsification": {
+        "casadega-test-falsification": {
           "integrity": "sha256-24dfed9a96f9a1f0bb9ef34051832f0de0c94c1fb8c5e45744fd714e40be16b6"
         }
       },
-      "ruleSelection": ["sonarqube-safety", "test-falsification"],
+      "ruleSelection": ["casadega-sonarqube-safety", "casadega-test-falsification"],
       "rulesPath": "rules",
-      "resolvedRuleNames": ["sonarqube-safety", "test-falsification"]
+      "resolvedRuleNames": ["casadega-sonarqube-safety", "casadega-test-falsification"]
     }
   }
 }

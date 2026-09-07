@@ -4,10 +4,9 @@ description: >-
   Review a plan-backed implementation on a local branch and write the findings
   to docs/plans/<issue>/review.md so the implementer can act on them. Use when
   an agent (Cursor, a cloud agent, a teammate) says an issue is "ready for
-  review" and the work is a local branch or unpushed commit, or via the
-  write-review command. NOT for reviewing a GitHub pull request — use the
-  built-in review flow for that. NOT for reviewing the PLAN before
-  implementation starts — that is plan-review.md, see the
+  review" and the work is a local branch or unpushed commit. NOT for reviewing a
+  GitHub pull request — use the built-in review flow for that. NOT for reviewing
+  the PLAN before implementation starts — that is plan-review.md, see the
   implementation-planning skill. NOT for reviewing your own implementation —
   that is the plan-execution skill's refute-first self-review, which stays in
   chat.

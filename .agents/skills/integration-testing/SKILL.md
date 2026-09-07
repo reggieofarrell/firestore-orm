@@ -61,10 +61,16 @@ trackUser(user.id);
 
 ## Conventions
 
+- Start by diffing the current branch against its base and locate existing
+  `*.integration.test.ts` coverage near every changed repository/query behavior.
 - Unique collection per suite (harness handles via timestamped names)
 - JSDoc file header with strategy
 - Assert public contracts and hook payloads
 - `after*` hooks do **not** run for `*InTransaction` helpers — test that explicitly when relevant
+
+After writing or updating coverage, run `npm run test:integration:emulator`,
+`npm run test:integration:coverage`, and `npm run test:coverage:gate:integration`. If coverage
+infrastructure changed, also run `npm run test:coverage:all` so both suite-owned ratchets execute.
 
 ## Full guide
 

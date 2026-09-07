@@ -1,0 +1,27 @@
+---
+/**
+ * Fixed theme provider for the public FlintFire documentation site.
+ *
+ * Nova normally resolves its theme from an explicit browser preference or the
+ * operating system. These docs intentionally present one dark visual baseline,
+ * so the provider applies the dark attributes before the page renders and after
+ * Astro client-side navigations.
+ */
+---
+
+<script is:inline>
+  (() => {
+    const applyFixedDarkTheme = () => {
+      const root = document.documentElement;
+
+      // Set every attribute used by Starlight and Nova so system or persisted
+      // preferences cannot cause a light-theme flash during page navigation.
+      root.classList.add('dark');
+      root.dataset.theme = 'dark';
+      root.style.colorScheme = 'dark';
+    };
+
+    applyFixedDarkTheme();
+    document.addEventListener('astro:after-swap', applyFixedDarkTheme);
+  })();
+</script>

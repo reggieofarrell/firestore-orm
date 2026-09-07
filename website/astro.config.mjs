@@ -19,6 +19,32 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import starlightVersions from 'starlight-versions';
+import starlightThemeNova from 'starlight-theme-nova';
+
+/**
+ * Keeps version navigation available when Nova and starlight-versions are enabled together.
+ *
+ * This site deliberately uses a fixed dark palette, so Nova's light/dark toggle is
+ * removed. Installing this bridge after both plugins configure Starlight replaces
+ * their shared ThemeSelect and Search slots with controls that preserve both
+ * version-aware behavior and Nova's header presentation.
+ */
+const starlightNovaVersionsBridge = () => ({
+  name: 'starlight-nova-versions-bridge',
+  hooks: {
+    setup({ config, updateConfig }) {
+      updateConfig({
+        components: {
+          // Keep Nova's Header and every other resolved component override. Replacing
+          // this map wholesale would silently restore Starlight's default header.
+          ...config.components,
+          ThemeSelect: './src/components/VersionSelectOnly.astro',
+          Search: './src/components/VersionAwareNovaSearch.astro',
+        },
+      });
+    },
+  },
+});
 
 // https://astro.build/config
 export default defineConfig({
@@ -62,6 +88,8 @@ export default defineConfig({
         // files, and Vite cannot import from `public/` (ADR-0039). SiteTitle.astro reads the
         // public light/dark pair the same way the splash hero does.
         SiteTitle: './src/components/SiteTitle.astro',
+        // Force one visual baseline and intentionally omit a user-facing theme toggle.
+        ThemeProvider: './src/components/ThemeProvider.astro',
       },
       // Splash-only layout: center the stacked hero mark on small screens.
       // See src/styles/hero.css for why Starlight's default leaves it left-aligned.
@@ -71,6 +99,9 @@ export default defineConfig({
           versions: [{ slug: '2.0', label: 'v2' }],
           current: { label: 'v3' },
         }),
+        // Register version-aware controls before Nova applies its defaults.
+        starlightThemeNova(),
+        starlightNovaVersionsBridge(),
       ],
       social: [
         {

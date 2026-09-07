@@ -1,0 +1,31 @@
+---
+/**
+ * Fixed-dark replacement for Nova's shared ThemeSelect slot.
+ *
+ * Nova renders this slot in both the desktop header and mobile menu footer.
+ * Rendering only the versions control preserves major-version navigation while
+ * deliberately leaving no light/dark selector in either location.
+ */
+import VersionSelect from 'starlight-versions/components/VersionSelect.astro';
+---
+
+<div class="compact-version-select">
+  <VersionSelect />
+</div>
+
+<style>
+  /*
+   * starlight-versions uses a 6.5em width to accommodate arbitrary version
+   * labels. FlintFire's short `v2` and `v3` labels do not need that reserve, so
+   * content sizing places the chevron directly after the visible version number.
+   * `display: contents` keeps this scoping wrapper out of Nova's flex layout.
+   */
+  .compact-version-select {
+    display: contents;
+  }
+
+  :global(.compact-version-select starlight-version-select select) {
+    min-width: 0;
+    width: auto;
+  }
+</style>

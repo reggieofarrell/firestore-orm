@@ -10,12 +10,11 @@
   // rulesync docs (frontmatter fields, per-tool overrides, file formats, all options):
   // https://github.com/dyoshikawa/rulesync — see "Each File Format" and the configuration sections.
   //
-  // Features (all authored under .rulesync/): rules, commands, skills, hooks.
+  // Features (all authored under .rulesync/): rules, skills, hooks.
   //
   // Generated per target (prettier-ignored, do not hand-edit):
-  //   cursor     -> .cursor/rules/*.mdc, .cursor/commands/*.md, .cursor/skills/*/SKILL.md
-  //   claudecode -> CLAUDE.md (root), .claude/rules/*.md, .claude/commands/*.md,
-  //                 .claude/skills/*/SKILL.md
+  //   cursor     -> .cursor/rules/*.mdc, .cursor/skills/*/SKILL.md
+  //   claudecode -> CLAUDE.md (root), .claude/rules/*.md, .claude/skills/*/SKILL.md
   //   agentsmd   -> AGENTS.md (root) + .agents/memories/*.md + .agents/skills/*/SKILL.md
   //   codexcli   -> AGENTS.md family (Codex reads AGENTS.md/.agents/*; same output as agentsmd here)
   //
@@ -32,10 +31,10 @@
   //   non-root rule body — right for this repo, where the whole rule set is small and Codex/Cursor
   //   should always carry it. Putting `agentsmd` last instead emits only a TOON reference table
   //   pointing at `.agents/memories/`. Nothing warns you; do not reorder these casually.
-  // - Commands are emitted for Cursor + Claude; the AGENTS.md/Codex family does not get project-mode
-  //   commands (Codex commands are global-mode only), so they are intentionally absent there.
+  // - Reusable workflows are skills instead of tool-specific commands. This preserves one authored
+  //   workflow for Cursor, Claude, and Codex and avoids aliases that Codex cannot discover.
   "targets": ["cursor", "claudecode", "agentsmd", "codexcli"],
-  "features": ["rules", "commands", "skills", "hooks"],
+  "features": ["rules", "skills", "hooks"],
 
   // Cross-repository quality policy is distributed with the same exact package
   // release as its executable implementation. RuleSync verifies the package
@@ -46,9 +45,9 @@
       "source": "@casadega-development/ts-repo-tooling",
       "transport": "npm",
       "registry": "https://npm.pkg.github.com",
-      "ref": "0.6.0",
+      "ref": "0.7.0",
       "tokenEnv": "NODE_AUTH_TOKEN",
-      "rules": ["sonarqube-safety", "test-falsification"],
+      "rules": ["casadega-sonarqube-safety", "casadega-test-falsification"],
     },
   ],
 }

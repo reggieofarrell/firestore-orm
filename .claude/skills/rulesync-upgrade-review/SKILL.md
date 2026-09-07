@@ -33,7 +33,7 @@ edit those files; report the verdict in chat using the same template.
    `node_modules/rulesync` version) or the workflow-supplied `FROM_VERSION`.
 2. **New CLI version** — `node_modules/rulesync/package.json` `"version"` or
    `TO_VERSION`.
-3. **Source of truth** — `.rulesync/` (rules, commands, skills) and
+3. **Source of truth** — `.rulesync/` (rules, skills, hooks) and
    `rulesync.jsonc`. These must be unchanged on a version-bump PR.
 4. **Generated tree vs `main`:**
 
@@ -72,8 +72,6 @@ If the generated diff is empty, Verdict is `merge` with
   only**. Claude Code also reads `.claude/rules/`. Inlining scoped rules into
   `CLAUDE.md` would double-load, which is why the old `CLAUDE.md` → `AGENTS.md`
   symlink was removed.
-- Commands are emitted for Cursor and Claude only. The AGENTS.md/Codex family
-  does not get project commands.
 - Skills (and extra files sitting next to `SKILL.md`, such as templates) go to
   Cursor, Claude, and `.agents/skills/`.
 
@@ -98,9 +96,9 @@ Copy the table from [`review-template.md`](review-template.md) and fill
 4. **No root overview under `.cursor/rules/`.** There must be no always-on Cursor
    rule whose body is the FlintFire project overview. `rulesync-generated.mdc` and
    the scoped `*.mdc` files are expected; a second copy of overview is not.
-5. **Commands: Cursor + Claude only.**
-   `.cursor/commands/*.md` and `.claude/commands/*.md` exist and match
-   `.rulesync/commands/`. `.agents/` must **not** contain a `commands/` tree.
+5. **No generated commands.** `.cursor/commands/`, `.claude/commands/`, and `.agents/commands/`
+   must not exist. Reusable workflows are authored as skills so all three agent families receive
+   the same capabilities.
 6. **Skills on all three targets, including extra files.** For every
    `.rulesync/skills/<name>/` directory, the same files exist under
    `.cursor/skills/<name>/`, `.claude/skills/<name>/`, and

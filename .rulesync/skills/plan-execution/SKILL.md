@@ -1,6 +1,6 @@
 ---
 name: plan-execution
-description: Execute a committed implementation plan from docs/plans/ that was handed to you, keeping notes.md as you go and passing an independent refute-first adversarial review before declaring the work ready. Use when picking up a plan-backed issue branch, or via the implement-plan command. NOT for writing the plan — see the implementation-planning skill. NOT for a plan you produced with the user in this same session, where the notes artifact and plan-directory lifecycle do not apply.
+description: Execute a committed implementation plan from docs/plans/ that was handed to you, keeping notes.md as you go and passing an independent refute-first adversarial review before declaring the work ready. Use when picking up a plan-backed issue branch. NOT for writing the plan — see the implementation-planning skill. NOT for a plan you produced with the user in this same session, where the notes artifact and plan-directory lifecycle do not apply.
 targets:
   - '*'
 ---
@@ -15,8 +15,7 @@ plan. A deep adversarial review follows your work, and `notes.md` is the first t
 reads. Write it accordingly.
 
 Read [`AGENTS.md`](../../../AGENTS.md) "Working mode" first. Plan conventions and lifecycle:
-[`docs/plans/README.md`](../../../docs/plans/README.md). The explicit entry point is the
-`implement-plan` command.
+[`docs/plans/README.md`](../../../docs/plans/README.md).
 
 **Scope:** this is for a **committed plan handed to you**. If you and the user produced a plan together
 in this session and you are implementing it directly, you do not owe the `notes.md` artifact or the
@@ -105,7 +104,7 @@ the disposition summary in notes.
 
 ## When an external `review.md` arrives
 
-An external reviewer (`implementation-review` skill, `write-review` command) writes
+An external reviewer using the `implementation-review` skill writes
 `docs/plans/issue-NN-*/review.md`. It is **their** artifact: read it, act on it, never edit it.
 
 1. **Disposition every finding id in `notes.md`** — `B1`, `M2`, `N3` — into exactly one bucket:

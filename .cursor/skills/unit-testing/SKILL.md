@@ -36,11 +36,16 @@ See `scripts/check-coverage-gates.mjs` and `docs/development/testing.md`.
 
 ## Workflow
 
-1. Read nearby tests and copy patterns
-2. Check `src/tests/shared/mocks/` and `src/tests/shared/factories/` before ad-hoc helpers
-3. Add JSDoc header: strategy + what is verified
-4. Mock with `jest.fn()` — never reimplement ORM/Firestore logic in mock factories
-5. Run `npm run test:unit`
+1. Diff the current branch against its base and classify every changed production file before
+   choosing a suite. Route `FirestoreRepository`, `QueryBuilder`, `CollectionGroup`, hooks,
+   transactions, and other real-Firestore semantics to the `integration-testing` skill.
+2. Read nearby tests and copy patterns.
+3. Check `src/tests/shared/mocks/` and `src/tests/shared/factories/` before ad-hoc helpers.
+4. Add a JSDoc header that explains the test strategy and verified behavior.
+5. Mock with `jest.fn()` — never reimplement ORM/Firestore logic in mock factories.
+6. Run `npm run test:unit` and `npm run test:coverage:gate:unit`.
+7. If coverage infrastructure changed, run `npm run test:coverage:all` so both ownership gates are
+   exercised.
 
 ## Key imports
 

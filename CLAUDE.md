@@ -37,7 +37,7 @@ explicitly scope it down.
 
 ## Project rules
 
-All agent config — **rules, commands, and skills** — is authored **once** under `.rulesync/` and
+All agent config — **rules and skills** — is authored **once** under `.rulesync/` and
 generated to every tool with `npm run rules:sync` (rulesync): Cursor (`.cursor/`), Claude Code
 (`.claude/`), and the cross-tool `AGENTS.md` standard (root `AGENTS.md` + `.agents/`, read by Codex
 and others).
@@ -49,14 +49,13 @@ source and run `npm run rules:sync`, then commit the source **and** the regenera
 
 - **Rule** → `.rulesync/rules/<name>.md` (frontmatter `targets`, `description`; add `globs` to scope
   it to file patterns, or omit for always-on).
-- **Command** → `.rulesync/commands/<name>.md`.
 - **Skill** → create the directory `.rulesync/skills/<skill-name>/SKILL.md` (frontmatter `name`,
   `description`, `targets: ["*"]`), and put any extra skill files (templates, scripts) **alongside
   `SKILL.md` in that same directory**. Do not create skills under `.cursor/skills`, `.claude/skills`,
   or `.agents/skills` — those are generated.
 
 For the complete set of frontmatter fields and generation options (`root`, `targets`, `globs`/`paths`,
-per-tool override blocks like `cursor:`/`claudecode:`, and the rule/command/skill/MCP file formats),
+per-tool override blocks like `cursor:`/`claudecode:`, and the rule/skill/MCP file formats),
 see the **rulesync docs**: <https://github.com/dyoshikawa/rulesync> — specifically its "Each File
 Format" and configuration sections. The version in use is pinned in `package.json` (`devDependencies`).
 
@@ -74,15 +73,16 @@ Scoped rules currently defined:
 
 ## Tooling
 
-- **Skills & commands:** authored in `.rulesync/skills/*/SKILL.md` and `.rulesync/commands/*.md`;
-  `npm run rules:sync` generates them for every tool (Cursor, Claude Code, and the AGENTS.md family
-  under `.agents/`). Edit the `.rulesync/` source, never the generated files. The rulesync **CLI**
+- **Skills:** authored in `.rulesync/skills/*/SKILL.md`; `npm run rules:sync` generates them for
+  every tool (Cursor, Claude Code, and the AGENTS.md family under `.agents/`). Agent workflows stay
+  in skills instead of command aliases so Codex receives the same capabilities as Cursor and Claude.
+  Edit the `.rulesync/` source, never the generated files. The rulesync **CLI**
   version is lockfile-pinned; a daily GitHub Action bumps it to the newest release that is at least
   two days old (`.npmrc` `min-release-age=2`) and, when generated files change, the Cursor Agent
   CLI (Grok 4.5) reviews the diff — see `docs/development/rulesync.md`. Do not float the CLI with
   `npx rulesync@latest`, and do not pass `--min-release-age=0` to bypass the cooldown.
 - **Architecture decisions:** record significant/contract-level changes as an ADR in `docs/adr/`
-  (use the `/adr` skill; start from `docs/adr/0000-template.md`).
+  (use the `adr` skill; start from `docs/adr/0000-template.md`).
 - **Commits:** Conventional Commits (enforced by commitlint on the `commit-msg` hook).
 - **Tests:** `npm test` (unit + emulator integration); dual per-suite coverage gates.
 

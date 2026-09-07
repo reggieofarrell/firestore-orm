@@ -1,0 +1,33 @@
+# Branch naming
+
+- Name repository-owned work branches `<type>/<slug>` when no issue or card identifier exists, and
+  `<type>/<issue-id>-<slug>` when one does. The type is a Conventional Commit type accepted by the
+  repository's commitlint policy; the shared default set is `build`, `chore`, `ci`, `docs`, `feat`,
+  `fix`, `perf`, `refactor`, `revert`, `style`, and `test`.
+- Select the type from the primary purpose of the work. Use `feat` for new behavior, `fix` for a
+  defect, and the narrower maintenance type for documentation, tests, CI, build, refactoring,
+  performance, formatting-only, revert, or general chore work. Do not substitute near-synonyms such
+  as `feature`, `bugfix`, `hotfix`, or `release` unless the repository explicitly extends its
+  Conventional Commit policy with that type.
+- Include a GitHub issue, Linear issue, Jira issue, Trello card, or equivalent tracker identifier
+  whenever the identifier is available in the request or repository context. Normalize it to
+  lowercase and preserve its meaningful internal separator, producing names such as
+  `fix/1234-handle-expired-session`, `fix/abcd-1234-handle-expired-session`, or
+  `chore/abc123xy-refresh-dependencies`. Never invent an identifier or include a full tracker URL.
+- Write the descriptive portion as lowercase ASCII kebab-case. Keep it short but specific enough to
+  identify the outcome; omit filler such as `changes`, `work`, `updates`, or an agent name.
+- Never prefix a work branch with the tool or coding agent that created it. Names such as
+  `codex/fix-timeout`, `claude/add-tests`, or `agent/1234-task` conceal the change category and are
+  noncompliant.
+- Treat protected, long-lived, and platform-managed branches such as `main`, `develop`, generated
+  dependency-update branches, and temporary analysis branches as infrastructure names rather than
+  repository-owned work branches. Do not rename an already shared branch or rewrite its remote
+  history merely to apply this policy without explicit authorization.
+
+Examples:
+
+- `feat/add-realtime-dashboard`
+- `fix/1234-reject-invalid-cursor`
+- `fix/abcd-1234-preserve-auth-session`
+- `docs/567-document-local-secrets`
+- `chore/release-1.4.0`

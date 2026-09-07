@@ -4,8 +4,8 @@ description: Cut a FlintFire npm release using the two-step branch-then-publish 
 ---
 # FlintFire Release
 
-FlintFire releases are **two steps**: (1) version bump on a `release/x.y.z` branch merged via PR,
-(2) GitHub Release on `main` (triggers npm OIDC publish). Full reference:
+FlintFire releases are **two steps**: (1) version bump on a `chore/release-x.y.z` branch merged via
+PR, (2) GitHub Release on `main` (triggers npm OIDC publish). Full reference:
 [`docs/development/releasing.md`](../../../docs/development/releasing.md).
 
 ## Hard rules
@@ -75,7 +75,7 @@ you will dedupe to the merged PR entry after the real bump.
 Use the approved version. Branch name should match the target version:
 
 ```bash
-git checkout -b release/x.y.z
+git checkout -b chore/release-x.y.z
 
 # automated bump (when approved version matches dry-run default)
 npm run release:bump
@@ -99,7 +99,7 @@ Post-bump cleanup:
 Push and open the PR:
 
 ```bash
-git push -u origin release/x.y.z
+git push -u origin chore/release-x.y.z
 ```
 
 PR title: `chore(release): x.y.z`. Body should list changelog highlights and the post-merge publish
@@ -144,7 +144,7 @@ Release progress:
 - [ ] main clean and pulled
 - [ ] release:bump:dry run (and override dry-run if needed)
 - [ ] Release preview shown; user approved version
-- [ ] release/x.y.z branch created
+- [ ] chore/release-x.y.z branch created
 - [ ] release:bump committed
 - [ ] Changelog deduped (if needed)
 - [ ] Declaration hygiene check passed

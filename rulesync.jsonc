@@ -45,9 +45,14 @@
       "source": "@casadega-development/ts-repo-tooling",
       "transport": "npm",
       "registry": "https://npm.pkg.github.com",
-      "ref": "0.7.0",
+      "ref": "0.8.0",
       "tokenEnv": "NODE_AUTH_TOKEN",
-      "rules": ["casadega-sonarqube-safety", "casadega-test-falsification"],
+      "rules": [
+        "casadega-branch-naming",
+        "casadega-sonarqube-safety",
+        "casadega-test-falsification",
+      ],
+      "skills": ["casadega-create-branch"],
     },
   ],
 }

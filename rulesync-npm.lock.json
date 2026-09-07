@@ -3,12 +3,19 @@
   "sources": {
     "@casadega-development/ts-repo-tooling": {
       "registry": "https://npm.pkg.github.com",
-      "requestedVersion": "0.7.0",
-      "resolvedVersion": "0.7.0",
-      "integrity": "sha512-/DmNId8a7hkb2BqXEhDyVbOdSd9Y8mX2vNEI4vB23Pz0QsB4bXFEY86tgSshrSZUikDK1ZVYDVlH5rX2zW7UtA==",
-      "resolvedAt": "2026-09-07T16:11:13.274Z",
-      "skills": {},
+      "requestedVersion": "0.8.0",
+      "resolvedVersion": "0.8.0",
+      "integrity": "sha512-/mySbkm8cot65X4jfQbMXfv30vK97Fhve3IgS1JzrUQyo/WbN1xlnaSaP62GmnJumTpyX5s2Snj6jXJn18SxLQ==",
+      "resolvedAt": "2026-09-07T17:41:17.995Z",
+      "skills": {
+        "casadega-create-branch": {
+          "integrity": "sha256-3b591ff8c4113f6e2b69558c0920d380f46ac28d836b6be450af24ec4383f669"
+        }
+      },
       "rules": {
+        "casadega-branch-naming": {
+          "integrity": "sha256-71dc5c836d160be4ec71069b5e4b59076ef1185e8d825bff668480f9524d088b"
+        },
         "casadega-sonarqube-safety": {
           "integrity": "sha256-955f7c93ba42d1faee232242c42452bfc7d7ca5e5dcca2a25f562c1c1e896966"
         },
@@ -16,9 +23,17 @@
           "integrity": "sha256-24dfed9a96f9a1f0bb9ef34051832f0de0c94c1fb8c5e45744fd714e40be16b6"
         }
       },
-      "ruleSelection": ["casadega-sonarqube-safety", "casadega-test-falsification"],
+      "ruleSelection": [
+        "casadega-branch-naming",
+        "casadega-sonarqube-safety",
+        "casadega-test-falsification"
+      ],
       "rulesPath": "rules",
-      "resolvedRuleNames": ["casadega-sonarqube-safety", "casadega-test-falsification"]
+      "resolvedRuleNames": [
+        "casadega-branch-naming",
+        "casadega-sonarqube-safety",
+        "casadega-test-falsification"
+      ]
     }
   }
 }

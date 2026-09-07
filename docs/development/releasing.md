@@ -71,7 +71,7 @@ always run `npm run release:bump:dry` and get explicit approval of the proposed 
 ### 1. Bump on a branch, then open a PR
 
 ```bash
-git checkout -b release/x.y.z
+git checkout -b chore/release-x.y.z
 
 # preview the next version + changelog without writing anything
 npm run release:bump:dry
@@ -84,7 +84,7 @@ npm run release:bump -- --release-as minor
 npm run release:bump -- --release-as 2.2.0
 
 # push the branch only — never push tags from the branch (see the warning below)
-git push -u origin release/x.y.z
+git push -u origin chore/release-x.y.z
 ```
 
 Open a PR for the branch and let CI run. `npm run release:bump` will:
